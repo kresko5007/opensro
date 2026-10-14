@@ -70,11 +70,43 @@ slot, 4 remove gear slot, 5 reset, 6 slot passive. Retail decoder unchanged.
 Crow Mend's owner heal needs real owner combat stats, so it is checked only in the
 running stack.
 
-## Not in this release
+## Still to do
 
-Skills/affixes whose workbook Status is not `Implemented` (e.g. Alpha's Lure, some
-Rank III effects), new animation clips (pets reuse their native attack clip),
-PvP effects.
+**Skills not live yet** (workbook Status `Needs engine` / `Planned`, 24 of 59):
+- Wolf: Alpha's Lure (taunt), Pack Runner.
+- Bear: Challenging Roar (taunt), Bear Hug, Guardian Bond (damage share),
+  Fortitude, Thorns, Unshakable, Regeneration, Bodyguard (redirect), Steadfast Aura.
+- Penguin: Blizzard, Ice Slide, Glacial Ward, Mana Spring, Mana Shield, Winter's Grace.
+- Crow: Cleansing Caw, Battle Cry, Thieving Talons, Scout's Eye, Feather Ward,
+  Fair Winds, Ill Omen, Spirit Link.
+- "Needs engine" ones need new server mechanics first: monster taunt/aggro
+  override, damage redirection owner <-> pet, owner buffs from the pet.
+- Many live skills have Rank II/III marked planned (see the Engine notes column),
+  e.g. Hamstring slow, Frenzy/Execute rank III, every stat passive's ranks.
+
+**Blues not live yet** (Planned): pet HP, regen, resist, move speed, owner move
+speed, hunger, pet EXP, +one skill, thorns, steady (no knockdown), phoenix
+(revive), and procs nova/howl/poison/corpse.
+
+**Engine/quality gaps**
+- `wearPetGear` does not check `GrantStack`'s remainder when returning the
+  previous piece to a full bag (refuse instead of losing it).
+- Crow Mend's owner heal has no automated test (fixture lacks owner stats).
+- Values per level can show fractions ("stuns up to 2.4 monsters"): round
+  counts in the workbook or in `petEffect`.
+- No new animation clips or effects: pets reuse their native attack clip, so
+  specials are only visible through status icons and damage numbers.
+- PvP: effects are PvE only.
+- Drop rates and numbers are unmeasured: balance pass against the native
+  baseline (time-to-kill, pet survival, drop frequency per hour).
+- Browser acceptance still open for penguin, crow and wolf combat, gear swap
+  and relog persistence, and drops from real monsters.
+
+**Rollout**
+- Review the branch, then the maintenance release (schema 24 upgrade) and Nomad
+  variable `attack_pet_expansion` as listed under Rollout.
+- The lab-only LabBlader changes (level 40, pets, gear) are not part of the code
+  and must not be applied to real shards.
 
 ## Source owners
 
