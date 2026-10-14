@@ -42,7 +42,6 @@ rows[].summon.stateFlags
 rows[].summon.summonGeneration
 rows[].summon.summoned
 rows[].summon.training
-rows[].summon.training.autoOff
 rows[].summon.training.bonusPoints
 rows[].summon.training.gear
 rows[].summon.training.gear[].options

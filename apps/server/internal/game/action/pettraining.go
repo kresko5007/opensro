@@ -41,7 +41,7 @@ const (
 const (
 	petTrainingState uint8 = iota
 	petTrainingLearn
-	petTrainingAuto
+	petTrainingUse
 	petTrainingEquip
 	petTrainingUnequip
 	petTrainingRefund
@@ -118,7 +118,7 @@ func (rt *Runtime) handlePetTraining(division string, c *enterworld.Character, p
 		return OpResult{Frames: rt.petTrainingStateFrames(snapshot.CompanionByGID(gid), nowMs)}
 	}
 	state := rt.petSessionFor(division, c.Name, gid)
-	if operation != petTrainingAuto && operation != petTrainingSlot &&
+	if operation != petTrainingUse && operation != petTrainingSlot &&
 		(snapshot.BattleUntilMs > nowMs || state != nil && state.combat != nil) {
 		return petTrainingReceipt("Recall the pet and leave combat before changing its skills or gear.")
 	}
@@ -136,8 +136,8 @@ func (rt *Runtime) handlePetTraining(division string, c *enterworld.Character, p
 		switch operation {
 		case petTrainingLearn:
 			refusal = companion.Learn(pet, arg)
-		case petTrainingAuto:
-			refusal = companion.ToggleAuto(pet, arg)
+		case petTrainingUse:
+			refusal = companion.Queue(pet, arg, nowMs)
 		case petTrainingSlot:
 			refusal = companion.Slot(pet, arg)
 		case petTrainingEquip:
@@ -190,8 +190,8 @@ func (rt *Runtime) petTrainingStateFrames(pet *domain.CharacterCOS, nowMs int64)
 			NextValue:    uint16(max(0, s.ValueAt(min(lvl+1, s.MaxLevel))*10))}
 		if s.Active {
 			row.Flags |= wire.PetSkillAction
-			if companion.AutoOn(pet, s) {
-				row.Flags |= wire.PetSkillAuto
+			if t.Queued == s.ID {
+				row.Flags |= wire.PetSkillQueued
 			}
 		} else if lvl > 0 && t.Slotted[s.Row-companion.ActiveRowCount] == uint8(s.Option) {
 			row.Flags |= wire.PetSkillSlotted

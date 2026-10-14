@@ -36,7 +36,7 @@ const OpPetTrainingState uint16 = 0x3FB1
 // Skill row flags.
 const (
 	PetSkillAction    uint8 = 1
-	PetSkillAuto      uint8 = 2
+	PetSkillQueued    uint8 = 2
 	PetSkillLearnable uint8 = 4
 	PetSkillLive      uint8 = 8
 	PetSkillSlotted   uint8 = 16

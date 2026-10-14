@@ -2450,8 +2450,13 @@ export function createUi(
 		}
 		if ( id.startsWith( "pet-skill:" ) && experimental.state().saved.attackPetTraining ) {
 			const skill = view?.gameplay?.petTraining?.skills.find( entry => entry.id === Number( id.slice( 10 ) ) );
-			if ( skill && !skill.action && skill.level > 0 && !skill.slotted ) {
-				sendGameplay( { kind: "cos-training", gid: cosGid, operation: PET_TRAINING_OP.slot, arg: skill.id } );
+			if ( skill && skill.level > 0 && (skill.action || !skill.slotted) ) {
+				sendGameplay( {
+					kind: "cos-training",
+					gid: cosGid,
+					operation: skill.action ? PET_TRAINING_OP.use : PET_TRAINING_OP.slot,
+					arg: skill.id
+				} );
 			}
 			return;
 		}
@@ -6522,15 +6527,13 @@ export function createUi(
 					dirty = true;
 					return;
 				}
-				// Port-only wolf tree: right-click switches an action's autocast and
-				// takes a worn gear piece off (pet-training.ts).
-				if ( event.id.startsWith( "pet-skill:" ) || event.id.startsWith( "pet-gear:" ) ) {
-					const skill = event.id.startsWith( "pet-skill:" );
+				// Port-only pet gear: right-click takes a worn piece off (pet-training.ts).
+				if ( event.id.startsWith( "pet-gear:" ) ) {
 					sendGameplay( {
 						kind: "cos-training",
 						gid: cosGid,
-						operation: skill ? PET_TRAINING_OP.auto : PET_TRAINING_OP.unequip,
-						arg: Number( event.id.slice( skill ? 10 : 9 ) )
+						operation: PET_TRAINING_OP.unequip,
+						arg: Number( event.id.slice( 9 ) )
 					} );
 					dirty = true;
 					return;
@@ -15115,8 +15118,10 @@ export function createUi(
 							rows.forEach( ( row, i ) => {
 								const gx = ox + 1, gy = oy + 30 + i * 54, action = i < 2;
 								if ( resources.has( bar ) ) rect( [ gx, gy, 328, 52 ], white, bar );
-								const slotted = row.find( entry => entry.skill.slotted );
+								const slotted = row.find( entry => entry.skill.slotted ),
+									queued = row.find( entry => entry.skill.queued );
 								const status = action ?
+									queued ? "next attack: " + queued.design.name :
 									petRowCooldown( state!, i, quickslotTime ) || "ready" :
 									slotted ?
 									"slotted: " + slotted.design.name :
@@ -15175,7 +15180,6 @@ export function createUi(
 										helpText: petSkillHelp( design, skill, petLevel, state!.points ),
 										rect: r,
 										kind: "button",
-										rightActivate: skill.action && skill.level > 0 && !busy
 									} );
 									const shown = skill.effectiveLevel;
 									if ( shown > 0 ) {
@@ -15194,9 +15198,9 @@ export function createUi(
 											}
 										}
 									}
-									if ( skill.action && skill.level > 0 && !skill.auto ) {
+									if ( skill.queued ) {
 										quads.push(
-											...text.quads( "off", [ r[0], r[1] - 1, 32, 10 ], full, white, {
+											...text.quads( "next", [ r[0], r[1] - 1, 32, 10 ], full, white, {
 												hAlign: 1
 											} )
 										);

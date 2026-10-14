@@ -12,7 +12,7 @@ server's, so the window only draws what arrives here.
 Body, little-endian: u32 petGid, u8 freePoints, u16 attackPercent,
 u16 defensePercent, 2 x { u32 timerMs, u16 left, u8 kindLength, kind },
 3 x u8 slotted, u8 skillCount, skillCount x { u8 id, u8 level,
-u8 effectiveLevel, u8 nextPetLevel, u8 flags (1 action, 2 auto,
+u8 effectiveLevel, u8 nextPetLevel, u8 flags (1 action, 2 queued,
 4 learnable, 8 live, 16 slotted), u16 value x10, u16 nextValue x10 },
 u8 gearCount, gearCount x { u32 refObjId, u8 count, count x u64 }.
 
@@ -80,7 +80,7 @@ a protocol error, never a partial one.
 					effectiveLevel,
 					nextPetLevel,
 					action: (flags & 1) !== 0,
-					auto: (flags & 2) !== 0,
+					queued: (flags & 2) !== 0,
 					learnable: (flags & 4) !== 0,
 					live: (flags & 8) !== 0,
 					slotted: (flags & 16) !== 0,

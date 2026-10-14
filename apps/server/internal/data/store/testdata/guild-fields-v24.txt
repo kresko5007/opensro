@@ -51,7 +51,6 @@ storage.rows[].summon.stateFlags
 storage.rows[].summon.summonGeneration
 storage.rows[].summon.summoned
 storage.rows[].summon.training
-storage.rows[].summon.training.autoOff
 storage.rows[].summon.training.bonusPoints
 storage.rows[].summon.training.gear
 storage.rows[].summon.training.gear[].options

@@ -109,8 +109,15 @@ func TestPointsLevelsAndSlots(t *testing.T) {
 	if s, _ := SlottedPassive(&p, execute.Row); s.ID != bloodlust.ID {
 		t.Fatal("slotting did not replace the row's passive")
 	}
-	if ToggleAuto(&p, bite.ID) != "" || AutoOn(&p, bite) || ToggleAuto(&p, execute.ID) == "" {
-		t.Fatal("autocast toggles learned actions only")
+	if Queue(&p, execute.ID, 0) == "" || Queue(&p, bite.ID, 0) != "" || p.Training.Queued != bite.ID {
+		t.Fatal("only a learned action is queued")
+	}
+	if Queue(&p, bite.ID, 0) != "" || p.Training.Queued != 0 {
+		t.Fatal("asking again does not cancel the queue")
+	}
+	StartRow(&p.Training, bite.Row, bite, 1, 0, Modifiers{})
+	if Queue(&p, bite.ID, 0) == "" {
+		t.Fatal("an action on cooldown was queued")
 	}
 	encoded, _ := json.Marshal(p)
 	var restored domain.CharacterCOS

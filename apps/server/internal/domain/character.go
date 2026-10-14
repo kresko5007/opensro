@@ -658,8 +658,8 @@ PetTraining
 The optional attack-pet skill tree and gear (port-only;
 companion/training.go and gear.go own the rules). Levels is indexed by a
 skill's slot in its pet's tree (row x 3 + option - 1); Slotted names the
-active passive option (1..3, 0 none) of each passive row; AutoOff masks
-actions out of autocast. Rows are the two active rows' shared cooldowns.
+active passive option (1..3, 0 none) of each passive row. Queued is the
+action the owner asked for on the pet's next attack (not saved). Rows are the two active rows' shared cooldowns.
 Every field is a value or a fixed array, so a snapshot copy never
 aliases the live pet. BonusPoints are operator-provisioned.
 ================
@@ -667,7 +667,7 @@ aliases the live pet. BonusPoints are operator-provisioned.
 type PetTraining struct {
 	Levels           [15]uint8         `json:"levels,omitzero"`
 	Slotted          [3]uint8          `json:"slotted,omitzero"`
-	AutoOff          uint16            `json:"autoOff,omitempty"`
+	Queued           uint8             `json:"-"`
 	Rows             [2]PetRowCooldown `json:"rows,omitzero"`
 	PassiveReadyAtMs [3]int64          `json:"passiveReadyAtMs,omitzero"`
 	BonusPoints      uint8             `json:"bonusPoints,omitempty"`

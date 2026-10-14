@@ -175,17 +175,25 @@ func Learn(p *domain.CharacterCOS, id uint8) string {
 
 /*
 ================
-ToggleAuto
+Queue
 
-An action excluded from autocast is never picked from its row.
+The owner activates a learned action: the pet uses it on its next attack
+once its row is ready. Asking again for the queued action cancels it.
 ================
 */
-func ToggleAuto(p *domain.CharacterCOS, id uint8) string {
+func Queue(p *domain.CharacterCOS, id uint8, nowMs int64) string {
 	s, ok := PetSkill(p, id)
-	if !ok || !s.Active || Level(p, s) == 0 {
-		return "Only a learned action has autocast."
+	if !ok || !s.Active || Level(p, s) == 0 || !s.Live() {
+		return "Only a learned action can be used."
 	}
-	p.Training.AutoOff ^= 1 << s.Index()
+	if p.Training.Queued == id {
+		p.Training.Queued = 0
+		return ""
+	}
+	if !RowReady(&p.Training, s.Row, nowMs) {
+		return s.Name + " is not ready: its row is on cooldown."
+	}
+	p.Training.Queued = id
 	return ""
 }
 
@@ -215,16 +223,7 @@ Free retraining keeps the gear and the running row cooldowns.
 func Refund(p *domain.CharacterCOS) {
 	p.Training.Levels = [15]uint8{}
 	p.Training.Slotted = [3]uint8{}
-	p.Training.AutoOff = 0
-}
-
-/*
-================
-AutoOn
-================
-*/
-func AutoOn(p *domain.CharacterCOS, s SkillDef) bool {
-	return p.Training.AutoOff&(1<<s.Index()) == 0
+	p.Training.Queued = 0
 }
 
 /*

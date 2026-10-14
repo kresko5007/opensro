@@ -23,7 +23,9 @@ what each rank does in code. Rebuild game data after changing gear rows.
 
 - **Four attack pets**: bear (defense, `COS_P_BEAR*`), wolf (attack, `COS_P_WOLF*`),
   penguin (magic/cold, `COS_P_PENGUIN*`), crow (support, `COS_P_RAVEN*`).
-- **Five rows per pet**: two action rows and three passive rows. Actions in a row
+- **Five rows per pet**: two action rows and three passive rows. The owner uses an
+  action (click it in the Skills tab, also in combat); the pet performs it on its
+  next attack once the row is ready, and clicking again cancels. Actions in a row
   share one cooldown, which can be a timer, attacks made, hits taken, kills or
   spells. One passive per row is slotted (click to swap). Skills gain Rank II/III
   behaviour at the workbook's rank levels.
@@ -42,7 +44,7 @@ what each rank does in code. Rebuild game data after changing gear rows.
   myopia, decay, weaken) and the existing pet area-attack owner.
 
 Wire: state push 0x3FB1; command = normal COS request 0x769E, tag F0,
-`[petGID:u32le][F0][op][arg]` with ops 0 state, 1 learn, 2 autocast, 3 wear bag
+`[petGID:u32le][F0][op][arg]` with ops 0 state, 1 learn, 2 use (queue an action), 3 wear bag
 slot, 4 remove gear slot, 5 reset, 6 slot passive. Retail decoder unchanged.
 
 ## Rollout
@@ -96,6 +98,8 @@ speed, hunger, pet EXP, +one skill, thorns, steady (no knockdown), phoenix
   counts in the workbook or in `petEffect`.
 - No new animation clips or effects: pets reuse their native attack clip, so
   specials are only visible through status icons and damage numbers.
+- Actions can only be used from the Skills tab: no quickslot/hotkey for pet
+  actions yet (drag to the skill bar would be the native-feeling way).
 - PvP: effects are PvE only.
 - Drop rates and numbers are unmeasured: balance pass against the native
   baseline (time-to-kill, pet survival, drop frequency per hour).

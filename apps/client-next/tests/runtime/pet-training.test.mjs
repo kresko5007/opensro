@@ -88,7 +88,7 @@ test("the state decodes rows, skills and worn gear with its blues", () => {
 		effectiveLevel: 2,
 		nextPetLevel: 21,
 		action: true,
-		auto: true,
+		queued: true,
 		learnable: true,
 		live: true,
 		slotted: false,
@@ -118,7 +118,7 @@ test("help, rows and blue lines read the design", () => {
 		effectiveLevel: 1,
 		nextPetLevel: 15,
 		action: true,
-		auto: false,
+		queued: false,
 		learnable: false,
 		live: true,
 		slotted: false,
@@ -128,7 +128,7 @@ test("help, rows and blue lines read the design", () => {
 	const help = petSkillHelp( petSkillDesign( wolf.id ), skill, 12, 0 );
 	assert.match( help, new RegExp( `^${wolf.name} \\(action\\)\\nLevel 1 / ${wolf.maxLevel}\\n` ) );
 	assert.match( help, /Needs pet level 15 \(now 12\) and 1 skill point \(0 free\)\./ );
-	assert.match( help, /Autocast off: right-click to switch\.$/ );
+	assert.match( help, /Click to use it: the pet performs it on its next attack\.$/ );
 	const rows = petRows( { gid: 1, skills: [ skill ] } );
 	assert.equal( rows.length, 5 );
 	assert.equal( rows[0][0].design.id, wolf.id );

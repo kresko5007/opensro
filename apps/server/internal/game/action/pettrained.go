@@ -43,9 +43,6 @@ const (
 	petElementChance = 5
 	// A pet's Mend proc heals the owner this share of max HP.
 	petProcMendPercent = 5
-	// Iron Hide and the low-HP actions trigger below these HP shares.
-	petIronHideHPPercent = 70
-	petMendOwnerHP       = 80
 )
 
 /*
@@ -89,20 +86,22 @@ One strike's trained plan, shared by every target of the strike.
 ================
 */
 type petTrainedStrike struct {
-	mods      companion.Modifiers
-	uses      []petRowUse
-	reserved  bool
-	execute   float64 // kill non-bosses below this share of max HP
-	execBleed float64 // extra execute share against bleeding targets
-	critBonus float64
-	critWound float64 // Scent of Blood: crit against bleeding or wounded
-	shatter   float64 // bonus damage share against frozen or frostbitten
-	ownerHeal float64 // owner heal (percent of max HP) at commit
-	killHeal  float64 // owner heal on a kill
-	petHeal   float64 // pet heal (percent of max HP) at commit
-	passive   int     // passive row whose timer the commit restarts (-1)
-	passiveMs int64
-	fixed     uint32 // Retribution's release: fixed damage per target
+	mods companion.Modifiers
+	uses []petRowUse
+	// ownerState is the owner's 0x3FB1 push after a row was spent.
+	ownerState []wire.Frame
+	reserved   bool
+	execute    float64 // kill non-bosses below this share of max HP
+	execBleed  float64 // extra execute share against bleeding targets
+	critBonus  float64
+	critWound  float64 // Scent of Blood: crit against bleeding or wounded
+	shatter    float64 // bonus damage share against frozen or frostbitten
+	ownerHeal  float64 // owner heal (percent of max HP) at commit
+	killHeal   float64 // owner heal on a kill
+	petHeal    float64 // pet heal (percent of max HP) at commit
+	passive    int     // passive row whose timer the commit restarts (-1)
+	passiveMs  int64
+	fixed      uint32 // Retribution's release: fixed damage per target
 }
 
 /*
@@ -175,8 +174,9 @@ func setPetArea(skill *enterworld.SkillRow, shape uint8, meters float64, targets
 ================
 petTrainedDecide
 
-Rewrites the native attack row for one strike on a monster: the ready
-actions of the active rows, the slotted passives, then the gear's blues.
+Rewrites the native attack row for one strike on a monster: the action
+the owner queued (once its row is ready), the slotted passives, then the
+gear's blues.
 Returns the row unchanged and nil outside the expansion.
 ================
 */
@@ -188,7 +188,6 @@ func (rt *Runtime) petTrainedDecide(step petCombatStep, skill enterworld.SkillRo
 	ts := &petTrainedStrike{mods: companion.ModifiersFor(pet), passive: -1}
 	run := &step.state.trained
 	run.attacks++
-	opening := step.state.combat != nil && !step.state.combat.opened
 	level := uint32(max(1, pet.Level))
 	hpPercent := float64(pet.CurrentHP) * 100 / float64(max(1, step.ref.MaxHP))
 	// Retribution releases what it stored once its window has closed.
@@ -200,19 +199,10 @@ func (rt *Runtime) petTrainedDecide(step petCombatStep, skill enterworld.SkillRo
 		}
 		run.retribution, run.retribStored = 0, 0
 	}
-	for row := 0; row < companion.ActiveRowCount; row++ {
-		if !companion.RowReady(&pet.Training, row, step.nowMs) {
-			continue
-		}
-		for _, s := range companion.PetSkills(companion.PetKind(pet.Codename)) {
-			lvl := companion.EffectiveLevel(pet, s, ts.mods)
-			if s.Row != row || lvl == 0 || !s.Live() || !companion.AutoOn(pet, s) {
-				continue
-			}
-			if rt.petApplyAction(step, &skill, s, lvl, ts, opening, hpPercent) {
-				ts.uses = append(ts.uses, petRowUse{row: row, skill: s, level: lvl})
-				break
-			}
+	if s, ok := companion.PetSkill(pet, pet.Training.Queued); ok && s.Active && s.Live() &&
+		companion.RowReady(&pet.Training, s.Row, step.nowMs) {
+		if lvl := companion.EffectiveLevel(pet, s, ts.mods); lvl > 0 && rt.petApplyAction(step, &skill, s, lvl, ts) {
+			ts.uses = append(ts.uses, petRowUse{row: s.Row, skill: s, level: lvl})
 		}
 	}
 	rt.petApplyPassives(step, &skill, ts, level, hpPercent)
@@ -250,11 +240,11 @@ func (rt *Runtime) petTrainedDecide(step petCombatStep, skill enterworld.SkillRo
 ================
 petApplyAction
 
-One action of an active row. Returns false when its condition does not
-hold now (the row stays ready for the next strike).
+The queued action of an active row. Returns false when it cannot apply
+now (the queue stays for the next strike).
 ================
 */
-func (rt *Runtime) petApplyAction(step petCombatStep, skill *enterworld.SkillRow, s companion.SkillDef, lvl uint8, ts *petTrainedStrike, opening bool, hpPercent float64) bool {
+func (rt *Runtime) petApplyAction(step petCombatStep, skill *enterworld.SkillRow, s companion.SkillDef, lvl uint8, ts *petTrainedStrike) bool {
 	v := s.ValueAt(lvl)
 	rank2, rank3 := lvl >= companion.D.Rules.Rank2Level, lvl >= companion.D.Rules.Rank3Level
 	level := uint32(max(1, step.pet.Level))
@@ -294,9 +284,6 @@ func (rt *Runtime) petApplyAction(step petCombatStep, skill *enterworld.SkillRow
 			run.frenzyCrit = 15
 		}
 	case "Pounce":
-		if !opening {
-			return false
-		}
 		skill.Attack.Percent = skill.Attack.Percent * int64(v) / 100
 		if rank2 {
 			setPetStatus(skill, tagStun, [6]uint32{2000, 100, petStatusGrade})
@@ -317,9 +304,6 @@ func (rt *Runtime) petApplyAction(step petCombatStep, skill *enterworld.SkillRow
 		}
 		run.retribution, run.retribStored, run.retribPercent, run.retribStun = step.nowMs+10000, 0, v, rank3
 	case "Iron Hide":
-		if hpPercent >= petIronHideHPPercent {
-			return false
-		}
 		run.ironHideUntil, run.ironHidePct = step.nowMs+6000, v
 	case "Frost Nova":
 		radius := 5.0
@@ -335,9 +319,6 @@ func (rt *Runtime) petApplyAction(step petCombatStep, skill *enterworld.SkillRow
 			setPetArea(skill, petAreaAroundTarget, 3, 3, 0)
 		}
 	case "Mend":
-		if !rt.petOwnerBelow(step, petMendOwnerHP) {
-			return false
-		}
 		ts.ownerHeal += v
 		if rank2 {
 			ts.ownerHeal += v / 2
@@ -444,22 +425,6 @@ func (rt *Runtime) petApplyPassives(step petCombatStep, skill *enterworld.SkillR
 	if run.frenzyUntil > step.nowMs {
 		ts.critBonus += run.frenzyCrit
 	}
-}
-
-/*
-================
-petOwnerBelow
-
-Whether the owner's HP is below a share of its maximum.
-================
-*/
-func (rt *Runtime) petOwnerBelow(step petCombatStep, percent float64) bool {
-	stats, _, err := rt.playerCombatStats(step.key.division, step.snapshot)
-	if err != nil {
-		return false
-	}
-	maxHP, _, currentHP, _ := keeperVitalsFrom(step.snapshot, stats, nil)
-	return maxHP > 0 && float64(currentHP)*100 < float64(maxHP)*percent
 }
 
 /*
@@ -595,6 +560,11 @@ func (rt *Runtime) petTrainedCommit(step petCombatStep, owner *enterworld.Charac
 	ts.reserved = true
 	for _, u := range ts.uses {
 		companion.StartRow(&live.Training, u.row, u.skill, u.level, step.nowMs, ts.mods)
+		live.Training.Queued = 0
+	}
+	if len(ts.uses) > 0 {
+		// The owner's window shows the spent row and the cleared queue.
+		ts.ownerState = rt.petTrainingStateFrames(live, step.nowMs)
 	}
 	companion.CountEvent(&live.Training, companion.TriggerAttacks)
 	if fatal {

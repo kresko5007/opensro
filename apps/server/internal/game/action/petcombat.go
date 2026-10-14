@@ -71,9 +71,6 @@ type petCombatIntent struct {
 	pursuing     bool
 	// pursuingSinceMs is when the current approach began (petdiagnostics.go).
 	pursuingSinceMs int64
-	// opened is set by the first committed hit of this fight (port-only
-	// Pounce, pettraining.go).
-	opened bool
 }
 
 /*
@@ -287,7 +284,6 @@ func (rt *Runtime) advancePetCombat(step petCombatStep) (frames []simulation.Fra
 	if intent.castToken == 0 {
 		intent.nextAttackMs = step.nowMs + int64(intent.intervalMs)
 	}
-	intent.opened = true
 	// Select the next authored action on the next due strike.
 	intent.skillID = 0
 	intent.castToken, intent.releaseAtMs = 0, 0
@@ -454,6 +450,9 @@ func (rt *Runtime) petStrike(step petCombatStep, target monster.Instance, skill 
 	// Trained heals: every viewer sees the pet's HP, the owner its own.
 	public = append(public, trainedFrames...)
 	actorFrames := append([]wire.Frame(nil), trainedFrames...)
+	if step.trained != nil {
+		actorFrames = append(actorFrames, step.trained.ownerState...)
+	}
 	if fatal {
 		rt.queueMonsterDefeat(division, target.Gid, step.nowMs+monsterDeathPresentationRetention.Milliseconds())
 		burst := rt.monsterKillBurst(target.Gid, settlement.drops)

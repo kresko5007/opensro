@@ -59,7 +59,6 @@ summon.stateFlags
 summon.summonGeneration
 summon.summoned
 summon.training
-summon.training.autoOff
 summon.training.bonusPoints
 summon.training.gear
 summon.training.gear[].options

@@ -207,9 +207,9 @@ func TestPetTrainingAdmission(t *testing.T) {
 	if companion.Level(c.ActiveCOS, bite) != 1 {
 		t.Fatal("combat allowed training")
 	}
-	train(rt, c, petTrainingAuto, bite.ID)
-	if companion.AutoOn(c.ActiveCOS, bite) {
-		t.Fatal("autocast is not switchable in combat")
+	train(rt, c, petTrainingUse, bite.ID)
+	if c.ActiveCOS.Training.Queued != bite.ID {
+		t.Fatal("an action could not be used in combat")
 	}
 }
 
@@ -275,6 +275,14 @@ func TestWolfRendingBiteBleedsAndSharesItsRow(t *testing.T) {
 	makeTrainedPet(rt, c, "COS_P_WOLF_030", 30)
 	rt.AttackPetExpansion = true
 	bite := learn(t, rt, c, "Rending Bite", 1)
+	attackUntil(t, rt, clock, c, m, func() bool {
+		hit, _ := rt.Monsters.Get(testDivision, m.Gid)
+		return hit.CurrentHP < m.CurrentHP
+	})
+	if c.ActiveCOS.Training.Rows[bite.Row].ReadyAtMs != 0 {
+		t.Fatal("an action fired without the owner using it")
+	}
+	train(rt, c, petTrainingUse, bite.ID)
 	attackUntil(t, rt, clock, c, m, func() bool { return c.ActiveCOS.Training.Rows[bite.Row].ReadyAtMs > clock.NowMs() })
 	deadline := c.ActiveCOS.Training.Rows[bite.Row].ReadyAtMs
 	live, _ := rt.Monsters.Get(testDivision, m.Gid)
@@ -288,8 +296,8 @@ func TestWolfRendingBiteBleedsAndSharesItsRow(t *testing.T) {
 		clock.now = clock.now.Add(100 * time.Millisecond)
 		rt.TickHook()(clock.NowMs())
 	}
-	if c.ActiveCOS.Training.Rows[bite.Row].ReadyAtMs != deadline {
-		t.Fatal("a later attack bypassed the row cooldown")
+	if c.ActiveCOS.Training.Rows[bite.Row].ReadyAtMs != deadline || c.ActiveCOS.Training.Queued != 0 {
+		t.Fatal("a later attack bypassed the row cooldown or kept the queue")
 	}
 }
 
@@ -304,6 +312,7 @@ func TestBearGroundSlamStuns(t *testing.T) {
 	makeTrainedPet(rt, c, "COS_P_BEAR_030", slam.UnlockLevel)
 	rt.AttackPetExpansion = true
 	learn(t, rt, c, "Ground Slam", 1)
+	train(rt, c, petTrainingUse, slam.ID)
 	attackUntil(t, rt, clock, c, m, func() bool {
 		return c.ActiveCOS.Training.Rows[slam.Row].Left > 0 || c.ActiveCOS.Training.Rows[slam.Row].ReadyAtMs > 0
 	})

@@ -45,7 +45,6 @@ activeCos.stateFlags
 activeCos.summonGeneration
 activeCos.summoned
 activeCos.training
-activeCos.training.autoOff
 activeCos.training.bonusPoints
 activeCos.training.gear
 activeCos.training.gear[].options
@@ -127,7 +126,6 @@ avatarInventory.rows[].summon.stateFlags
 avatarInventory.rows[].summon.summonGeneration
 avatarInventory.rows[].summon.summoned
 avatarInventory.rows[].summon.training
-avatarInventory.rows[].summon.training.autoOff
 avatarInventory.rows[].summon.training.bonusPoints
 avatarInventory.rows[].summon.training.gear
 avatarInventory.rows[].summon.training.gear[].options
@@ -246,7 +244,6 @@ mercenaries[].stateFlags
 mercenaries[].summonGeneration
 mercenaries[].summoned
 mercenaries[].training
-mercenaries[].training.autoOff
 mercenaries[].training.bonusPoints
 mercenaries[].training.gear
 mercenaries[].training.gear[].options
@@ -301,7 +298,6 @@ missionInventory[].summon.stateFlags
 missionInventory[].summon.summonGeneration
 missionInventory[].summon.summoned
 missionInventory[].summon.training
-missionInventory[].summon.training.autoOff
 missionInventory[].summon.training.bonusPoints
 missionInventory[].summon.training.gear
 missionInventory[].summon.training.gear[].options

@@ -15,7 +15,7 @@ import type { PetTraining, PetTrainingSkill } from "@/engine/contracts/gameplay"
 import { PET_DESIGN } from "./pet-design-data";
 
 // The server's training operations (action/pettraining.go).
-export const PET_TRAINING_OP = { state: 0, learn: 1, auto: 2, equip: 3, unequip: 4, refund: 5, slot: 6 } as const;
+export const PET_TRAINING_OP = { state: 0, learn: 1, use: 2, equip: 3, unequip: 4, refund: 5, slot: 6 } as const;
 
 // Blue options of pet gear: param id = base + affix code (companion/gear.go).
 export const PET_AFFIX_PARAM_BASE = 0x8000;
@@ -136,7 +136,10 @@ export function petSkillHelp(
 	lines.push( `Rank II (level ${rules.rank2Level}): ${design.rank2}` );
 	lines.push( `Rank III (level ${rules.rank3Level}): ${design.rank3}` );
 	if ( skill.action && skill.level > 0 ) {
-		lines.push( `Autocast ${skill.auto ? "on" : "off"}: right-click to switch.` );
+		lines.push(
+			skill.queued ? "Used: the pet performs it on its next attack (click to cancel)." :
+				"Click to use it: the pet performs it on its next attack."
+		);
 	}
 	if ( !skill.action && skill.level > 0 ) {
 		lines.push( skill.slotted ? "Slotted: active in its row." : "Click to slot it (one passive per row)." );

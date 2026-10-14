@@ -560,7 +560,8 @@ export interface PetTrainingSkill {
 	// The pet level the next skill level needs; 0 at the maximum.
 	readonly nextPetLevel: number;
 	readonly action: boolean;
-	readonly auto: boolean;
+	// The owner used it: the pet performs it on its next attack.
+	readonly queued: boolean;
 	readonly learnable: boolean;
 	readonly live: boolean;
 	readonly slotted: boolean;
