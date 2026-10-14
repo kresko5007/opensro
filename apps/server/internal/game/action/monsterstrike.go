@@ -199,6 +199,11 @@ func (rt *Runtime) monsterStrikeCOS(in monsterStrikeInput, owner *enterworld.Cha
 	if err != nil {
 		return out
 	}
+	// Companion attackers also reuse this function. Only a population
+	// monster may encounter the pilot's defensive gear bonus.
+	if _, populationMonster := rt.Monsters.Get(divisionID, instance.Gid); populationMonster {
+		defender = rt.petTrainingDefense(owner, pet, ref.MaxHP, defender)
+	}
 	var displacement *playerDisplacement
 	displaceAt := -1
 	remainingHP := pet.CurrentHP
@@ -233,6 +238,10 @@ func (rt *Runtime) monsterStrikeCOS(in monsterStrikeInput, owner *enterworld.Cha
 		}
 		records = append(records, rolled...)
 	}
+	// Port-only: Iron Hide and Retribution (pettrained.go); native unchanged.
+	for i := range formulas {
+		formulas[i].Damage = rt.petTrainedDamageTaken(divisionID, owner, pet, formulas[i].Damage, nowMs)
+	}
 	ownerBlock.sources = rt.captureAbnormalSources(divisionID, ownerBlock.block, records)
 	strike := monsterStrike{gid: pet.GID, owner: owner, pose: pose}
 	var battleFrames []wire.Frame
@@ -248,6 +257,7 @@ func (rt *Runtime) monsterStrikeCOS(in monsterStrikeInput, owner *enterworld.Cha
 		if enterworld.CharacterAlive(owner) {
 			battleFrames = rt.enterBattleState(divisionID, owner, nowMs)
 		}
+		rt.petTrainedHitTaken(owner, live)
 		for _, formula := range formulas {
 			hitContext.Magical = hitContext.Magical || formula.MagicalDamage != 0
 			live.CurrentHP -= vitals.HitDebit(live.CurrentHP, formula.Damage)

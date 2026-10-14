@@ -34,7 +34,8 @@ const OFF = Object.freeze( {
 	perPixelLighting: false,
 	predictedRunUp: false,
 	smoothCamera: false,
-	enchantSparks: false
+	enchantSparks: false,
+	attackPetTraining: false
 } );
 
 test("only an explicit boolean enables chat timestamps", () => {

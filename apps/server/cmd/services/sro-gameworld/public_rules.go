@@ -46,6 +46,10 @@ func publicRules() publicstats.RulesResponse {
 	dropMix, _ := progression.BetaDropMixFromEnv()
 	return publicstats.RulesResponse{
 		Rules: []publicstats.Rule{
+			{Flag: companion.EnvAttackPetExpansion, On: companion.AttackPetExpansionEnabled(),
+				Native: "Growth pets use their original skills and stats.",
+				Now:    "Bear, wolf, penguin and crow attack pets level two action rows and three passive rows as they grow, and wear a collar, harness and charm with up to five random bonuses that only monsters drop, in ordinary PvE.",
+				Why:    "Owner-approved attack-pet expansion; competitive and instanced worlds keep original stats."},
 			{Flag: progression.EnvBetaGrowth, On: progression.BetaGrowthFromEnv().Enabled,
 				Native: "Retail experience, skill point and drop rates.",
 				Now:    "Raised beta rates for experience, skill points and drops.",

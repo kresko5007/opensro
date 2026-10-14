@@ -296,6 +296,8 @@ export type GameplayCommand =
 		readonly quantity: number;
 	}
 	| { readonly kind: "cos-behavior"; readonly gid: number; readonly mode: number; }
+	// Port-only wolf skill tree (op and arg of the server's tag F0 command).
+	| { readonly kind: "cos-training"; readonly gid: number; readonly operation: number; readonly arg: number; }
 	| { readonly kind: "cos-follow"; readonly gid: number; }
 	| { readonly kind: "cos-cancel"; readonly gid: number; }
 	| { readonly kind: "cos-clean"; readonly gid: number; }
@@ -544,6 +546,61 @@ export interface CosRecord {
 }
 /*
 ================
+PetTrainingSkill
+
+One pet skill as the server reports it (port-only 0x3FB1; pet-training.ts).
+value and nextValue are its effect now (at the effective level, with
+"+skills" blues) and at the next learned level.
+================
+*/
+export interface PetTrainingSkill {
+	readonly id: number;
+	readonly level: number;
+	readonly effectiveLevel: number;
+	// The pet level the next skill level needs; 0 at the maximum.
+	readonly nextPetLevel: number;
+	readonly action: boolean;
+	readonly auto: boolean;
+	readonly learnable: boolean;
+	readonly live: boolean;
+	readonly slotted: boolean;
+	readonly value: number;
+	readonly nextValue: number;
+}
+/*
+================
+PetTrainingRow
+
+An active row's shared cooldown: milliseconds left on a timer, or events
+left on a counter of kind ("Attacks", "Hits taken", "Kills", "Spells").
+================
+*/
+export interface PetTrainingRow {
+	readonly timerMs: number;
+	readonly left: number;
+	readonly kind: string;
+}
+/*
+================
+PetTraining
+
+An attack pet's skill tree and worn gear (collar, harness, charm; null is
+an empty slot), from the latest server state.
+================
+*/
+export interface PetTraining {
+	readonly gid: number;
+	readonly points: number;
+	readonly attackPercent: number;
+	readonly defensePercent: number;
+	readonly rows: readonly PetTrainingRow[];
+	readonly slotted: readonly number[];
+	readonly skills: readonly PetTrainingSkill[];
+	readonly gear: readonly (InventoryItem | null)[];
+	readonly receivedAtMs: number;
+}
+/*
+================
 SelectionDecal
 
 Ground intent and entity selection have separate presentation lifetimes.
@@ -587,6 +644,8 @@ Presentation owns the derived skillIndex; it never travels back to simulation.
 export interface GameplayState {
 	readonly itemMall?: import("./item-mall").MallState;
 	readonly betaPlayers?: readonly BetaMapPlayer[];
+	// Port-only wolf skill tree of the pet window's wolf (pet-training.ts).
+	readonly petTraining?: PetTraining;
 	/** RefObjIDs the server never spends (the beta starter kit), drawn as unlimited. */
 	readonly unlimitedItems?: readonly number[];
 	readonly returnScroll?: import("@/engine/foundation/gameplay/return-scroll").ReturnScrollCast;

@@ -320,6 +320,8 @@ type Runtime struct {
 	// EXP gain, read at the owner's level (progression GrowthRates.ExpPace,
 	// petgrowth.go). Nil is native; the growth switch sets it (port-only).
 	PetExpPace func(ownerLevel int64) float64
+	// Port-only Hunter wolf pilot; off preserves native companion behavior.
+	AttackPetExpansion bool
 
 	// PartyShareFloor raises every party member's EXP share to at least an
 	// even split (partyRewardFactors). Off is native; the closed-beta growth

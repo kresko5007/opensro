@@ -39,6 +39,8 @@ export interface ExperimentalOptions {
 	// Port-only, not native: the unused enchant sparks on +8 and higher
 	// weapons and shields (equipmentEnchantSparks).
 	readonly enchantSparks: boolean;
+	// Port-only wolf skill tree controls; requires the server's matching opt-in.
+	readonly attackPetTraining: boolean;
 }
 
 /*
@@ -101,7 +103,8 @@ export function experimentalOptions( value: unknown = null ): ExperimentalOption
 		perPixelLighting: enabled( "perPixelLighting" ),
 		predictedRunUp: enabled( "predictedRunUp" ),
 		smoothCamera: enabled( "smoothCamera" ),
-		enchantSparks: enabled( "enchantSparks" )
+		enchantSparks: enabled( "enchantSparks" ),
+		attackPetTraining: enabled( "attackPetTraining" )
 	};
 }
 

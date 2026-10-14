@@ -1,0 +1,100 @@
+# Attack pet expansion — four pet skill trees and dropped gear with blues
+
+Updated 2026-10-14. Owner-approved port-only feature, not original Silkroad rules.
+Server flag `SRO_ATTACK_PET_EXPANSION=on`; deployment default is **off** (native).
+
+## The design lives in one workbook
+
+[`docs/pet-expansion/pet-design.xlsx`](pet-expansion/pet-design.xlsx) is the source
+of every number: pets, skills, rows, cooldowns, gear degrees, affixes (blues),
+procs. Edit it, then run
+
+```
+python scripts/tools/pet_design_export.py
+```
+
+which validates it and writes the server JSON (`companion/petdesign.json`), the
+build JSON (`scripts/build/shared/pet-design.json`) and the client module
+(`apps/client-next/src/engine/foundation/ui/pet-design-data.ts`). Only rows whose
+**Status** is `Implemented` can be learned or rolled; the engine notes column says
+what each rank does in code. Rebuild game data after changing gear rows.
+
+## Delivered
+
+- **Four attack pets**: bear (defense, `COS_P_BEAR*`), wolf (attack, `COS_P_WOLF*`),
+  penguin (magic/cold, `COS_P_PENGUIN*`), crow (support, `COS_P_RAVEN*`).
+- **Five rows per pet**: two action rows and three passive rows. Actions in a row
+  share one cooldown, which can be a timer, attacks made, hits taken, kills or
+  spells. One passive per row is slotted (click to swap). Skills gain Rank II/III
+  behaviour at the workbook's rank levels.
+- **Points**: 1 at pet level 1, one more per `PointsPerPetLevels` levels; each skill
+  level also needs a pet level. Reset is free.
+- **Gear**: one collar/harness/charm family for all pets, degrees 1–9, monster drops
+  only (chance by monster rarity, degree by monster level, uniques one higher).
+  Normal / magic (1–2 blues) / rare (3–5 blues), one blue per group, tiers gated by
+  degree: damage, crit, elemental hits, leech, crushing/deadly/pierce, attack speed,
+  +skill levels, cooldown, find, and procs (chain lightning when hit, fire, mend).
+  Blues travel as native-style magic options (param `0x8000 + affix code`).
+- **Pet window**: Inventory tab shows the 3D pet between its three gear sockets
+  (drag from bag to wear, right-click/drag to remove, a second piece swaps);
+  Skills tab uses the character skill window's rows, bar and buttons.
+- Effects use native abnormal states (fear, stun, bleed, frostbite, freeze, shock,
+  myopia, decay, weaken) and the existing pet area-attack owner.
+
+Wire: state push 0x3FB1; command = normal COS request 0x769E, tag F0,
+`[petGID:u32le][F0][op][arg]` with ops 0 state, 1 learn, 2 autocast, 3 wear bag
+slot, 4 remove gear slot, 5 reset, 6 slot passive. Retail decoder unchanged.
+
+## Rollout
+
+1. `pnpm task build server-game-data`, then the full asset build (27 gear item
+   rows, names and tooltips).
+2. Maintenance release: store schema 24 (training + worn gear are new persisted
+   fields); stop the shard, run `sro-authority-upgrade -commit` (keeps a backup).
+3. Deploy GameWorld and client with `SRO_ATTACK_PET_EXPANSION=on`
+   (Nomad variable `attack_pet_expansion`).
+4. Rollback: redeploy with the flag off. Saved training and worn gear persist;
+   no new gear drops; gear already in bags stays as a plain item.
+
+## Verification status
+
+- [x] companion tests: design coverage, points/levels/slots, shared row cooldowns
+  and counters, gear rolls (rarity, blue count, groups, degree, slot), modifiers.
+- [x] action tests: admission/flag/combat refusal, gear keeps blues (wear, swap,
+  remove), wolf bleed + row cooldown, bear stun, Execute/Shatter damage, monster
+  drops, gear item body carries options, receipt chat limit.
+- [x] client tests: v2 state decoder, help text, affix tooltip lines, op bounds.
+- [ ] Browser acceptance on the lab stack (all four pets, LabBlader).
+- [ ] Balance measurement against the unmodified baseline.
+
+Crow Mend's owner heal needs real owner combat stats, so it is checked only in the
+running stack.
+
+## Not in this release
+
+Skills/affixes whose workbook Status is not `Implemented` (e.g. Alpha's Lure, some
+Rank III effects), new animation clips (pets reuse their native attack clip),
+PvP effects.
+
+## Source owners
+
+- Workbook + `scripts/tools/pet_design_export.py`: design and its exports.
+- `apps/server/internal/game/companion/`: `design.go` (embedded design),
+  `training.go` (points, rows, slots), `gear.go` (rolls, affix encoding, modifiers).
+- `apps/server/internal/domain/character.go`: persisted `PetTraining`.
+- `apps/server/internal/game/action/`: `pettraining.go` (commands, gear moves),
+  `pettrained.go` (combat effects), `petgeardrop.go` (drops), `petcombat.go`,
+  `monsterstrike.go`, `monsterloot.go` (existing owners hooked).
+- `item/wire/pettraining.go`, `itemmove.go`: state frame and gear options on items.
+- `scripts/build/shared/portItemRows.mjs`: gear item rows and text.
+- Client: worker `pet-training.ts`, `foundation/ui/pet-training.ts`, `ui.ts`
+  pet window, tooltips.
+
+## Local deployment
+
+Work only in `E:\CodeProjects\opensro-lab`. Build/deploy with
+`AssetImports/tools/sro-nomad-wolf.exe` (module-root `apps/server` of this worktree,
+state-dir `E:\CodeProjects\opensro\apps\server\.state\cluster`, game data root
+`E:\CodeProjects\opensro\apps\server\.generated\game-data\1.150\server`, Go on PATH,
+`SRO_ATTACK_PET_EXPANSION=on`, `deploy -build`). Stop before any offline DB edit.
+Browser game: [local client](http://127.0.0.1:5180/), LabPlayer / labplayer, LabBlader.

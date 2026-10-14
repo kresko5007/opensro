@@ -144,6 +144,11 @@ export const EXPERIMENTAL_TABS: readonly {
 			id: "experimental-smooth-camera",
 			label: "Smooth camera",
 			description: "Ease small camera height jumps and the return after a wall."
+		}, {
+			key: "attackPetTraining",
+			id: "experimental-attack-pet-training",
+			label: "Attack-pet training",
+			description: "Wolf skill tree and gear in Pet info / Technology. Server must enable it."
 		} ]
 	},
 	{

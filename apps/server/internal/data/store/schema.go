@@ -73,7 +73,9 @@ func isVersionMismatch(err error) bool {
 // table. The offline upgrade adds the empty table and rewrites no record.
 // Version 23 adds publicGearHidden, the player's "hide my gear" choice for
 // the community site (port-only); the upgrade rewrites no record.
-const CurrentVersion = 23
+// Version 24 adds a companion's training (port-only wolf skill tree and
+// gear, SRO_ATTACK_PET_EXPANSION); the upgrade rewrites no record.
+const CurrentVersion = 24
 
 // SkillSeedFunc resolves the current racial base-skill set while preserving
 // any already learned skill identifiers.

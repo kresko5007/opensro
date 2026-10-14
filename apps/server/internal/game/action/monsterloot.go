@@ -608,6 +608,12 @@ func (rt *Runtime) planMonsterKillLoot(
 		}
 	}
 
+	// Port-only pet gear (petgeardrop.go) joins the uncapped front, as a
+	// unique's prepass does, so the beta drop cap never removes it.
+	if gear, ok := rt.preparePetGearDrop(snapshot, monster, at, now); ok {
+		prepared = append([]grounditem.Item{gear}, prepared...)
+		uniqueRound++
+	}
 	// Before admission, so the per-item level check cannot lower the cap.
 	prepared, ok := capKillDrops(prepared, uniqueRound, rt.DropCap, rt.DropRoll)
 	if !ok {
