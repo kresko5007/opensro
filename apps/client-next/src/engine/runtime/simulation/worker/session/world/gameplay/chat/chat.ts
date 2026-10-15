@@ -18,7 +18,7 @@ import { STALL_CHAT_CHANNEL } from "@/engine/foundation/gameplay/stall";
 import { DROP_PLUS_NOTICE_CHANNEL, isServerNoticeChannel } from "@/engine/foundation/gameplay/system-notices";
 import { decodeNoticeLinks, type NoticeLinks } from "@/engine/foundation/gameplay/notice-links";
 import { CHAT_HISTORY_CONTROL } from "@/engine/foundation/gameplay/commerce-controls";
-import { DEFAULT_UI_TUNING, uiTuningFrom } from "@/engine/foundation/ui/ui-tuning";
+import { CHAT_ACK_TIMEOUT_MS, uiTuningFrom } from "@/engine/foundation/ui/ui-tuning";
 const CHAT_LINE_LIMIT = 128;
 const CHAT_FEEDBACK_LIMIT = 100;
 const CHAT_TEXT_LIMIT = 100;
@@ -140,7 +140,7 @@ export function createChat(
 	noticeItem: ( body: Uint8Array ) => InventoryItem | undefined = () => undefined
 ) {
 	// The port's own deadline for a chat or block acknowledgement (ui-tuning.ts).
-	let ackTimeoutMs = DEFAULT_UI_TUNING.chatAckTimeoutMs;
+	let ackTimeoutMs = CHAT_ACK_TIMEOUT_MS;
 	let lines: readonly ChatLine[] = [],
 		pending: PendingChat | null = null,
 		error: string | null = null,

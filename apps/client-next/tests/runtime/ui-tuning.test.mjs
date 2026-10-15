@@ -15,9 +15,10 @@ import { pathToFileURL as sourceFileUrl } from "node:url";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-const { DEFAULT_UI_TUNING, uiTuningFrom } = await import(
+const { defaultUiTuning, uiTuningFrom } = await import(
 	sourceFileUrl( "src/engine/foundation/ui/ui-tuning.ts" ).href
 );
+const DEFAULT_UI_TUNING = defaultUiTuning();
 const { noticeTiming, NATIVE_NOTICE_TIMING, SHORT_NOTICE_TIMING } = await import(
 	sourceFileUrl( "src/engine/runtime/ui/hud/unique-banner.ts" ).href
 );

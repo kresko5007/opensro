@@ -12,7 +12,7 @@ commands and cannot bypass actor eligibility.
 // CGInterface_ExecuteActionCommand 695420: 1000 + 6 asks the selected
 // player to trade.
 const ACTION_EXCHANGE = 1006;
-import { DEFAULT_UI_TUNING, type UiTuning, uiTuningFrom } from "@/engine/foundation/ui/ui-tuning";
+import { defaultUiTuning, type UiTuning, uiTuningFrom } from "@/engine/foundation/ui/ui-tuning";
 import { guildSoldierRefusal } from "@/engine/foundation/gameplay/guild-manager";
 import { advanceGuildWarClock } from "@/engine/foundation/gameplay/guild-war";
 import {
@@ -373,7 +373,7 @@ export function createGameplay(
 	// The server's port-only storage auto-stack rule (storageAutoStack).
 	let storageAutoStack = false;
 	// The shard's client tuning from the world-entry bootstrap (ui-tuning.ts).
-	let uiTuning: UiTuning = DEFAULT_UI_TUNING;
+	let uiTuning: UiTuning = defaultUiTuning();
 	// The server's port-only Bandit Den countdown rule (fastDenReturn).
 	let fastDenReturn = false;
 	// The server's port-only trade-scale rule (tradeTiers).
