@@ -264,7 +264,6 @@ import { createGuildWarHud } from "./hud/guild-war-hud";
 import { guildWarRequest, warScoreLimits, WAR_MAX_STAKE, WAR_UNLIMITED } from "@/engine/foundation/gameplay/guild-war";
 import { guildSelf } from "@/engine/foundation/gameplay/social-roster";
 import { targetPlayer } from "@/engine/foundation/gameplay/target-player";
-import { constantNativeNotice } from "@/engine/foundation/gameplay/native-notice";
 import { createExchangeHud } from "./hud/exchange-hud";
 import {
 	createStallHud,
@@ -734,8 +733,6 @@ const JOB_RANK_PANEL = "Job ranking";
 // The guild window's command button 102 and the notice the window's ban
 // raises for the master or oneself (5E4C30 → 703DD0: 0x10/0x1F).
 const GUILD_AUTHORITY_BUTTON = 102;
-const GUILD_NOTICE_CATEGORY = 0x10;
-const GUILD_EXPEL_REFUSED = 0x1f;
 
 /*
 ================
@@ -3463,14 +3460,10 @@ export function createUi(
 			sendGameplay( { kind: id } );
 		} else if ( id === "guild-kick" ) {
 			// 5E4C30 slot 2 → 703DD0 sends the ban on the click: no question. With
-			// no member selected nothing happens; the master or oneself is refused
-			// with notice 0x10/0x1F (UIIT_MSG_GUILD_EXPULSION_NOTEXP).
+			// no member selected nothing happens; the worker refuses the master or
+			// oneself (guildBanRefused) with its 0x10 notice.
 			const member = view.gameplay?.social?.guild?.members.find( m => m.id === socialMember );
-			if ( !member ) return;
-			if ( member.grade === 0 || member.name === view.session?.character ) {
-				const notice = constantNativeNotice( GUILD_NOTICE_CATEGORY, GUILD_EXPEL_REFUSED );
-				if ( notice ) hudMessages.append( hudCopy( notice.key ) );
-			} else sendGameplay( { kind: "guild-kick", name: member.name } );
+			if ( member ) sendGameplay( { kind: "guild-kick", name: member.name } );
 		} else if ( [ "party-kick", "guild-leave", "guild-dissolve" ].includes( id ) ) {
 			// The question box below (socialQuestion) asks first.
 			confirmSocial = id;

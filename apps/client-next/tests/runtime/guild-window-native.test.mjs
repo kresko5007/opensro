@@ -4,8 +4,8 @@
 guild-window-native.test.mjs - the guild window's commands as the original
 
 The BN button audit (research ui-button-audit/guild-union.md): Withdraw
-bans on the click and refuses the master or oneself with notice 0x10/0x1F
-(5E4C30 → 703DD0); the authority button reads "Give authority" for the
+bans on the click (5E4C30 → 703DD0) and the worker refuses the master
+or oneself with notice 0x10/0x1F; the authority button reads "Give authority" for the
 master and "Check authority" for a member (5E1E80); an invite goes to the
 selected player or a selected mounted pet's rider (700B50).
 
@@ -19,6 +19,8 @@ import { defined } from "../helpers/defined.mjs";
 
 const { emptySocial } = await import( "../../src/engine/foundation/gameplay/social.ts" );
 const { targetPlayer } = await import( "../../src/engine/foundation/gameplay/target-player.ts" );
+const { guildBanRefused } = await import( "../../src/engine/foundation/gameplay/guild-manager.ts" );
+const { constantNativeNotice } = await import( "../../src/engine/foundation/gameplay/native-notice.ts" );
 
 const SELF = 5;
 
@@ -72,21 +74,26 @@ function guildWindow( t, selfGrade ) {
 	return { f, sent, step };
 }
 
-test("Withdraw bans on the click and refuses the master or oneself (5E4C30)", t => {
+test("Withdraw bans on the click, with no question (5E4C30)", t => {
 	const { f, sent, step } = guildWindow( t, 1 );
-	for ( const [id, expected] of [ [ 7, { kind: "guild-kick", name: "Other" } ], [ 6, null ], [ SELF, null ] ] ) {
+	for ( const [id, name] of [ [ 7, "Other" ], [ 6, "Boss" ], [ SELF, "Player" ] ] ) {
 		f.ui.event( { kind: "activate", id: "social-member:" + id } );
 		step();
 		f.ui.event( { kind: "activate", id: "guild-kick" } );
 		const out = step();
 		assert.ok( !out.controls.some( c => c.id === "social-confirm-yes" ), "no question" );
-		if ( expected ) assert.deepEqual( sent.pop(), expected );
-		else {
-			assert.equal( sent.length, 0, "member " + id + " is refused" );
-			// Notice 0x10/0x1F, UIIT_MSG_GUILD_EXPULSION_NOTEXP.
-			assert.ok( f.hasText( "The leader of your guild and you cannot be banned" ), "the refusal notice shows" );
-		}
+		assert.deepEqual( sent.pop(), { kind: "guild-kick", name } );
 	}
+});
+
+test("the worker refuses a ban of the master or oneself with notice 0x10/0x1F", () => {
+	const guild = { members: [ member( 6, "Master", 0 ), member( SELF, "Player", 1 ), member( 7, "Other", 2 ) ] };
+	assert.equal( guildBanRefused( guild, "Player", "Master" ), true );
+	assert.equal( guildBanRefused( guild, "Player", "Player" ), true );
+	assert.equal( guildBanRefused( guild, "Player", "Other" ), false );
+	assert.equal( guildBanRefused( guild, "Player", "Gone" ), false, "the server answers a name no longer listed" );
+	assert.equal( guildBanRefused( null, "Player", "Other" ), false );
+	assert.equal( constantNativeNotice( 0x10, 0x1f )?.key, "UIIT_MSG_GUILD_EXPULSION_NOTEXP" );
 });
 
 test("the authority button reads Give for the master and Check for a member (5E1E80)", t => {
