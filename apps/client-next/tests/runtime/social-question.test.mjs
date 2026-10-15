@@ -18,21 +18,16 @@ const { socialQuestion } = await import( sourceFileUrl( "src/engine/foundation/u
 
 const guild = { name: "Bandits", members: [ { id: 7, name: "Alt$1" } ] };
 
-test("Withdraw asks to ban the selected member, by name", () => {
-	assert.deepEqual( socialQuestion( "guild-kick", guild, 7 ), {
-		title: "UIIT_STT_GUILD_EXPULSION",
-		lines: [ { key: "UIIT_MSG_GUILD_QUESTION_EXPULSION_ANYONE", arg: "Alt$1" } ]
-	} );
-	// Without a selected member there is nothing to ask.
-	assert.equal( socialQuestion( "guild-kick", guild, 9 ), null );
+test("Withdraw asks nothing: 5E4C30 sends the ban on the click", () => {
+	assert.equal( socialQuestion( "guild-kick", guild ), null );
 });
 
 test("secede, disband and the party ban ask their native questions", () => {
-	assert.deepEqual( socialQuestion( "guild-leave", guild, 0 ).lines, [
+	assert.deepEqual( socialQuestion( "guild-leave", guild ).lines, [
 		{ key: "UIIT_MSG_GUILD_QUESTION_EXIT1", arg: "Bandits" },
 		{ key: "UIIT_MSG_GUILD_QUESTION_EXIT2" }
 	] );
-	assert.deepEqual( socialQuestion( "guild-dissolve", guild, 0 ).lines, [ { key: "UIIT_MSG_GUILD_BREAK_CONFIRM" } ] );
-	assert.deepEqual( socialQuestion( "party-kick", null, 3 ).lines, [ { key: "UIIT_MSG_PARTY_BAN_REQUEST" } ] );
-	assert.equal( socialQuestion( "", guild, 7 ), null );
+	assert.deepEqual( socialQuestion( "guild-dissolve", guild ).lines, [ { key: "UIIT_MSG_GUILD_BREAK_CONFIRM" } ] );
+	assert.deepEqual( socialQuestion( "party-kick", null ).lines, [ { key: "UIIT_MSG_PARTY_BAN_REQUEST" } ] );
+	assert.equal( socialQuestion( "", guild ), null );
 });
