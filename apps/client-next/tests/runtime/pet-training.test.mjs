@@ -86,6 +86,7 @@ const collar = PET_DESIGN.gear[0].items[0].id;
 
 test("the state decodes rows, skills and worn gear with its blues", () => {
 	const asked = [];
+	const blues = Array.from( { length: 6 }, ( _, i ) => blue + (BigInt( i ) << 32n) );
 	const training = createPetTraining( ( ref, slot, magic ) => {
 		asked.push( [ ref, slot, magic ] );
 		return {
@@ -102,7 +103,7 @@ test("the state decodes rows, skills and worn gear with its blues", () => {
 	} );
 	const payload = statePayload( [
 		{ id: wolf.id, level: 1, effective: 2, next: 21, flags: 1 | 2 | 4 | 8, value: 114, nextValue: 118 }
-	], [ [ collar, [ blue ] ], [ 0, [] ], [ 0, [] ] ] );
+	], [ [ collar, blues ], [ 0, [] ], [ 0, [] ] ] );
 	assert.equal( training.receive( { opcode: 0x3fb0, payload }, 5 ), false );
 	assert.equal( training.receive( { opcode: OP_PET_TRAINING_STATE, payload }, 5 ), true );
 	const state = training.state();
@@ -127,7 +128,7 @@ test("the state decodes rows, skills and worn gear with its blues", () => {
 		value: 11.4,
 		nextValue: 11.8
 	} );
-	assert.deepEqual( asked, [ [ collar, 0, [ blue.toString() ] ] ] );
+	assert.deepEqual( asked, [ [ collar, 0, blues.map( String ) ] ] );
 	assert.deepEqual( state.gear.map( g => g?.name ?? null ), [ "Collar", null, null ] );
 	training.clear();
 	assert.equal( training.state(), undefined );

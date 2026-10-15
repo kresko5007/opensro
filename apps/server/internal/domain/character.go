@@ -699,7 +699,7 @@ magic-option encoding, companion.EncodeAffix), 0 for an empty slot.
 */
 type PetGear struct {
 	RefObjID uint32    `json:"refObjId,omitempty"`
-	Options  [5]uint64 `json:"options,omitzero"`
+	Options  [6]uint64 `json:"options,omitzero"`
 }
 
 /*

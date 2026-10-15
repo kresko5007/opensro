@@ -182,7 +182,9 @@ def main():
 			"dropChance": number(dd, "Drop % per kill (General)", where),
 			"magicChance": number(dd, "Magic chance", where),
 			"rareChance": number(dd, "Rare chance", where),
-			"rareWeights": [number(dd, f"Rare: {n} blues weight", where) for n in (3, 4, 5)],
+			"rareWeights": [number(dd, f"Rare: {n} blues weight", where) for n in (3, 4, 5, 6)],
+			"maxBlues": number(dd, "Max blues", where),
+			"rollFloor": number(dd, "Minimum roll percentile", where),
 			"items": [{
 				"slot": slot,
 				"name": g[slot + " base"],

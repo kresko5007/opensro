@@ -4,6 +4,63 @@ Updated 2026-10-15. Work ONLY in `E:/CodeProjects/opensro-lab`, branch `feat/Att
 
 ## Current level-90 checkpoint — read before historical notes
 
+**Latest degree balance and artwork checkpoint (2026-10-15):** see
+`PET-GEAR-DEGREES.md`. D1–D9 use character thresholds1/8/16/24/32/42/52/64/76,
+blue caps1/2/2/3/3/4/4/5/6 and increasing roll floors0–50%. D9 rare rolls
+can reach six blues. Worn storage expanded to six; legacy five-option saves
+still load. Existing items are not rerolled. Never downgrade to a five-option
+server after issuing six-option gear. All27 degree-specific icons, the richer
+collar ground model and the workbook source are included in this commit.
+
+Verification: companion, action, store and item/wire Go package tests pass;
+focused Go vet and lint pass (zero issues); nine asset/pipeline and seven
+client pet tests pass, including six-option client decoding. Client TypeScript
+check passes. The broader `verify:quick` ownership gate still flags existing
+shared object constants in viewer-camera, pet-design-data and pet-training;
+this change adds no shared state and does not change that architecture.
+Skill/combat testing remains postponed. Evidence logs: `pet-degrees-*.log`
+under `E:/CodeProjects/SRO/outputs/pet-design-codex/`.
+
+Deployed successfully: fresh server binaries, asset publication and game-data
+bundle revision `workspace-pet-degrees`, manifest SHA256
+`bdd64310da1759f57ff50b19d23f93d74644903f0641f957d86b97551a6249f7`.
+Agent0 and GameWorld0 both1/1 healthy. Browser reload resumed LabPetTest90 in
+Hotan X110,Y15, full HP/MP, Penguin summoned and inventory intact; no renderer
+warnings/errors. Proof `pet-degrees-live.png`. No live random-drop/combat sweep
+was performed; the new roll/cap behavior is covered by server tests above.
+
+**2026-10-15 loot visual follow-up:** skill testing remains postponed. Owner-selected
+Caravan collar concept2 is now an owned, textured low-poly ground prop, bound to all27
+pet gear items and published live. See `PET-LOOT-MODEL.md` for editable source, rebuild
+command and validation. Live comparison with the native gold chest passed; test collar
+and Cloth Shell both recovered, Penguin re-summoned, owner safe in Hotan. Inventory
+slots changed from normal pickup (collar now bag6, Cloth Shell bag17); no item lost.
+These new asset changes are uncommitted after checkpoint `72c4378b`.
+Owner follow-up applied: collar geometry uniformly scaled1.8 (80% larger),
+native armor-chest ambient glow reused through existing particle modifiers.
+Seven focused tests and scripts check pass; enlarged glowing drop checked in-game
+and recovered. Preview `pet-loot-collar-large-glow.png` in the same evidence folder.
+Metadata-only BSR publisher now preserves the owned synthetic resource entry.
+Texture enrichment follow-up: original1536x1024 six-tile atlas now replaces the
+simple64x64 swatches in the live GLB (old swatches retained). Rich stitched teal
+leather, floral engraved brass, turquoise veining, braided trim and crimson silk;
+one shared embedded texture, inset UVs and corrected radial medallion/gem mapping.
+Scale1.8 and native chest glow unchanged. See PET-LOOT-MODEL.md.
+Live textured drop/pickup verified without renderer warnings/errors; item recovered,
+Penguin restored. Proof `pet-loot-collar-rich-textures.png`. Seven focused checks pass.
+Inventory icon follow-up:27 distinct owned32x32 gear icons, three families across
+degrees1–9. See PET-ITEM-ICONS.md for sources, export path and server reference
+reload requirement. Nine focused asset/pipeline tests pass. Still uncommitted;
+skill testing remains postponed.
+
+Icon deployment completed: all27 client bindings and `ui-icons` pack entries
+verified; server bundle rebuilt with revision `workspace-pet-icons`, then Agent0
+and GameWorld0 restarted1/1 healthy. Live inventory confirms new pet gear artwork;
+all27 exports validated, not all degrees individually tested in-game. No renderer
+warnings/errors. Proof `pet-icons-live-inventory.png` and `pet-icons-*.log` in
+the evidence folder. Latest browser state: inventory open, LabPetTest90 safe in
+Hotan X110,Y15 with Penguin90; full HP/MP. No database edits or skill testing.
+
 Final browser state: **LabPetTest90 safely in Hotan Kingdom X113,Y15**, HP13226/13226, MP6700/6700; Penguin90 summoned, highest passive books selected, BasicInfo open. Original **Free Camera restored and confirmed selected**, then saved. Screenshot `E:/CodeProjects/SRO/outputs/pet-design-codex/pet90-final-safe-town.png`. Tab6 retained for continuation. ReturnScroll completion was visibly verified; do not resume from the old field/death checkpoints below.
 
 LabPetTest is the separate level90 test owner; LabBlader and its pets remain unchanged. The offline repair below was **applied**, both Agent/GameWorld restarted healthy at Nomad version0 (same combat source as prior v5). Owner now wears native Hades Pegasus armor and has a half-level XP buffer. No new backend defect was reproduced or backend source changed during these live tests.

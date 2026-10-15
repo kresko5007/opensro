@@ -256,6 +256,40 @@ func TestPetGearKeepsItsBlues(t *testing.T) {
 
 /*
 ================
+TestPetGearSixBluesEquipAndRemove
+
+The sixth option must survive the bag, worn state and training wire.
+================
+*/
+func TestPetGearSixBluesEquipAndRemove(t *testing.T) {
+	rt, _, c, _ := newPetCombatRuntime(t, 10000, attackPetBand)
+	makeTrainedPet(rt, c, "COS_P_BEAR_090", 90)
+	rt.AttackPetExpansion = true
+	d := companion.D.Gear[8]
+	options := make([]uint64, 6)
+	for i := range options {
+		options[i] = companion.EncodeAffix(companion.D.Affixes[i].Code, uint32(i+1))
+	}
+	grantGear(t, rt, c, d.Items[0].ID, options...)
+	row, _ := bagItem(c, d.Items[0].Codename)
+	train(rt, c, petTrainingEquip, uint8(row.Slot))
+	if got := c.ActiveCOS.Training.Gear[0].Options; got[5] != options[5] {
+		t.Fatalf("equipping lost sixth blue: %v", got)
+	}
+	train(rt, c, petTrainingUnequip, 0)
+	back, ok := bagItem(c, d.Items[0].Codename)
+	if !ok || len(back.MagicOptions) != 6 {
+		t.Fatalf("unequipping lost blues: %+v", back)
+	}
+	for i, value := range options {
+		if back.MagicOptions[i] != value {
+			t.Fatalf("blue %d changed", i)
+		}
+	}
+}
+
+/*
+================
 attackUntil
 ================
 */
@@ -449,7 +483,7 @@ func TestMonstersDropPetGearWithBlues(t *testing.T) {
 	}
 	rt.AttackPetExpansion = true
 	drop, ok := rt.preparePetGearDrop(c, m, at, time.Now())
-	if !ok || !companion.IsGearRef(drop.RefObjID) || len(drop.MagicOptions) < 3 {
+	if !ok || !companion.IsGearRef(drop.RefObjID) || len(drop.MagicOptions) != 1 {
 		t.Fatalf("drop %+v", drop)
 	}
 	rt.DropRoll = func() (uint32, error) { return dropRollDomain - 1, nil }

@@ -6,8 +6,8 @@ gear.go - pet equipment: blue options, drop rolls and the modifier sum
 Port-only, not native (docs/pet-expansion/pet-design.xlsx: Gear, Degrees,
 Affixes). One gear family is worn by every pet in three slots (collar,
 harness, charm), degrees 1-9, dropped by monsters only. Rolls follow
-Diablo 2: normal (no blue), magic (1-2) or rare (3 up to MaxBlues) by the
-degree's odds; one affix per group; an affix tier may roll when its
+Diablo 2: normal (no blue), magic (1-2) or rare (3-6), capped by degree.
+Each degree owns its odds; one affix per group; an affix tier may roll when its
 minimum degree is at most the item's, picked by weight. A blue option is
 stored in the native magic-option encoding (high u32 value, low u16 param)
 with param AffixParamBase + the affix's Code, so it rides the item through
@@ -90,6 +90,7 @@ func RollGear(d GearDegree, slot int, findPct float64, r Roller) []uint64 {
 			count = 2
 		}
 	}
+	count = min(count, d.MaxBlues)
 	slotName := d.Items[slot].Slot
 	used := map[string]bool{}
 	var options []uint64
@@ -117,7 +118,9 @@ func RollGear(d GearDegree, slot int, findPct float64, r Roller) []uint64 {
 		}
 		// A group rolls once; a higher tier rolls in place of a lower one.
 		used[chosen.Group] = true
-		value := chosen.Min + math.Floor(r.Float()*(chosen.Max-chosen.Min+1))
+		// Higher degrees raise the floor without exceeding the affix tier's cap.
+		low := chosen.Min + math.Floor((chosen.Max-chosen.Min)*d.RollFloor)
+		value := low + math.Floor(r.Float()*(chosen.Max-low+1))
 		options = append(options, EncodeAffix(chosen.Code, uint32(min(value, chosen.Max))))
 	}
 	return options

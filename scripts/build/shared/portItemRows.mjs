@@ -10,7 +10,7 @@ with random blue options. The rows come from the design workbook's export
 (pet-design.json beside this file, written by
 scripts/tools/pet_design_export.py from docs/pet-expansion/pet-design.xlsx).
 v1.150 has no pet equipment, so each piece is a plain carry item cloned
-from a native no-use ETC row (TypeID 3/3/9/0) with a native icon; its blue
+from a native no-use ETC row (TypeID 3/3/9/0) with an owned32x32 gear icon; its blue
 options ride the item body like equipment (item/wire IsPetGearRef). The
 server's companion package gives the pieces their meaning.
 
@@ -23,6 +23,8 @@ import design from "./pet-design.json" with { type: "json" };
 
 // The native template: an ETC item with no use, no stats and a ground model.
 export const PORT_ITEM_TEMPLATE = "ITEM_ETC_E051021_REDPEARL";
+// Logical resource identity for our owned GLB; no retail BSR is replaced.
+export const PORT_PET_DROP_MODEL = "item/etc/drop_pet_caravan_collar.bsr";
 
 // itemdata columns (0-based) rewritten in each clone; see enterworld itemrefs.go.
 const COL_REF_OBJ_ID = 1;
@@ -33,14 +35,9 @@ const COL_DESC_SYMBOL = 6;
 const COL_PRICE = 26;
 const COL_SELL_PRICE = 31;
 const COL_ICON = 54;
+const COL_DROP_MODEL = 53;
 const COL_MAX_STACK = 57;
 
-// Native icons per slot (wolf tooth, black fur, red pearl).
-const SLOT_ICONS = {
-	Collar: "item\\etc\\material_tooth.ddj",
-	Harness: "item\\etc\\material_fur_black.ddj",
-	Charm: "item\\etc\\e051021_redpearl.ddj"
-};
 const SLOT_BASE = {
 	Collar: value => `pet damage +${value}%`,
 	Harness: value => `pet defense +${value}%`,
@@ -58,12 +55,15 @@ gold price (sell price a tenth).
 export const PORT_ITEMS = Object.freeze( design.gear.flatMap( degree =>
 	degree.items.map( item => ({
 		id: item.id,
+		slot: item.slot,
+		degree: degree.degree,
 		codename: item.codename,
-		icon: SLOT_ICONS[item.slot],
+		icon: `item\\pet\\${item.slot.toLowerCase()}_${String( degree.degree ).padStart( 2, "0" )}.ddj`,
 		price: 5000 * degree.degree * degree.degree,
 		name: `${item.name} (Degree ${degree.degree})`,
 		description: `Attack-pet gear (${item.slot}). Base: ${SLOT_BASE[item.slot]( item.implicit )}. ` +
-			`Needs pet level ${degree.minPetLevel}. Drag it onto the pet in Pet Info > Inventory.`
+			`Needs pet level ${degree.minPetLevel}. Up to ${degree.maxBlues} blues. ` +
+			`Drag it onto the pet in Pet Info > Inventory.`
 	}) )
 ) );
 
@@ -98,6 +98,7 @@ export function portItemColumns( template ) {
 		columns[COL_PRICE] = String( item.price );
 		columns[COL_SELL_PRICE] = String( item.price / 10 );
 		columns[COL_ICON] = item.icon;
+		columns[COL_DROP_MODEL] = PORT_PET_DROP_MODEL;
 		columns[COL_MAX_STACK] = "1";
 		return columns;
 	} );

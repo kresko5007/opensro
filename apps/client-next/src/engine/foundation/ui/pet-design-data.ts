@@ -17,7 +17,7 @@ export const PET_DESIGN = {
 		],
 		"passivesPerRow": 1,
 		"procInternalCooldownMs": 2000,
-		"maxBlues": 5,
+		"maxBlues": 6,
 		"magicTwoBluesChance": 0.4,
 		"rankMultipliers": {
 			"general": 1,
@@ -1529,8 +1529,11 @@ export const PET_DESIGN = {
 			"rareWeights": [
 				85,
 				13,
-				2
+				2,
+				0
 			],
+			"maxBlues": 1,
+			"rollFloor": 0,
 			"items": [
 				{
 					"slot": "Collar",
@@ -1557,15 +1560,18 @@ export const PET_DESIGN = {
 		},
 		{
 			"degree": 2,
-			"minPetLevel": 9,
+			"minPetLevel": 8,
 			"dropChance": 0.001,
 			"magicChance": 0.32,
 			"rareChance": 0.04,
 			"rareWeights": [
 				80,
 				16,
-				4
+				4,
+				0
 			],
+			"maxBlues": 2,
+			"rollFloor": 0.0625,
 			"items": [
 				{
 					"slot": "Collar",
@@ -1592,15 +1598,18 @@ export const PET_DESIGN = {
 		},
 		{
 			"degree": 3,
-			"minPetLevel": 17,
+			"minPetLevel": 16,
 			"dropChance": 0.0011,
 			"magicChance": 0.34,
 			"rareChance": 0.05,
 			"rareWeights": [
 				75,
 				20,
-				5
+				5,
+				0
 			],
+			"maxBlues": 2,
+			"rollFloor": 0.125,
 			"items": [
 				{
 					"slot": "Collar",
@@ -1627,15 +1636,18 @@ export const PET_DESIGN = {
 		},
 		{
 			"degree": 4,
-			"minPetLevel": 25,
+			"minPetLevel": 24,
 			"dropChance": 0.0011,
 			"magicChance": 0.36,
 			"rareChance": 0.06,
 			"rareWeights": [
 				70,
 				23,
-				7
+				7,
+				0
 			],
+			"maxBlues": 3,
+			"rollFloor": 0.1875,
 			"items": [
 				{
 					"slot": "Collar",
@@ -1662,15 +1674,18 @@ export const PET_DESIGN = {
 		},
 		{
 			"degree": 5,
-			"minPetLevel": 33,
+			"minPetLevel": 32,
 			"dropChance": 0.0012,
 			"magicChance": 0.38,
 			"rareChance": 0.07,
 			"rareWeights": [
 				64,
 				27,
-				9
+				9,
+				0
 			],
+			"maxBlues": 3,
+			"rollFloor": 0.25,
 			"items": [
 				{
 					"slot": "Collar",
@@ -1697,15 +1712,18 @@ export const PET_DESIGN = {
 		},
 		{
 			"degree": 6,
-			"minPetLevel": 43,
+			"minPetLevel": 42,
 			"dropChance": 0.0012,
 			"magicChance": 0.4,
 			"rareChance": 0.08,
 			"rareWeights": [
 				58,
 				30,
-				12
+				12,
+				0
 			],
+			"maxBlues": 4,
+			"rollFloor": 0.3125,
 			"items": [
 				{
 					"slot": "Collar",
@@ -1732,15 +1750,18 @@ export const PET_DESIGN = {
 		},
 		{
 			"degree": 7,
-			"minPetLevel": 53,
+			"minPetLevel": 52,
 			"dropChance": 0.0013,
 			"magicChance": 0.42,
 			"rareChance": 0.09,
 			"rareWeights": [
 				52,
 				33,
-				15
+				15,
+				0
 			],
+			"maxBlues": 4,
+			"rollFloor": 0.375,
 			"items": [
 				{
 					"slot": "Collar",
@@ -1767,15 +1788,18 @@ export const PET_DESIGN = {
 		},
 		{
 			"degree": 8,
-			"minPetLevel": 65,
+			"minPetLevel": 64,
 			"dropChance": 0.0013,
 			"magicChance": 0.44,
 			"rareChance": 0.1,
 			"rareWeights": [
 				46,
 				36,
-				18
+				18,
+				0
 			],
+			"maxBlues": 5,
+			"rollFloor": 0.4375,
 			"items": [
 				{
 					"slot": "Collar",
@@ -1802,15 +1826,18 @@ export const PET_DESIGN = {
 		},
 		{
 			"degree": 9,
-			"minPetLevel": 77,
+			"minPetLevel": 76,
 			"dropChance": 0.0014,
 			"magicChance": 0.46,
 			"rareChance": 0.12,
 			"rareWeights": [
 				40,
 				38,
-				22
+				22,
+				15
 			],
+			"maxBlues": 6,
+			"rollFloor": 0.5,
 			"items": [
 				{
 					"slot": "Collar",

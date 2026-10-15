@@ -114,6 +114,8 @@ type GearDegree struct {
 	MagicChance float64    `json:"magicChance"`
 	RareChance  float64    `json:"rareChance"`
 	RareWeights []float64  `json:"rareWeights"`
+	MaxBlues    int        `json:"maxBlues"`
+	RollFloor   float64    `json:"rollFloor"`
 	Items       []GearItem `json:"items"`
 }
 
@@ -172,6 +174,11 @@ func mustDesign(raw []byte) Design {
 		panic("companion: petdesign.json rules are incomplete")
 	}
 	ids := map[uint8]bool{}
+	for i, g := range d.Gear {
+		if g.Degree != i+1 || g.MaxBlues < 1 || g.MaxBlues > d.Rules.MaxBlues || g.RollFloor < 0 || g.RollFloor > 1 || len(g.RareWeights) != 4 {
+			panic(fmt.Sprintf("companion: petdesign.json degree %d is invalid", g.Degree))
+		}
+	}
 	for _, s := range d.Skills {
 		if s.ID == 0 || ids[s.ID] || s.Row < 0 || s.Row >= RowCount || s.MaxLevel == 0 || petByName(d, s.Pet) == nil {
 			panic(fmt.Sprintf("companion: petdesign.json skill %d %q is invalid", s.ID, s.Name))

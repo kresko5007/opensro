@@ -176,7 +176,7 @@ func (f *fixedRoller) Float() float64 {
 ================
 TestGearRollsFollowDiablo2Rules
 
-A normal roll has no blue; a rare roll has 3-5 blues of distinct groups,
+A normal roll has no blue; a rare roll has 3-6 blues of distinct groups,
 only implemented, for the slot, within the item's degree; options decode
 back and add to the modifiers.
 ================
@@ -232,7 +232,7 @@ func TestModifiersSumGearAndPassives(t *testing.T) {
 		}
 	}
 	p := domain.CharacterCOS{Codename: "COS_P_WOLF_030", Level: 30}
-	p.Training.Gear[0] = domain.PetGear{RefObjID: d.Items[0].ID, Options: [5]uint64{EncodeAffix(phys.Code, 7)}}
+	p.Training.Gear[0] = domain.PetGear{RefObjID: d.Items[0].ID, Options: [6]uint64{EncodeAffix(phys.Code, 7)}}
 	p.Training.Gear[1] = domain.PetGear{RefObjID: d.Items[1].ID}
 	predator := skillNamed(t, "Predator")
 	p.Training.Levels[predator.Index()] = 2

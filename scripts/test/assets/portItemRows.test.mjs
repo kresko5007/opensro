@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { completeItemReferenceProjection } from "../../build/shared/itemTextCompletions.mjs";
-import { PORT_ITEM_TEMPLATE, PORT_ITEMS } from "../../build/shared/portItemRows.mjs";
+import { PORT_ITEM_TEMPLATE, PORT_ITEMS, PORT_PET_DROP_MODEL } from "../../build/shared/portItemRows.mjs";
 
 // A template row long enough to carry the icon and stack columns.
 function templateRow() {
@@ -18,6 +18,7 @@ function templateRow() {
 	columns[1] = "5882";
 	columns[2] = PORT_ITEM_TEMPLATE;
 	columns[54] = "item\\etc\\e051021_redpearl.ddj";
+	columns[53] = "item/etc/drop_ch_acc.bsr";
 	columns[57] = "1000";
 	return columns.join( "\t" );
 }
@@ -35,6 +36,7 @@ test("each itemdata projection appends the pet gear after its template once, in 
 			assert.equal( columns[2], item.codename );
 			assert.equal( columns[5], "SN_" + item.codename );
 			assert.equal( columns[54], item.icon );
+			assert.equal( columns[53], PORT_PET_DROP_MODEL );
 			assert.equal( columns[57], "1" );
 		} );
 		assert.equal( records[1], templateRow() );
@@ -45,4 +47,16 @@ test("each itemdata projection appends the pet gear after its template once, in 
 test("a projection without the template is unchanged", () => {
 	const source = Buffer.from( "1\t42\tITEM_OTHER\tOther\r\n", "utf8" );
 	assert.deepEqual( completeItemReferenceProjection( source ), source );
+});
+
+test("all27 pet items have their own slot-and-degree icon", () => {
+	assert.equal( PORT_ITEMS.length, 27 );
+	assert.equal( new Set( PORT_ITEMS.map( item => item.icon ) ).size, 27 );
+	for ( const item of PORT_ITEMS ) {
+		assert.match( item.description, /Up to [1-6] blues/ );
+		assert.equal(
+			item.icon,
+			`item\\pet\\${item.slot.toLowerCase()}_${String( item.degree ).padStart( 2, "0" )}.ddj`
+		);
+	}
 });
