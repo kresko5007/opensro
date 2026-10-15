@@ -75,7 +75,9 @@ func isVersionMismatch(err error) bool {
 // the community site (port-only); the upgrade rewrites no record.
 // Version 24 adds a companion's training (port-only wolf skill tree and
 // gear, SRO_ATTACK_PET_EXPANSION); the upgrade rewrites no record.
-const CurrentVersion = 24
+// Version 25 adds the optional companion training treeVersion for sequential
+// skill books; the preserving offline upgrade rewrites no record.
+const CurrentVersion = 25
 
 // SkillSeedFunc resolves the current racial base-skill set while preserving
 // any already learned skill identifiers.

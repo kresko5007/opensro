@@ -113,6 +113,14 @@ def main():
 		if p["Pet"] not in PET_PREFIX:
 			fail(f"Pets: unknown pet {p['Pet']!r}")
 		design["pets"].append({"name": p["Pet"], "role": p["Role"], "codenamePrefix": PET_PREFIX[p["Pet"]]})
+	role_names = set()
+	for row in wb["Combat roles"].iter_rows(min_row=2, max_row=5, values_only=True):
+		name, hp, physical, magical, defense, magic_defense, magic_primary = row[:7]
+		if name not in PET_PREFIX or name in role_names or any(not isinstance(v, (int, float)) or not 1 <= v <= 500 for v in (hp, physical, magical, defense, magic_defense)) or magic_primary not in (0, 1):
+			fail(f"Combat roles: invalid profile {name!r}")
+		role_names.add(name)
+		pet = next(p for p in design["pets"] if p["name"] == name)
+		pet.update(hpPercent=hp, physicalPercent=physical, magicalPercent=magical, defensePercent=defense, magicDefensePercent=magic_defense, magicPrimary=bool(magic_primary))
 	ids = set()
 	for s in table(wb["Skills"]):
 		where = f"Skills {s['Pet']} {s['Skill']}"
@@ -146,6 +154,23 @@ def main():
 			"status": s["Status"],
 			"icon": s["Icon"] + ".ddj",
 		})
+	# The approved sequential tree references preserved effect templates.
+	design["treeSkills"] = []
+	by_id = {s["id"]: s for s in design["skills"]}
+	for pet, row, template, first, second, third, last in wb["Skill families"].iter_rows(min_row=2, max_row=21, max_col=7, values_only=True):
+		base = by_id.get(template)
+		if base is None or base["pet"] != pet or base["row"] != row or not 0 < first < second < third < last <= 255:
+			fail(f"Skill families: invalid family {pet} row {row}")
+		first_id = min(s["id"] for s in design["skills"] if s["pet"] == pet and s["row"] == row)
+		for tier, (start, end) in enumerate(zip((first, second, third), (second, third, last)), 1):
+			s = dict(base)
+			s.update(id=first_id+tier-1, option=tier, name=base["name"]+" "+("I", "II", "III")[tier-1],
+				family=base["name"], unlockLevel=start, tierEnd=end,
+				value=base["value"]+base["valuePerLevel"]*base["maxLevel"]*(tier-1))
+			if s["family"] == "Challenging Roar":
+				s.update(status="Implemented", value=3 if tier < 3 else 6, valuePerLevel=0,
+					effect="Taunts up to {v} monsters. Radius grows with proficiency; party monsters require Tier II. No damage.")
+			design["treeSkills"].append(s)
 	degrees = {int(d["Degree"]): d for d in table(wb["Degrees"])}
 	for g in table(wb["Gear"]):
 		d = int(g["Degree"])

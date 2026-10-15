@@ -54,17 +54,17 @@ Nth-attack passive, and the self buffs in force.
 ================
 */
 type petTrainedRuntime struct {
-	attacks        int
-	frenzyUntil    int64
-	frenzyPercent  float64
-	frenzyCrit     float64
-	ironHideUntil  int64
-	ironHidePct    float64
-	retribution    int64 // window end; 0 when not storing
-	retribStored   float64
-	retribPercent  float64
-	retribStun     bool
-	retribReleased bool
+	attacks       int
+	frenzyUntil   int64
+	frenzyPercent float64
+	frenzyCrit    float64
+	ironHideUntil int64
+	ironHidePct   float64
+	retribution   int64 // window end; 0 when not storing
+	retribStored  float64
+	retribPercent float64
+	retribStun    bool
+	procReadyAt   int64
 }
 
 /*
@@ -86,11 +86,13 @@ One strike's trained plan, shared by every target of the strike.
 ================
 */
 type petTrainedStrike struct {
-	mods companion.Modifiers
-	uses []petRowUse
+	codename string
+	mods     companion.Modifiers
+	uses     []petRowUse
 	// ownerState is the owner's 0x3FB1 push after a row was spent.
 	ownerState []wire.Frame
 	reserved   bool
+	procUsed   bool
 	execute    float64 // kill non-bosses below this share of max HP
 	execBleed  float64 // extra execute share against bleeding targets
 	critBonus  float64
@@ -185,9 +187,11 @@ func (rt *Runtime) petTrainedDecide(step petCombatStep, skill enterworld.SkillRo
 	if target.monster == nil || !rt.petExpansionAllowed(step.snapshot, pet) {
 		return skill, nil
 	}
-	ts := &petTrainedStrike{mods: companion.ModifiersFor(pet), passive: -1}
+	ts := &petTrainedStrike{mods: companion.ModifiersFor(pet), passive: -1, codename: pet.Codename}
+	if companion.Profile(pet.Codename).MagicPrimary {
+		skill.Attack.Flags = skill.Attack.Flags&^4 | 8
+	}
 	run := &step.state.trained
-	run.attacks++
 	level := uint32(max(1, pet.Level))
 	hpPercent := float64(pet.CurrentHP) * 100 / float64(max(1, step.ref.MaxHP))
 	// Retribution releases what it stored once its window has closed.
@@ -222,17 +226,29 @@ func (rt *Runtime) petTrainedDecide(step petCombatStep, skill enterworld.SkillRo
 		}
 		setPetStatus(&skill, e.tag, args)
 	}
-	if rt.petChance(m.ProcChain) {
+	if step.nowMs >= run.procReadyAt && rt.petChance(m.ProcChain) {
+		ts.procUsed = true
 		setPetArea(&skill, petAreaAroundTarget, 8, 3+int(level)/20, 20)
 		setPetStatus(&skill, tagShock, [6]uint32{level, 100, 50})
 	}
-	if rt.petChance(m.ProcFire) {
+	if step.nowMs >= run.procReadyAt && !ts.procUsed && rt.petChance(m.ProcFire) {
+		ts.procUsed = true
 		setPetArea(&skill, petAreaAroundTarget, 3, 5, 0)
 		setPetStatus(&skill, tagBurn, [6]uint32{level, 100, level})
 	}
-	if rt.petChance(m.ProcMend) {
+	if step.nowMs >= run.procReadyAt && !ts.procUsed && rt.petChance(m.ProcMend) {
+		ts.procUsed = true
 		ts.ownerHeal += petProcMendPercent
 	}
+	// Native COS damage lives mainly in the attack block, not the actor's
+	// base attack. Scaling only combat.Stats left equipment almost inert.
+	physical, magical := companion.AttackScales(pet.Codename, m)
+	scale := physical
+	if skill.Attack.Flags&8 != 0 {
+		scale = magical
+	}
+	skill.Attack.Min = int64(float64(skill.Attack.Min) * scale)
+	skill.Attack.Max = int64(float64(skill.Attack.Max) * scale)
 	return skill, ts
 }
 
@@ -246,10 +262,10 @@ now (the queue stays for the next strike).
 */
 func (rt *Runtime) petApplyAction(step petCombatStep, skill *enterworld.SkillRow, s companion.SkillDef, lvl uint8, ts *petTrainedStrike) bool {
 	v := s.ValueAt(lvl)
-	rank2, rank3 := lvl >= companion.D.Rules.Rank2Level, lvl >= companion.D.Rules.Rank3Level
+	rank2, rank3 := lvl >= companion.D.Rules.Rank2Level || s.Family != "" && s.Option > 1, lvl >= companion.D.Rules.Rank3Level || s.Family != "" && s.Option > 1
 	level := uint32(max(1, step.pet.Level))
 	run := &step.state.trained
-	switch s.Name {
+	switch s.EffectName() {
 	case "Terrifying Howl":
 		radius := 6.0
 		if rank2 {
@@ -358,14 +374,14 @@ func (rt *Runtime) petApplyPassives(step petCombatStep, skill *enterworld.SkillR
 		}
 		lvl := companion.EffectiveLevel(pet, s, ts.mods)
 		v := s.ValueAt(lvl)
-		rank2, rank3 := lvl >= companion.D.Rules.Rank2Level, lvl >= companion.D.Rules.Rank3Level
+		rank2, rank3 := lvl >= companion.D.Rules.Rank2Level || s.Family != "" && s.Option > 1, lvl >= companion.D.Rules.Rank3Level || s.Family != "" && s.Option > 1
 		every := func(n, n2 int) bool {
 			if rank2 {
 				n = n2
 			}
-			return run.attacks%n == 0
+			return (run.attacks+1)%n == 0
 		}
-		switch s.Name {
+		switch s.EffectName() {
 		case "Execute":
 			ts.execute = v
 			if rank2 {
@@ -456,8 +472,7 @@ elemental damage, critical chance, and pierce against the defender.
 */
 func petTrainedStats(ts *petTrainedStrike, target monster.Instance, attacker, defender combat.Stats) (combat.Stats, combat.Stats) {
 	m := ts.mods
-	attack := 1 + m.AttackPct/100
-	magic := attack + m.MagicPct/100
+	attack, magic := companion.AttackScales(ts.codename, m)
 	flat := m.FireAdd + m.ColdAdd + m.ShockAdd + m.PoisonAdd
 	attacker.PhysicalAttackMin = attacker.PhysicalAttackMin*attack + flat
 	attacker.PhysicalAttackMax = attacker.PhysicalAttackMax*attack + flat
@@ -497,11 +512,13 @@ Shatter, crushing blow and deadly strike, then Execute.
 func (rt *Runtime) petTrainedDamage(ts *petTrainedStrike, target monster.Instance, formulas []combat.Result) {
 	unique := target.Rarity()&0x0f == 3 || target.Rarity()&0x0f == 8
 	total := uint32(0)
+	lastHit := -1
 	for i := range formulas {
 		f := &formulas[i]
 		if f.Blocked {
 			continue
 		}
+		lastHit = i
 		if ts.fixed > 0 {
 			f.Damage = max(f.Damage, ts.fixed)
 		}
@@ -524,12 +541,12 @@ func (rt *Runtime) petTrainedDamage(ts *petTrainedStrike, target monster.Instanc
 	if petTargetBleeds(target) {
 		threshold = max(threshold, ts.execBleed)
 	}
-	if threshold <= 0 || unique || len(formulas) == 0 || total >= target.CurrentHP {
+	if threshold <= 0 || unique || lastHit < 0 || total == 0 || total >= target.CurrentHP {
 		return
 	}
 	left := float64(target.CurrentHP - total)
 	if left*100 < float64(target.Ref.MaxHP)*threshold {
-		formulas[len(formulas)-1].Damage += target.CurrentHP - total
+		formulas[lastHit].Damage += target.CurrentHP - total
 	}
 }
 
@@ -558,17 +575,27 @@ func (rt *Runtime) petTrainedCommit(step petCombatStep, owner *enterworld.Charac
 		return nil, true
 	}
 	ts.reserved = true
+	previousRows := live.Training.Rows
+	// Count the completed attack before starting a new recharge: the cast
+	// itself must not pay one of the attacks required for its next use.
+	if damage > 0 {
+		step.state.trained.attacks++
+		companion.CountEvent(&live.Training, companion.TriggerAttacks)
+	}
+	// A committed healing proc also spends its recovery when the hit is blocked.
+	if ts.procUsed {
+		step.state.trained.procReadyAt = step.nowMs + companion.D.Rules.ProcInternalCooldownMs
+	}
+	if fatal {
+		companion.CountEvent(&live.Training, companion.TriggerKills)
+	}
 	for _, u := range ts.uses {
 		companion.StartRow(&live.Training, u.row, u.skill, u.level, step.nowMs, ts.mods)
 		live.Training.Queued = 0
 	}
-	if len(ts.uses) > 0 {
+	if len(ts.uses) > 0 || live.Training.Rows != previousRows {
 		// The owner's window shows the spent row and the cleared queue.
 		ts.ownerState = rt.petTrainingStateFrames(live, step.nowMs)
-	}
-	companion.CountEvent(&live.Training, companion.TriggerAttacks)
-	if fatal {
-		companion.CountEvent(&live.Training, companion.TriggerKills)
 	}
 	if ts.passive >= 0 {
 		live.Training.PassiveReadyAtMs[ts.passive-companion.ActiveRowCount] = ts.passiveMs
@@ -627,8 +654,14 @@ func (rt *Runtime) petTrainingDefense(owner *enterworld.Character, pet *domain.C
 	}
 	m := companion.ModifiersFor(pet)
 	pct := m.DefensePct
-	if s, lvl, ok := companion.Passive(pet, "Last Stand", m); ok && maxHP > 0 && uint64(pet.CurrentHP)*100 < uint64(maxHP)*30 {
-		pct += s.ValueAt(lvl)
+	if s, lvl, ok := companion.Passive(pet, "Last Stand", m); ok && maxHP > 0 {
+		threshold := uint64(30)
+		if lvl >= companion.D.Rules.Rank2Level || s.Family != "" && s.Option > 1 {
+			threshold = 40
+		}
+		if uint64(pet.CurrentHP)*100 < uint64(maxHP)*threshold {
+			pct += s.ValueAt(lvl)
+		}
 	}
 	scale := 1 + pct/100
 	stats.PhysicalDefense *= scale
@@ -653,11 +686,11 @@ func (rt *Runtime) petTrainedDamageTaken(division string, owner *enterworld.Char
 		return damage
 	}
 	run := &state.trained
-	if run.retribution > nowMs {
-		run.retribStored += float64(damage)
-	}
 	if run.ironHideUntil > nowMs {
-		return uint32(float64(damage) * max(0, 100-run.ironHidePct) / 100)
+		damage = uint32(float64(damage) * max(0, 100-run.ironHidePct) / 100)
+	}
+	if run.retribution > nowMs {
+		run.retribStored += float64(min(damage, pet.CurrentHP))
 	}
 	return damage
 }

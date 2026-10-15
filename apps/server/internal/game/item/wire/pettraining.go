@@ -81,13 +81,16 @@ type PetGearState struct {
 }
 
 type PetTrainingState struct {
-	PetGID                        uint32
-	FreePoints                    uint8
-	AttackPercent, DefensePercent uint16
-	Rows                          [2]PetRowState
-	Slotted                       [3]uint8
-	Skills                        []PetSkillRow
-	Gear                          []PetGearState
+	PetGID                            uint32
+	FreePoints                        uint8
+	AttackPercent, DefensePercent     uint16
+	Rows                              [2]PetRowState
+	Slotted                           [3]uint8
+	Skills                            []PetSkillRow
+	Gear                              []PetGearState
+	MaxHP                             uint32
+	MagicPercent, MagicDefensePercent uint16
+	MagicPrimary                      bool
 }
 
 /*
@@ -123,6 +126,17 @@ func EncodePetTrainingState(s PetTrainingState) []byte {
 		out = append(out, uint8(len(g.Options)))
 		for _, o := range g.Options {
 			out = binary.LittleEndian.AppendUint64(out, o)
+		}
+	}
+	if s.MaxHP != 0 {
+		out = append(out, 1) // optional combat profile extension version
+		out = binary.LittleEndian.AppendUint32(out, s.MaxHP)
+		out = binary.LittleEndian.AppendUint16(out, s.MagicPercent)
+		out = binary.LittleEndian.AppendUint16(out, s.MagicDefensePercent)
+		if s.MagicPrimary {
+			out = append(out, 1)
+		} else {
+			out = append(out, 0)
 		}
 	}
 	return out

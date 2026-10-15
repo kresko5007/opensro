@@ -4,8 +4,8 @@
 pettraining.go - attack-pet skill and gear commands and the state push
 
 Port-only, not native. COS tag F0 is [gid:u32, tag:u8, op:u8, arg:u8]: op
-0 asks for the state, 1 learns skill arg's next level, 2 toggles skill
-arg's autocast, 3 wears the item in bag slot arg, 4 returns gear slot arg
+0 asks for state (arg2 upgrades sequential books), 1 learns the next rank,
+2 queues the legacy skill or casts with an appended target u32, 3 wears the item in bag slot arg, 4 returns gear slot arg
 to the bag, 5 refunds every skill, 6 slots passive arg. The server checks
 ownership, serializes changes with normal pet orders and answers with the
 0x3FB1 state push (item/wire/pettraining.go). Gear moves between the
@@ -17,6 +17,7 @@ pet's state (planBagChange). A refusal is a short private whisper.
 package action
 
 import (
+	"encoding/binary"
 	"fmt"
 	"strings"
 	"unicode/utf16"
@@ -97,7 +98,8 @@ foreign GIDs never modify any pet. The state request is allowed in combat.
 ================
 */
 func (rt *Runtime) handlePetTraining(division string, c *enterworld.Character, payload []byte) OpResult {
-	if len(payload) != petTrainingLength || payload[4] != petTrainingTag || payload[5] > petTrainingSlot {
+	if (len(payload) != petTrainingLength && len(payload) != petTrainingLength+4) || payload[4] != petTrainingTag || payload[5] > petTrainingSlot ||
+		len(payload) == petTrainingLength+4 && payload[5] != petTrainingUse {
 		return OpResult{}
 	}
 	if !rt.AttackPetExpansion {
@@ -113,11 +115,27 @@ func (rt *Runtime) handlePetTraining(division string, c *enterworld.Character, p
 		return OpResult{}
 	}
 	operation, arg := payload[5], payload[6]
+	if operation == petTrainingState && arg == 2 && snapshot.CompanionByGID(gid).Training.TreeVersion < 2 {
+		if !rt.deps.Update(c, "pet-tree-upgrade", func() bool {
+			live := c.CompanionByGID(gid)
+			if live == nil {
+				return false
+			}
+			companion.UpgradeTree(live)
+			return true
+		}) {
+			return petTrainingReceipt("The skill tree could not be upgraded.")
+		}
+		snapshot = rt.characterSnapshot(division, c)
+	}
 	nowMs := rt.Now().UnixMilli()
 	if operation == petTrainingState {
 		return OpResult{Frames: rt.petTrainingStateFrames(snapshot.CompanionByGID(gid), nowMs)}
 	}
 	state := rt.petSessionFor(division, c.Name, gid)
+	if operation == petTrainingUse && len(payload) == petTrainingLength+4 {
+		return rt.manualPetSkill(division, c, snapshot, gid, arg, binary.LittleEndian.Uint32(payload[7:]), nowMs)
+	}
 	if operation != petTrainingUse && operation != petTrainingSlot &&
 		(snapshot.BattleUntilMs > nowMs || state != nil && state.combat != nil) {
 		return petTrainingReceipt("Recall the pet and leave combat before changing its skills or gear.")
@@ -170,18 +188,26 @@ func (rt *Runtime) petTrainingStateFrames(pet *domain.CharacterCOS, nowMs int64)
 	}
 	t := &pet.Training
 	m := companion.ModifiersFor(pet)
+	p := companion.Profile(pet.Codename)
+	physical, magical := companion.AttackScales(pet.Codename, m)
 	state := wire.PetTrainingState{
-		PetGID:         pet.GID,
-		FreePoints:     uint8(min(companion.TrainingPoints(pet), 255)),
-		AttackPercent:  uint16(100 + m.AttackPct),
-		DefensePercent: uint16(100 + m.DefensePct),
-		Slotted:        t.Slotted,
+		PetGID:              pet.GID,
+		FreePoints:          uint8(min(companion.TrainingPoints(pet), 255)),
+		AttackPercent:       uint16(100 * physical),
+		DefensePercent:      uint16(p.DefensePercent * (100 + m.DefensePct) / 100),
+		MagicPercent:        uint16(100 * magical),
+		MagicDefensePercent: uint16(p.MagicDefensePercent * (100 + m.DefensePct) / 100),
+		MagicPrimary:        p.MagicPrimary,
+		Slotted:             t.Slotted,
+	}
+	if ref, ok := rt.cosReference(pet); ok {
+		state.MaxHP = ref.MaxHP
 	}
 	for row := range t.Rows {
 		r := t.Rows[row]
 		state.Rows[row] = wire.PetRowState{TimerMs: uint32(max(0, r.ReadyAtMs-nowMs)), Left: r.Left, Kind: r.Kind}
 	}
-	for _, s := range companion.PetSkills(companion.PetKind(pet.Codename)) {
+	for _, s := range companion.SkillsForPet(pet) {
 		lvl := companion.Level(pet, s)
 		eff := companion.EffectiveLevel(pet, s, m)
 		row := wire.PetSkillRow{ID: s.ID, Level: lvl, EffectiveLevel: eff,
@@ -271,7 +297,7 @@ func (rt *Runtime) wearPetGear(c *enterworld.Character, gid uint32, bagSlot uint
 		}
 		taken, slot, degree = item, s, d
 		if previous, worn := rt.petGearItem(pet.Training.Gear[s]); worn {
-			if _, fault := inv.GrantStack(previous, 1); fault != nil {
+			if grant, fault := inv.GrantStack(previous, 1); fault != nil || grant.GroundRemainder != 0 {
 				return fmt.Errorf("bag full")
 			}
 		}
@@ -310,8 +336,8 @@ func (rt *Runtime) removePetGear(c *enterworld.Character, gid uint32, slot int) 
 		return "Nothing is worn there.", nil
 	}
 	rows, frames, err := rt.planBagChange(c, func(inv *inventory.Inventory) error {
-		_, fault := inv.GrantStack(item, 1)
-		if fault != nil {
+		grant, fault := inv.GrantStack(item, 1)
+		if fault != nil || grant.GroundRemainder != 0 {
 			return fmt.Errorf("bag full")
 		}
 		return nil

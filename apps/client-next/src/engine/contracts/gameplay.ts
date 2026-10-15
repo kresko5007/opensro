@@ -297,7 +297,13 @@ export type GameplayCommand =
 	}
 	| { readonly kind: "cos-behavior"; readonly gid: number; readonly mode: number; }
 	// Port-only wolf skill tree (op and arg of the server's tag F0 command).
-	| { readonly kind: "cos-training"; readonly gid: number; readonly operation: number; readonly arg: number; }
+	| {
+		readonly kind: "cos-training";
+		readonly gid: number;
+		readonly operation: number;
+		readonly arg: number;
+		readonly target?: number;
+	}
 	| { readonly kind: "cos-follow"; readonly gid: number; }
 	| { readonly kind: "cos-cancel"; readonly gid: number; }
 	| { readonly kind: "cos-clean"; readonly gid: number; }
@@ -590,6 +596,12 @@ an empty slot), from the latest server state.
 ================
 */
 export interface PetTraining {
+	readonly stats?: {
+		readonly maxHp: number;
+		readonly magicPercent: number;
+		readonly magicDefensePercent: number;
+		readonly magicPrimary: boolean;
+	};
 	readonly gid: number;
 	readonly points: number;
 	readonly attackPercent: number;

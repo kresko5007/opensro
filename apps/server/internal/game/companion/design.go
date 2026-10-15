@@ -56,9 +56,15 @@ PetDef
 ================
 */
 type PetDef struct {
-	Name           string `json:"name"`
-	Role           string `json:"role"`
-	CodenamePrefix string `json:"codenamePrefix"`
+	Name                string  `json:"name"`
+	Role                string  `json:"role"`
+	CodenamePrefix      string  `json:"codenamePrefix"`
+	HPPercent           float64 `json:"hpPercent"`
+	PhysicalPercent     float64 `json:"physicalPercent"`
+	MagicalPercent      float64 `json:"magicalPercent"`
+	DefensePercent      float64 `json:"defensePercent"`
+	MagicDefensePercent float64 `json:"magicDefensePercent"`
+	MagicPrimary        bool    `json:"magicPrimary"`
 }
 
 /*
@@ -70,6 +76,8 @@ skill level; Status other than "Implemented" cannot be learned.
 ================
 */
 type SkillDef struct {
+	Family           string   `json:"family"`
+	TierEnd          uint8    `json:"tierEnd"`
 	ID               uint8    `json:"id"`
 	Pet              string   `json:"pet"`
 	Row              int      `json:"row"`
@@ -139,11 +147,12 @@ Design
 ================
 */
 type Design struct {
-	Rules   Rules        `json:"rules"`
-	Pets    []PetDef     `json:"pets"`
-	Skills  []SkillDef   `json:"skills"`
-	Gear    []GearDegree `json:"gear"`
-	Affixes []AffixDef   `json:"affixes"`
+	TreeSkills []SkillDef   `json:"treeSkills"`
+	Rules      Rules        `json:"rules"`
+	Pets       []PetDef     `json:"pets"`
+	Skills     []SkillDef   `json:"skills"`
+	Gear       []GearDegree `json:"gear"`
+	Affixes    []AffixDef   `json:"affixes"`
 }
 
 // D is the embedded design.

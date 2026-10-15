@@ -98,8 +98,26 @@ a protocol error, never a partial one.
 				for ( let k = 0; k < n; k++ ) magic.push( v.getBigUint64( take( 8 ), true ).toString() );
 				gear.push( ref ? item( ref, i, magic ) : null );
 			}
+			let stats: PetTraining["stats"];
+			if ( at < p.length ) {
+				if ( u8() !== 1 ) throw new Error( "Unknown pet combat profile" );
+				const maxHp = u32(), magicPercent = u16(), magicDefensePercent = u16(), primary = u8();
+				if ( maxHp === 0 || primary > 1 ) throw new Error( "Invalid pet combat profile" );
+				stats = { maxHp, magicPercent, magicDefensePercent, magicPrimary: primary === 1 };
+			}
 			if ( at !== p.length ) throw new Error( "Trailing pet training bytes" );
-			state = { gid, points, attackPercent, defensePercent, rows, slotted, skills, gear, receivedAtMs: now };
+			state = {
+				gid,
+				points,
+				attackPercent,
+				defensePercent,
+				rows,
+				slotted,
+				skills,
+				gear,
+				...(stats ? { stats } : {}),
+				receivedAtMs: now
+			};
 			return true;
 		},
 		state: () => state,

@@ -238,7 +238,14 @@ func TestModifiersSumGearAndPassives(t *testing.T) {
 	p.Training.Levels[predator.Index()] = 2
 	p.Training.Slotted[predator.Row-ActiveRowCount] = uint8(predator.Option)
 	m := ModifiersFor(&p)
-	if m.AttackPct != d.Items[0].Implicit+7+predator.ValueAt(2) || m.DefensePct != d.Items[1].Implicit {
+	physical, magical := AttackScales(p.Codename, m)
+	withoutBlue := m
+	withoutBlue.PhysicalPct = 0
+	basePhysical, baseMagical := AttackScales(p.Codename, withoutBlue)
+	if physical <= basePhysical || magical != baseMagical {
+		t.Fatal("physical blue did not improve physical damage only")
+	}
+	if m.AttackPct != d.Items[0].Implicit+predator.ValueAt(2) || m.DefensePct != d.Items[1].Implicit || m.PhysicalPct != 7 {
 		t.Fatalf("modifiers %+v", m)
 	}
 	p.Training.Gear[0].RefObjID = d.Items[1].ID

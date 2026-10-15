@@ -43,7 +43,7 @@ share the movement owner's ordering boundary. Direct callers retain frames.
 */
 func (rt *Runtime) handleCosCommand(divisionID string, character *enterworld.Character, payload []byte, publish func([]wire.Frame)) OpResult {
 	// Port-only training is kept out of the retail command decoder.
-	if character != nil && len(payload) == petTrainingLength && payload[4] == petTrainingTag {
+	if character != nil && (len(payload) == petTrainingLength || len(payload) == petTrainingLength+4) && payload[4] == petTrainingTag {
 		unlock := rt.lockDivision(divisionID)
 		defer unlock()
 		return rt.handlePetTraining(divisionID, character, payload)

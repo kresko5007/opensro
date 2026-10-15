@@ -1,0 +1,15 @@
+# Never edit after it ships: a new persisted field takes schema 25, its upgrade
+# fortress record fields owned by store schema 24 (persisted_shape_test.go).
+# step and fortress-fields-v25.txt.
+battleRecords
+battleRecords[].characterId
+battleRecords[].deaths
+battleRecords[].kills
+battleRecords[].rank
+battleRecords[].rankAtMs
+fortressId
+guildId
+staffFlags
+taxGold
+taxRate
+tempGuildId

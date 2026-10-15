@@ -1966,11 +1966,12 @@ state here before a command can claim a native wire conversation.
 				) {
 					throw Error( "No living attack pet or invalid training operation" );
 				}
-				const payload = new Uint8Array( 7 );
+				const payload = new Uint8Array( command.operation === 2 ? 11 : 7 );
 				new DataView( payload.buffer ).setUint32( 0, record.gid, true );
 				payload[4] = 0xf0;
 				payload[5] = command.operation;
 				payload[6] = command.arg;
+				if ( command.operation === 2 ) new DataView( payload.buffer ).setUint32( 7, command.target ?? 0, true );
 				return sendFrame( { opcode: 0x769e, payload } );
 			}
 			if ( command.kind === "cos-follow" || command.kind === "cos-cancel" ) {

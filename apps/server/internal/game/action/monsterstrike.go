@@ -257,7 +257,16 @@ func (rt *Runtime) monsterStrikeCOS(in monsterStrikeInput, owner *enterworld.Cha
 		if enterworld.CharacterAlive(owner) {
 			battleFrames = rt.enterBattleState(divisionID, owner, nowMs)
 		}
-		rt.petTrainedHitTaken(owner, live)
+		previousRows := live.Training.Rows
+		for _, formula := range formulas {
+			if !formula.Blocked && formula.Damage > 0 {
+				rt.petTrainedHitTaken(owner, live)
+				break
+			}
+		}
+		if live.Training.Rows != previousRows {
+			strike.private = append(strike.private, rt.petTrainingStateFrames(live, nowMs)...)
+		}
 		for _, formula := range formulas {
 			hitContext.Magical = hitContext.Magical || formula.MagicalDamage != 0
 			live.CurrentHP -= vitals.HitDebit(live.CurrentHP, formula.Damage)

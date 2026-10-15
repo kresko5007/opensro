@@ -330,6 +330,11 @@ TestExecuteAndShatterAdjustDamage
 func TestExecuteAndShatterAdjustDamage(t *testing.T) {
 	rt := &Runtime{CombatRoll: func() (uint32, error) { return 9999, nil }}
 	target := monster.Instance{CurrentHP: 500, Ref: monster.MonsterRef{MaxHP: 10000}}
+	blocked := []combat.Result{{Blocked: true}}
+	rt.petTrainedDamage(&petTrainedStrike{execute: 10}, target, blocked)
+	if blocked[0].Damage != 0 {
+		t.Fatal("a blocked hit executed the monster")
+	}
 	formulas := []combat.Result{{Damage: 100}}
 	rt.petTrainedDamage(&petTrainedStrike{execute: 5}, target, formulas)
 	if formulas[0].Damage != 500 {
@@ -346,6 +351,86 @@ func TestExecuteAndShatterAdjustDamage(t *testing.T) {
 	rt.petTrainedDamage(&petTrainedStrike{shatter: 50}, target, formulas)
 	if formulas[0].Damage != 150 {
 		t.Fatalf("Shatter: damage %d", formulas[0].Damage)
+	}
+}
+
+/*
+================
+
+# TestManualPetBuffCastsWithoutAttack
+
+A counter starts at its full cost and each subsequent committed attack
+pushes the reduced count, including the final ready state.
+================
+*/
+func TestManualPetBuffCastsWithoutAttack(t *testing.T) {
+	rt, clock, c, _ := newPetCombatRuntime(t, 100000, attackPetBand)
+	makeTrainedPet(rt, c, "COS_P_BEAR_040", 40)
+	rt.AttackPetExpansion = true
+	skill := learn(t, rt, c, "Iron Hide", 1)
+	command := append(trainingCommand(c.ActiveCOS.GID, petTrainingUse, skill.ID), 0, 0, 0, 0)
+	result := rt.HandleCosCommand(testDivision, c, command)
+	state := rt.petSessionFor(testDivision, c.Name, c.ActiveCOS.GID)
+	if len(result.Frames) == 0 || state == nil || state.trained.ironHideUntil <= clock.NowMs() ||
+		companion.RowReady(&c.ActiveCOS.Training, skill.Row, clock.NowMs()) || c.ActiveCOS.Training.Queued != 0 {
+		t.Fatal("manual buff did not apply and spend cooldown without an attack")
+	}
+	until := state.trained.ironHideUntil
+	rt.HandleCosCommand(testDivision, c, command)
+	if state.trained.ironHideUntil != until {
+		t.Fatal("cooldown allowed a second manual cast")
+	}
+}
+
+/*
+================
+TestManualRoarAddsPetThreatWithoutDamageOrTarget
+================
+*/
+func TestManualRoarAddsPetThreatWithoutDamageOrTarget(t *testing.T) {
+	rt, clock, c, mob := newPetCombatRuntime(t, 100000, attackPetBand)
+	makeTrainedPet(rt, c, "COS_P_BEAR_040", 40)
+	rt.AttackPetExpansion = true
+	companion.UpgradeTree(c.ActiveCOS)
+	if msg := companion.Learn(c.ActiveCOS, 16); msg != "" {
+		t.Fatal(msg)
+	}
+	before, _ := rt.Monsters.Get(testDivision, mob.Gid)
+	rt.HandleCosCommand(testDivision, c, append(trainingCommand(c.ActiveCOS.GID, petTrainingUse, 16), 0, 0, 0, 0))
+	after, _ := rt.Monsters.Get(testDivision, mob.Gid)
+	if companion.RowReady(&c.ActiveCOS.Training, 0, clock.NowMs()) || after.CurrentHP != before.CurrentHP || after.Opponents[0].GID != c.ActiveCOS.GID {
+		t.Fatalf("roar did not taunt without damage: HP %d/%d opponents %+v", before.CurrentHP, after.CurrentHP, after.Opponents)
+	}
+}
+
+/*
+================
+TestPetCounterPushAfterAttack
+================
+*/
+func TestPetCounterPushAfterAttack(t *testing.T) {
+	rt, clock, c, m := newPetCombatRuntime(t, 100000, attackPetBand)
+	makeTrainedPet(rt, c, "COS_P_WOLF_060", 60)
+	rt.AttackPetExpansion = true
+	frenzy := learn(t, rt, c, "Frenzy", 1)
+	train(rt, c, petTrainingUse, frenzy.ID)
+	attackUntil(t, rt, clock, c, m, func() bool { return c.ActiveCOS.Training.Rows[frenzy.Row].Left > 0 })
+	if got := c.ActiveCOS.Training.Rows[frenzy.Row].Left; got != uint16(frenzy.CooldownAt(1)) {
+		t.Fatalf("cast consumed its own recharge: %d", got)
+	}
+	state := rt.petSessionFor(testDivision, c.Name, c.ActiveCOS.GID)
+	c.ActiveCOS.Training.Rows[frenzy.Row].Left = 1
+	strike := &petTrainedStrike{passive: -1}
+	ref, _ := rt.cosReference(c.ActiveCOS)
+	step := petCombatStep{pet: c.ActiveCOS, state: state, ref: ref, nowMs: clock.NowMs()}
+	rt.petTrainedCommit(step, c, c.ActiveCOS, strike, 1, false, false)
+	if c.ActiveCOS.Training.Rows[frenzy.Row].Left != 0 || len(strike.ownerState) == 0 {
+		t.Fatal("counter completion did not publish ready state")
+	}
+	strike = &petTrainedStrike{passive: -1, procUsed: true}
+	rt.petTrainedCommit(step, c, c.ActiveCOS, strike, 0, false, false)
+	if state.trained.procReadyAt != step.nowMs+companion.D.Rules.ProcInternalCooldownMs {
+		t.Fatal("committed proc on a blocked hit did not spend its cooldown")
 	}
 }
 

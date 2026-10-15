@@ -665,6 +665,7 @@ aliases the live pet. BonusPoints are operator-provisioned.
 ================
 */
 type PetTraining struct {
+	TreeVersion      uint8             `json:"treeVersion,omitempty"`
 	Levels           [15]uint8         `json:"levels,omitzero"`
 	Slotted          [3]uint8          `json:"slotted,omitzero"`
 	Queued           uint8             `json:"-"`

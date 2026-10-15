@@ -67,6 +67,15 @@ A skill of this pet by ID; false for another pet's skill.
 */
 func PetSkill(p *domain.CharacterCOS, id uint8) (SkillDef, bool) {
 	s, ok := Skill(id)
+	if p.Training.TreeVersion >= 2 {
+		ok = false
+		for _, candidate := range D.TreeSkills {
+			if candidate.ID == id {
+				s, ok = candidate, true
+				break
+			}
+		}
+	}
 	if !ok || s.Pet != PetKind(p.Codename) || s.Index() < 0 || s.Index() >= len(p.Training.Levels) {
 		return SkillDef{}, false
 	}
@@ -109,6 +118,9 @@ func NextLevelRequirement(s SkillDef, current uint8) uint8 {
 	if current >= s.MaxLevel {
 		return 0
 	}
+	if s.TierEnd > s.UnlockLevel && s.MaxLevel > 1 {
+		return s.UnlockLevel + uint8((int(current)*int(s.TierEnd-s.UnlockLevel)+int(s.MaxLevel)-2)/(int(s.MaxLevel)-1))
+	}
 	return uint8(min(255, int(s.UnlockLevel)+int(current)*int(D.Rules.PetLevelsPerSkillLevel)))
 }
 
@@ -140,6 +152,12 @@ func LearnRefusal(p *domain.CharacterCOS, id uint8) string {
 		return "This pet cannot learn that skill."
 	}
 	current := Level(p, s)
+	if p.Training.TreeVersion >= 2 && s.Option > 1 {
+		previous, exists := PetSkill(p, id-1)
+		if !exists || Level(p, previous) < previous.MaxLevel {
+			return "Max the previous tier before learning " + s.Name + "."
+		}
+	}
 	switch {
 	case !s.Live():
 		return s.Name + " is not available yet."
@@ -167,7 +185,7 @@ func Learn(p *domain.CharacterCOS, id uint8) string {
 	}
 	s, _ := PetSkill(p, id)
 	p.Training.Levels[s.Index()]++
-	if !s.Active && p.Training.Slotted[s.Row-ActiveRowCount] == 0 {
+	if !s.Active && (p.Training.TreeVersion >= 2 || p.Training.Slotted[s.Row-ActiveRowCount] == 0) {
 		p.Training.Slotted[s.Row-ActiveRowCount] = uint8(s.Option)
 	}
 	return ""
@@ -238,7 +256,7 @@ func SlottedPassive(p *domain.CharacterCOS, row int) (SkillDef, bool) {
 	if option == 0 {
 		return SkillDef{}, false
 	}
-	for _, s := range PetSkills(PetKind(p.Codename)) {
+	for _, s := range SkillsForPet(p) {
 		if s.Row == row && s.Option == int(option) && Level(p, s) > 0 && s.Live() {
 			return s, true
 		}
@@ -256,7 +274,7 @@ level; false when it is not slotted.
 */
 func Passive(p *domain.CharacterCOS, name string, m Modifiers) (SkillDef, uint8, bool) {
 	for row := ActiveRowCount; row < RowCount; row++ {
-		if s, ok := SlottedPassive(p, row); ok && s.Name == name {
+		if s, ok := SlottedPassive(p, row); ok && s.EffectName() == name {
 			return s, EffectiveLevel(p, s, m), true
 		}
 	}

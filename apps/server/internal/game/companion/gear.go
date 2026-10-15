@@ -192,7 +192,8 @@ one moment. Percentages are added (+10 is +10%).
 ================
 */
 type Modifiers struct {
-	AttackPct      float64 // physical and magical attack
+	AttackPct      float64 // both attack types (collar implicit)
+	PhysicalPct    float64 // physical affixes only
 	MagicPct       float64 // magical attack only
 	DefensePct     float64
 	CritPct        float64
@@ -250,11 +251,11 @@ func ModifiersFor(p *domain.CharacterCOS) Modifiers {
 			continue
 		}
 		v := s.ValueAt(EffectiveLevel(p, s, m))
-		switch s.Name {
+		switch s.EffectName() {
 		case "Predator":
 			m.AttackPct += v
 		case "Cold Mastery":
-			m.AttackPct += v
+			m.MagicPct += v
 		case "Swift Fangs", "Swift Wings":
 			m.AttackSpeedPct += v
 		case "Thick Fur", "Thick Hide", "Frost Armor":
@@ -279,7 +280,7 @@ addAffix
 func (m *Modifiers) addAffix(a AffixDef, v float64, pet string) {
 	switch a.Group {
 	case "DmgPhys":
-		m.AttackPct += v
+		m.PhysicalPct += v
 	case "DmgMag":
 		m.MagicPct += v
 	case "Crit":
