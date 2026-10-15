@@ -3,12 +3,13 @@
 
 social-question.ts - the question a guild or party action asks first
 
-Secede and Disband (the guild manager's rows) and the party ban ask their
-native question before anything is sent. The guild window's Withdraw
-(UIIT_STT_GUILD_EXPULSION, the ban) asks nothing: 5E4C30 sends it on the
-click, and UIIT_MSG_GUILD_QUESTION_EXPULSION_ANYONE is never shown by
-v1.150. The window draws the box (simpleMessageBox); Yes sends the action,
-No drops it.
+Secede and Disband and the party ban ask their native question before
+anything is sent. The guild window's Withdraw (UIIT_STT_GUILD_EXPULSION,
+the ban) asks UIIT_MSG_GUILD_QUESTION_EXPULSION_ANYONE only while the
+Experimental "Confirm guild ban" row is on: port-only, not native (5E4C30
+sends the ban on the click and v1.150 never shows that text); the owner
+kept the question by default on 2026-10-15. The window draws the box
+(simpleMessageBox); Yes sends the action, No drops it.
 
 ===========================================================================
 */
@@ -22,6 +23,7 @@ What the questions read of the player's own guild.
 */
 export interface SocialQuestionGuild {
 	readonly name?: string;
+	readonly members: readonly { readonly id: number; readonly name: string; }[];
 }
 
 /*
@@ -50,13 +52,25 @@ export interface SocialQuestion {
 ================
 socialQuestion
 
-The native question for an armed action: secede (EXIT1 with the guild's,
-then EXIT2's 72-hour warning), disband (BREAK_CONFIRM) and the party ban.
-Null when nothing is asked. The window resolves the text keys.
+The question for an armed action: ban (EXPULSION_ANYONE with the
+member's name, port-only), secede (EXIT1 with the guild's, then EXIT2's 72-hour
+warning), disband (BREAK_CONFIRM) and the party ban. Null when nothing is
+asked, or a ban names no member. The window resolves the text keys.
 ================
 */
-export function socialQuestion( asked: string, guild: SocialQuestionGuild | null | undefined ): SocialQuestion | null {
+export function socialQuestion(
+	asked: string,
+	guild: SocialQuestionGuild | null | undefined,
+	member: number
+): SocialQuestion | null {
 	switch ( asked ) {
+		case "guild-kick": {
+			const name = guild?.members.find( m => m.id === member )?.name;
+			return name === undefined ? null : {
+				title: "UIIT_STT_GUILD_EXPULSION",
+				lines: [ { key: "UIIT_MSG_GUILD_QUESTION_EXPULSION_ANYONE", arg: name } ]
+			};
+		}
 		case "guild-leave":
 			return {
 				title: "UIIT_STT_GUILD_EXIT",
