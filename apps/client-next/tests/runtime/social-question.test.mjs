@@ -24,7 +24,7 @@ test("Withdraw asks nothing: 5E4C30 sends the ban on the click", () => {
 
 test("secede, disband and the party ban ask their native questions", () => {
 	assert.deepEqual( socialQuestion( "guild-leave", guild ).lines, [
-		{ key: "UIIT_MSG_GUILD_QUESTION_EXIT1", arg: "Bandits" },
+		{ key: "UIIT_MSG_GUILD_QUESTION_EXIT1", args: [ "Bandits" ] },
 		{ key: "UIIT_MSG_GUILD_QUESTION_EXIT2" }
 	] );
 	assert.deepEqual( socialQuestion( "guild-dissolve", guild ).lines, [ { key: "UIIT_MSG_GUILD_BREAK_CONFIRM" } ] );
