@@ -124,7 +124,7 @@ var Registry = []Setting{
 	// at most 2000 and a banner at least 3000, so a fade never outlasts it.
 	{Key: ShortNoticeShowMs, Env: "SRO_SHORT_NOTICE_SHOW_MS", Kind: Int, Default: 5000, Min: 3000, Max: 7000,
 		Step: 500, Class: Entry, Group: "Client", Label: "Short notices: time shown", Unit: "ms",
-		Help: "How long a notice banner shows for players who turned on the Experimental \"Short notices\" row. Players who keep it off see the original 7 seconds."},
+		Help: "How long a notice banner shows with the Experimental \"Short notices\" row on (its default). A player who turns the row off sees the original 7 seconds."},
 	{Key: ShortNoticeFadeMs, Env: "SRO_SHORT_NOTICE_FADE_MS", Kind: Int, Default: 1000, Min: 500, Max: 2000,
 		Step: 100, Class: Entry, Group: "Client", Label: "Short notices: fade", Unit: "ms",
 		Help: "How much of a short notice's time is its fade-out."},
