@@ -324,6 +324,7 @@ import {
 	grantableAvatarPart
 } from "@/engine/foundation/gameplay/avatar-magic-option";
 import {
+	guildBanRefused,
 	guildLevelUpPrice,
 	guildManagerRows,
 	guildTransferRefusal,
@@ -3467,18 +3468,29 @@ export function createUi(
 			// The social window's leave asks nothing, as the party window's does.
 			sendGameplay( { kind: id } );
 		} else if ( id === "guild-kick" ) {
-			// 5E4C30 slot 2 → 703DD0 sends the ban on the click: no question. With
-			// no member selected nothing happens; the worker refuses the master or
-			// oneself (guildBanRefused) with its 0x10 notice.
-			const member = view.gameplay?.social?.guild?.members.find( m => m.id === socialMember );
-			if ( member ) sendGameplay( { kind: "guild-kick", name: member.name } );
+			// 5E4C30 slot 2 → 703DD0 sends the ban on the click. With no member
+			// selected nothing happens; the worker refuses the master or oneself
+			// (guildBanRefused) with its 0x10 notice, before any question.
+			// Port-only, not native: the Experimental "Confirm guild ban" row
+			// (on by default, the owner's choice 2026-10-15) asks first.
+			const social = view.gameplay?.social;
+			const member = social?.guild?.members.find( m => m.id === socialMember );
+			if ( !member ) return;
+			if (
+				experimental.state().saved.confirmGuildBan &&
+				!guildBanRefused( social?.guild ?? null, social?.localName ?? "", member.name )
+			) confirmSocial = id;
+			else sendGameplay( { kind: "guild-kick", name: member.name } );
 		} else if ( [ "party-kick", "guild-leave", "guild-dissolve" ].includes( id ) ) {
 			// The question box below (socialQuestion) asks first.
 			confirmSocial = id;
 		} else if ( id === "social-confirm-yes" ) {
-			const gid = view.gameplay?.target ?? 0;
+			const gid = view.gameplay?.target ?? 0,
+				member = view.gameplay?.social?.guild?.members.find( m => m.id === socialMember );
 			if ( confirmSocial === "party-kick" ) sendGameplay( { kind: confirmSocial, id: socialMember } );
-			else if ( confirmSocial === "guild-leave" || confirmSocial === "guild-dissolve" ) {
+			else if ( confirmSocial === "guild-kick" && member ) {
+				sendGameplay( { kind: confirmSocial, name: member.name } );
+			} else if ( confirmSocial === "guild-leave" || confirmSocial === "guild-dissolve" ) {
 				sendGameplay( { kind: confirmSocial, gid } );
 			} else if ( confirmSocial === "guild-title" && grantAsk ) {
 				// 6971B0 case 0x14 sends 0x72BC with the asked member and nickname.
@@ -20389,7 +20401,7 @@ export function createUi(
 					no: "union-ask-no"
 				} );
 			}
-			const socialAsk = socialQuestion( confirmSocial, game?.social?.guild, grantAsk );
+			const socialAsk = socialQuestion( confirmSocial, game?.social?.guild, socialMember, grantAsk );
 			if ( worldVisible && socialAsk ) {
 				// The guild window's Withdraw (UIIT_STT_GUILD_EXPULSION, a ban of
 				// the selected member), Secede and Disband, and the party ban,

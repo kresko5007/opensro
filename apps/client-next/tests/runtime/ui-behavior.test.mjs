@@ -2141,11 +2141,13 @@ test("GPU management controls send typed intent and preserve the selected guild 
 		f.ui.event( { kind: "activate", id: "open-window:Guild" } );
 		f.ui.step( f.state, 400 );
 		f.ui.event( { kind: "activate", id: "social-member:22" } );
-		// Withdraw (UIIT_STT_GUILD_EXPULSION) bans on the click, as 5E4C30 does:
-		// no question.
+		// Withdraw (UIIT_STT_GUILD_EXPULSION) asks first while the default-on
+		// Experimental "Confirm guild ban" row is on (port-only; 5E4C30 sends
+		// on the click).
 		f.ui.event( { kind: "activate", id: "guild-kick" } );
 		output = f.ui.step( f.state, 410 );
-		assert.ok( !output.controls.some( c => c.id === "social-confirm-no" ) );
+		assert.ok( output.controls.some( c => c.id === "social-confirm-no" ) );
+		f.ui.event( { kind: "activate", id: "social-confirm-yes" } );
 		assert.deepEqual( sent.pop(), { kind: "guild-kick", name: "Other" } );
 		f.ui.event( { kind: "activate", id: "guild-dialog:title" } );
 		f.ui.step( f.state, 450 );

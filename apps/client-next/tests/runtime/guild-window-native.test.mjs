@@ -4,8 +4,10 @@
 guild-window-native.test.mjs - the guild window's commands as the original
 
 The BN button audit (research ui-button-audit/guild-union.md): Withdraw
-bans on the click (5E4C30 → 703DD0) and the worker refuses the master
-or oneself with notice 0x10/0x1F; the authority button reads "Give authority" for the
+bans on the click (5E4C30 → 703DD0) unless the default-on Experimental
+"Confirm guild ban" row asks first (port-only, the owner's choice
+2026-10-15); the worker refuses the master or oneself with notice
+0x10/0x1F before any question; the authority button reads "Give authority" for the
 master and "Check authority" for a member (5E1E80); an invite goes to the
 selected player or a selected mounted pet's rider (700B50).
 
@@ -74,14 +76,42 @@ function guildWindow( t, selfGrade ) {
 	return { f, sent, step };
 }
 
-test("Withdraw bans on the click, with no question (5E4C30)", t => {
+test("Withdraw with Confirm guild ban off bans on the click, as 5E4C30", t => {
 	const { f, sent, step } = guildWindow( t, 1 );
+	f.ui.event( /** @type {any} */ ({ kind: "experimental-preferences", value: { confirmGuildBan: false } }) );
 	for ( const [id, name] of [ [ 7, "Other" ], [ 6, "Boss" ], [ SELF, "Player" ] ] ) {
 		f.ui.event( { kind: "activate", id: "social-member:" + id } );
 		step();
 		f.ui.event( { kind: "activate", id: "guild-kick" } );
 		const out = step();
 		assert.ok( !out.controls.some( c => c.id === "social-confirm-yes" ), "no question" );
+		assert.deepEqual( sent.pop(), { kind: "guild-kick", name } );
+	}
+});
+
+test("Withdraw with Confirm guild ban on (the default) asks first, port-only", t => {
+	const { f, sent, step } = guildWindow( t, 1 );
+	f.ui.event( { kind: "activate", id: "social-member:7" } );
+	step();
+	f.ui.event( { kind: "activate", id: "guild-kick" } );
+	let out = step();
+	assert.ok( out.controls.some( c => c.id === "social-confirm-yes" ), "the question shows" );
+	assert.equal( sent.length, 0 );
+	f.ui.event( { kind: "activate", id: "social-confirm-no" } );
+	step();
+	assert.equal( sent.length, 0, "No drops the ban" );
+	f.ui.event( { kind: "activate", id: "guild-kick" } );
+	step();
+	f.ui.event( { kind: "activate", id: "social-confirm-yes" } );
+	assert.deepEqual( sent.pop(), { kind: "guild-kick", name: "Other" } );
+	// The master and oneself are refused before any question: the worker
+	// answers the click with 0x10/0x1F.
+	for ( const [id, name] of [ [ 6, "Boss" ], [ SELF, "Player" ] ] ) {
+		f.ui.event( { kind: "activate", id: "social-member:" + id } );
+		step();
+		f.ui.event( { kind: "activate", id: "guild-kick" } );
+		out = step();
+		assert.ok( !out.controls.some( c => c.id === "social-confirm-yes" ), "no question for " + name );
 		assert.deepEqual( sent.pop(), { kind: "guild-kick", name } );
 	}
 });
