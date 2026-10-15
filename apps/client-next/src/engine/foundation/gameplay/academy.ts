@@ -1,5 +1,26 @@
+/*
+===========================================================================
+
+academy.ts - the Academy (training camp) state: matching, roster, notice
+and opening
+
+Decodes the academy frames into AcademyState and composes its requests:
+the matching board (0x7701 / 0x7592), the notice (0x7220) and the opening
+at the storage NPC (0x72EC, answered by 0xB2EC). The 0x3AC5 status
+machine and the 0xB2EC opening carry the same camp record (82AA10).
+
+===========================================================================
+*/
 import { encodeWindows1252 } from "./windows1252";
 import type { WireFrame } from "@/engine/contracts/network";
+
+// ACADEMY_OPEN_FEE is the gold an opening costs: UIIT_MSG_TC_TRAININGCAMP_OPEN
+// names it and 5D26F0 case 6 compares the balance with 0x186A0 before 702BD0
+// sends 0x72EC.
+export const ACADEMY_OPEN_FEE = 100000;
+// ACADEMY_OPEN_LEVEL is 5D9100's floor for the "Academy Establishment" row
+// (g_pLocalPlayer+0x820 >= 0x3C).
+export const ACADEMY_OPEN_LEVEL = 60;
 export interface AcademyListing {
 	readonly id: number;
 	readonly kind: number;
@@ -38,25 +59,50 @@ export interface AcademyState {
 	readonly rows: readonly AcademyListing[];
 	readonly request: { readonly kind: "page" | "join"; readonly id: number; } | null;
 	readonly result: number | null;
+	// Count of accepted openings (0xB2EC [1]); 76FBA0 then opens the
+	// Academy tab (CGInterface_OpenAcademyTab), which the UI does on a change.
+	readonly opened?: number;
 }
-export type AcademyCommand = { readonly kind: "academy-page"; readonly page: number; } | {
-	readonly kind: "academy-join";
-	readonly id: number;
-} | { readonly kind: "academy-notice"; readonly subject: string; readonly contents: string; };
+export type AcademyCommand =
+	| { readonly kind: "academy-page"; readonly page: number; }
+	| {
+		readonly kind: "academy-join";
+		readonly id: number;
+	}
+	| { readonly kind: "academy-notice"; readonly subject: string; readonly contents: string; }
+	| {
+		readonly kind: "academy-open";
+	};
+/*
+================
+academyBootstrap
+================
+*/
 export function academyBootstrap( value: unknown ): AcademyState | undefined {
 	const member = (value as { academyMember?: unknown; }).academyMember;
 	if ( member === undefined ) return undefined;
 	if ( typeof member !== "boolean" ) throw Error( "Invalid academy membership" );
 	return { member, page: 0, pages: 0, rows: [], request: null, result: null };
 }
-// Native 671a50 checks current level, independently of the under-40 entry icon.
+/*
+================
+academyCanJoin
+
+Native 671a50 checks current level, independently of the under-40 entry icon.
+================
+*/
 export function academyCanJoin( state: AcademyState, id: number, level: number | undefined ): boolean {
 	return !state.member && level !== undefined && Number.isInteger( level ) && level > 0 && level < 60 &&
 		state.rows.some( r => r.id === id );
 }
+/*
+================
+academyRequest
+================
+*/
 export function academyRequest(
 	state: AcademyState,
-	command: Exclude<AcademyCommand, { kind: "academy-notice"; }>,
+	command: Exclude<AcademyCommand, { kind: "academy-notice"; } | { kind: "academy-open"; }>,
 	level?: number
 ): { state: AcademyState; frame: WireFrame; } {
 	if ( state.request ) throw Error( "Academy request in progress" );
@@ -86,6 +132,15 @@ export function academyRequest(
 	};
 }
 // v1.150 769720 / 769ca0. A join acknowledgement is not membership authority.
+// ACADEMY_OPEN_WAIT_CODE is UIIT_MSG_TC_ERROR_NOT_OPEN_7D, the one 0xB2EC
+// refusal 76FBA0 reads four more bytes after.
+const ACADEMY_OPEN_WAIT_CODE = 0x1c;
+
+/*
+================
+academyPacket
+================
+*/
 export function academyPacket( state: AcademyState, frame: WireFrame ): AcademyState | null {
 	const p = frame.payload, v = new DataView( p.buffer, p.byteOffset, p.byteLength );
 	let at = 0;
@@ -189,9 +244,10 @@ export function academyPacket( state: AcademyState, frame: WireFrame ): AcademyS
 		if ( at !== p.length ) throw Error( "Trailing academy membership failure bytes" );
 		return state;
 	}
-	if ( frame.opcode === 0x3ac5 && p[0] === 10 && p[1] === 1 ) {
-		u( 1 );
-		u( 1 );
+	// 82AA10 / 8290E0: the camp record the status-10 seed and the 0xB2EC
+	// opening share - the local member id, a 17-byte block, the notice and
+	// the counted roster.
+	const campRecord = (): AcademyState => {
 		const localMemberId = u( 4 );
 		for ( let i = 0; i < 17; i++ ) u( 1 );
 		const subject = str( false ), contents = str( false ), count = u( 1 );
@@ -211,6 +267,21 @@ export function academyPacket( state: AcademyState, frame: WireFrame ): AcademyS
 			contents,
 			members
 		};
+	};
+	if ( frame.opcode === 0x3ac5 && p[0] === 10 && p[1] === 1 ) {
+		u( 1 );
+		u( 1 );
+		return campRecord();
+	}
+	// 76FBA0: [1] and the new camp; [2] and a category-0x1D code, followed by
+	// a u32 only for 0x1C (the reopen wait). A refusal changes no state.
+	if ( frame.opcode === 0xb2ec ) {
+		const result = u( 1 );
+		if ( result === 1 ) return { ...campRecord(), opened: (state.opened ?? 0) + 1 };
+		if ( result !== 2 ) throw Error( "Invalid academy opening answer" );
+		if ( u( 1 ) === ACADEMY_OPEN_WAIT_CODE ) u( 4 );
+		if ( at !== p.length ) throw Error( "Trailing academy opening bytes" );
+		return state;
 	}
 	if ( frame.opcode === 0x3ac5 && p[0] === 2 ) {
 		u( 1 );
@@ -265,7 +336,13 @@ export function academyPacket( state: AcademyState, frame: WireFrame ): AcademyS
 	return null;
 }
 
-// 81E9F0: rank is derived from role and current level, not the wire entry-level byte.
+/*
+================
+academyRank
+
+81E9F0: rank is derived from role and current level, not the wire entry-level byte.
+================
+*/
 export function academyRank( member: AcademyMember ): number {
 	const { kind, level } = member;
 	return kind === 0 ?
@@ -283,8 +360,14 @@ export function academyRank( member: AcademyMember ): number {
 		0;
 }
 
-// 5F46F0 mode 2 validates before 704190 sanitizes and converts through 78E490/4B6960.
-// Native edit controls expose NUL-terminated UTF-16 text. Preserve spaces; no trim.
+/*
+================
+academyNoticeRequest
+
+5F46F0 mode 2 validates before 704190 sanitizes and converts through 78E490/4B6960.
+Native edit controls expose NUL-terminated UTF-16 text. Preserve spaces; no trim.
+================
+*/
 export function academyNoticeRequest( subject: string, contents: string ): WireFrame | null {
 	const fields = [ subject, contents ].map( s => s.split( "\0", 1 )[0]! );
 	if ( fields.some( s => s.length === 0 ) ) return null;
@@ -300,4 +383,17 @@ export function academyNoticeRequest( subject: string, contents: string ): WireF
 		at += bytes.length;
 	}
 	return { opcode: 0x7220, payload };
+}
+
+/*
+================
+academyOpenRequest
+
+702BD0's 0x72EC: one u32, which natively is the confirm box's own UI id
+(5D26F0 pushes its wParam). The server reads and ignores it, so the port
+sends zero.
+================
+*/
+export function academyOpenRequest(): WireFrame {
+	return { opcode: 0x72ec, payload: new Uint8Array( 4 ) };
 }
