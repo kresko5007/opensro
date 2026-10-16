@@ -103,6 +103,11 @@ func (rt *Runtime) orderPetAttack(division string, character, snapshot *enterwor
 		key: petOwnerKey{division: division}, snapshot: snapshot, pet: pet, ref: ref, nowMs: nowMs,
 	}, targetGID)
 	if !ok {
+		// An order on a monster that just died is the normal end of a fight.
+		if ended := rt.petTargetEnded(division, snapshot, targetGID); ended != "" {
+			rt.countPetTargetEnded(true, ended)
+			return OpResult{DiagnosticRefusal: "pet attack: " + ended}
+		}
 		return refuse("target not found")
 	}
 	if !petAttackBodyAllowed(pet, target.combatTarget) {
@@ -201,7 +206,13 @@ func (rt *Runtime) advancePetCombat(step petCombatStep) (frames []simulation.Fra
 	// refused first, so a cape put on mid-fight ends an attack on a team-mate.
 	if !ok || target.player != nil && (rt.companionTeamRefusal(step.snapshot, target.snapshot) != 0 ||
 		step.ref.TidWord>>11 != domain.MercenaryBand && rt.playerAttackTargetRefusal(step.key.division, step.snapshot, target.snapshot, step.nowMs) != 0) {
-		rt.petDiagnostic(step.key.division, step.snapshot.Name, step.pet.GID, "fight ended: target lost or not attackable", log.Fields{"target": intent.target})
+		// A target that died or left ends the fight normally: counted, not logged.
+		if ended := rt.petTargetEnded(step.key.division, step.snapshot, intent.target); !ok && ended != "" {
+			rt.countPetTargetEnded(false, ended)
+		} else {
+			rt.petDiagnostic(step.key.division, step.snapshot.Name, step.pet.GID, "fight ended: target lost or not attackable",
+				log.Fields{"target": intent.target, "petRef": step.pet.RefObjID, "petBand": step.ref.TidWord >> 11})
+		}
 		rt.cancelPetCombat(step.key, step.state, step.nowMs)
 		return nil, false
 	}
@@ -455,6 +466,8 @@ func (rt *Runtime) petStrike(step petCombatStep, target monster.Instance, skill 
 	}
 	if fatal {
 		rt.queueMonsterDefeat(division, target.Gid, step.nowMs+monsterDeathPresentationRetention.Milliseconds())
+		// Port-only shard notice for a seal drop (announce.go).
+		rt.announceSealDrops(division, target.Ref.Name, settlement.drops, step.nowMs)
 		burst := rt.monsterKillBurst(target.Gid, settlement.drops)
 		public = append(public, burst...)
 		actorFrames = append(actorFrames, settlement.actorFrames...)
@@ -520,7 +533,7 @@ func (rt *Runtime) petStrikePlayer(step petCombatStep, target combatTarget, skil
 	public, recipient := rt.publishPlayerHit(division, hit, step.nowMs)
 	public = append(public, commit.public...)
 	step.state.others = append(step.state.others, recipient)
-	step.state.others = append(step.state.others, rt.payJobKillShares(commit.shares)...)
+	step.state.others = append(step.state.others, rt.payJobKillShares(commit.after)...)
 	return petStrikeResult{strike: monsterStrike{gid: target.gid, pose: target.at, impacts: hit.struck.impacts, absorb: hit.struck.absorb, public: public, fatal: hit.struck.fatal}, actor: commit.actor, fatal: hit.struck.fatal}, true
 }
 

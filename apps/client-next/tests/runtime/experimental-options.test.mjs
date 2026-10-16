@@ -13,9 +13,10 @@ import "../helpers/native-source-loader.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-const { experimentalGameplay, experimentalOptions, experimentalVideo, renderScales } = await import(
+const experimentalModule = await import(
 	"../../src/engine/foundation/ui/experimental-options.ts"
 );
+const { experimentalGameplay, experimentalOptions, experimentalVideo, renderScales } = experimentalModule;
 const { createExperimentalHud, EXPERIMENTAL_TABS } = await import(
 	"../../src/engine/runtime/ui/hud/experimental-hud.ts"
 );
@@ -33,8 +34,29 @@ const OFF = Object.freeze( {
 	sunShadow: false,
 	perPixelLighting: false,
 	predictedRunUp: false,
-	smoothCamera: false,
+	// On by default (owner 2026-10-15): the camera eases its height and release.
+	smoothCamera: true,
 	enchantSparks: false,
+	// On by default (owner 2026-10-14); it changes only devices without BC.
+	compressedTextures: true,
+	// On by default (owner 2026-10-14): near effects outrank far characters.
+	sharedActorRoom: true,
+	// On by default (owner 2026-10-15): a disabled tab is dimmed.
+	greyDisabledTabs: true,
+	// On by default (owner 2026-10-15): the shard's job-kill notices show.
+	jobKillNotices: true,
+	// On by default (owner 2026-10-15): the shard's drop and plus notices show.
+	dropPlusNotices: true,
+	// Off by default: V hides only monsters and players, as the original does.
+	vHidesCompanions: false,
+	// On by default (owner 2026-10-15): labels and lists stay inside their window.
+	fitWindowLabels: true,
+	// On by default (owner 2026-10-15): a drop on a bag tab moves the item there.
+	dropOnBagTab: true,
+	// On by default (owner 2026-10-15): a notice's player and item are links.
+	noticeLinks: true,
+	// On by default (owner 2026-10-15): the notice banner shows for 5 s.
+	shortNotices: true,
 	attackPetTraining: false
 } );
 
@@ -113,8 +135,12 @@ test("every video stage defaults off and only an explicit true enables it", () =
 		hdrToneMap: false,
 		sunShadow: false,
 		perPixelLighting: false,
-		smoothCamera: false,
-		enchantSparks: false
+		// Smooth camera is on by default (owner 2026-10-15).
+		smoothCamera: true,
+		enchantSparks: false,
+		// The shared actor room is on by default (owner 2026-10-14).
+		sharedActorRoom: true,
+		vHidesCompanions: false
 	} );
 	for (
 		const key of [
@@ -126,7 +152,6 @@ test("every video stage defaults off and only an explicit true enables it", () =
 			"hdrToneMap",
 			"sunShadow",
 			"perPixelLighting",
-			"smoothCamera",
 			"enchantSparks"
 		]
 	) {
@@ -190,7 +215,7 @@ Tabs
 test("the window's tabs cover every preference once and Open returns to Image", () => {
 	assert.deepEqual(
 		EXPERIMENTAL_TABS.map( tab => tab.title ),
-		[ "Image", "World", "Lighting", "Game", "Developer" ]
+		[ "Image", "World", "Lighting", "Game", "Notices", "Other" ]
 	);
 	// Lighting keeps the direct-light stages; render scale joins Image without
 	// changing the indices used to reopen the existing tabs.
@@ -303,11 +328,109 @@ Gameplay rows
 */
 test("the predicted run-up defaults off and reaches only the worker's slice", () => {
 	// The native press (6FCD50) never walks before the server answers.
-	assert.deepEqual( experimentalGameplay( experimentalOptions() ), { predictedRunUp: false } );
+	assert.deepEqual( experimentalGameplay( experimentalOptions() ), {
+		predictedRunUp: false,
+		jobKillNotices: true,
+		dropPlusNotices: true
+	} );
 	for ( const value of [ 1, "true", null, {} ] ) {
 		assert.equal( experimentalOptions( { predictedRunUp: value } ).predictedRunUp, false );
 	}
 	const on = experimentalOptions( { predictedRunUp: true } );
-	assert.deepEqual( experimentalGameplay( on ), { predictedRunUp: true } );
+	assert.deepEqual( experimentalGameplay( on ), {
+		predictedRunUp: true,
+		jobKillNotices: true,
+		dropPlusNotices: true
+	} );
 	assert.equal( "predictedRunUp" in experimentalVideo( on ), false );
+});
+
+test("compressed textures are on unless explicitly false, and the stored reader parses the saved key", () => {
+	const { storedExperimentalOptions, EXPERIMENTAL_STORAGE_KEY } = experimentalModule;
+	for ( const value of [ undefined, null, {}, { compressedTextures: 1 }, { compressedTextures: "false" } ] ) {
+		assert.equal( experimentalOptions( value ).compressedTextures, true );
+	}
+	assert.equal( experimentalOptions( { compressedTextures: false } ).compressedTextures, false );
+	const saved = new Map( [ [ EXPERIMENTAL_STORAGE_KEY, JSON.stringify( { compressedTextures: false } ) ] ] );
+	const storage = { getItem: key => saved.get( key ) ?? null };
+	assert.equal( storedExperimentalOptions( storage ).options.compressedTextures, false );
+	assert.equal( storedExperimentalOptions( { getItem: () => null } ).options.compressedTextures, true );
+	assert.equal( storedExperimentalOptions( undefined ).options.compressedTextures, true );
+	assert.throws( () => storedExperimentalOptions( { getItem: () => "{" } ) );
+});
+
+test("the shared actor room is on unless explicitly false, and reaches the renderer's video options", () => {
+	for ( const value of [ undefined, null, {}, { sharedActorRoom: 1 }, { sharedActorRoom: "false" } ] ) {
+		assert.equal( experimentalOptions( value ).sharedActorRoom, true );
+	}
+	const off = experimentalOptions( { sharedActorRoom: false } );
+	assert.equal( off.sharedActorRoom, false );
+	assert.equal( experimentalVideo( off ).sharedActorRoom, false );
+	assert.equal( experimentalVideo( experimentalOptions( {} ) ).sharedActorRoom, true );
+});
+
+test("grey disabled tabs is on unless explicitly false and stays out of the renderer's video options", () => {
+	for ( const value of [ undefined, null, {}, { greyDisabledTabs: 1 }, { greyDisabledTabs: "false" } ] ) {
+		assert.equal( experimentalOptions( value ).greyDisabledTabs, true );
+	}
+	assert.equal( experimentalOptions( { greyDisabledTabs: false } ).greyDisabledTabs, false );
+	assert.equal( "greyDisabledTabs" in experimentalVideo( experimentalOptions( {} ) ), false );
+});
+
+test("job kill notices are on unless explicitly false and reach the worker's gameplay slice", () => {
+	for ( const value of [ undefined, null, {}, { jobKillNotices: 1 }, { jobKillNotices: "false" } ] ) {
+		assert.equal( experimentalOptions( value ).jobKillNotices, true );
+	}
+	const off = experimentalOptions( { jobKillNotices: false } );
+	assert.equal( off.jobKillNotices, false );
+	assert.equal( experimentalGameplay( off ).jobKillNotices, false );
+	assert.equal( "jobKillNotices" in experimentalVideo( experimentalOptions( {} ) ), false );
+});
+
+test("drop and plus notices are on unless explicitly false and reach the worker's gameplay slice", () => {
+	for ( const value of [ undefined, null, {}, { dropPlusNotices: 1 }, { dropPlusNotices: "false" } ] ) {
+		assert.equal( experimentalOptions( value ).dropPlusNotices, true );
+	}
+	const off = experimentalOptions( { dropPlusNotices: false } );
+	assert.equal( off.dropPlusNotices, false );
+	assert.equal( off.jobKillNotices, true );
+	assert.equal( experimentalGameplay( off ).dropPlusNotices, false );
+	assert.equal( "dropPlusNotices" in experimentalVideo( experimentalOptions( {} ) ), false );
+});
+
+test("V hides pets and transports only when explicitly on, and reaches the renderer's slice", () => {
+	for ( const value of [ undefined, null, {}, { vHidesCompanions: 1 }, { vHidesCompanions: "true" } ] ) {
+		assert.equal( experimentalOptions( value ).vHidesCompanions, false );
+	}
+	const on = experimentalOptions( { vHidesCompanions: true } );
+	assert.equal( on.vHidesCompanions, true );
+	assert.equal( experimentalVideo( on ).vHidesCompanions, true );
+	assert.ok( EXPERIMENTAL_TABS.some( tab => tab.rows.some( row => row.key === "vHidesCompanions" ) ) );
+});
+
+test("fit window labels is on unless explicitly false and stays out of the worker's slices", () => {
+	for ( const value of [ undefined, null, {}, { fitWindowLabels: 1 }, { fitWindowLabels: "false" } ] ) {
+		assert.equal( experimentalOptions( value ).fitWindowLabels, true );
+	}
+	assert.equal( experimentalOptions( { fitWindowLabels: false } ).fitWindowLabels, false );
+	assert.equal( "fitWindowLabels" in experimentalVideo( experimentalOptions( {} ) ), false );
+	assert.equal( "fitWindowLabels" in experimentalGameplay( experimentalOptions( {} ) ), false );
+});
+
+test("drop on bag tabs is on unless explicitly false and stays out of the worker's slices", () => {
+	for ( const value of [ undefined, null, {}, { dropOnBagTab: 1 }, { dropOnBagTab: "false" } ] ) {
+		assert.equal( experimentalOptions( value ).dropOnBagTab, true );
+	}
+	assert.equal( experimentalOptions( { dropOnBagTab: false } ).dropOnBagTab, false );
+	assert.equal( "dropOnBagTab" in experimentalVideo( experimentalOptions( {} ) ), false );
+	assert.equal( "dropOnBagTab" in experimentalGameplay( experimentalOptions( {} ) ), false );
+});
+
+test("smooth camera is on unless explicitly false and reaches the renderer's slice", () => {
+	for ( const value of [ undefined, null, {}, { smoothCamera: 1 }, { smoothCamera: "false" } ] ) {
+		assert.equal( experimentalOptions( value ).smoothCamera, true );
+	}
+	const off = experimentalOptions( { smoothCamera: false } );
+	assert.equal( off.smoothCamera, false );
+	assert.equal( experimentalVideo( off ).smoothCamera, false );
 });

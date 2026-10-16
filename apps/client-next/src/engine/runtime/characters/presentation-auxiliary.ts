@@ -14,6 +14,7 @@ import type { GameplayState } from "@/engine/contracts/gameplay";
 import type { Renderer } from "@/engine/contracts/runtime";
 import type { DressCatalog } from "@/engine/foundation/animation/equipment-appearance";
 import { CHARACTER_ACTORS } from "@/engine/foundation/animation/character-budget";
+import { effectDistanceSq, trimToEffectBudget } from "@/engine/foundation/animation/effect-room";
 import {
 	changeLocomotion,
 	locomotionLayers,
@@ -136,6 +137,8 @@ interface StageFrame {
 	readonly next: Map<number, CharacterActor>;
 	readonly seconds: number;
 	readonly animationHolders: { actor: CharacterActor; sets: readonly AnimationParticleSet[]; }[];
+	// The local player's pose: past the actor room the nearest effects draw.
+	readonly player: { readonly regionId: number; readonly x: number; readonly z: number; } | undefined;
 }
 
 /*
@@ -144,7 +147,7 @@ StageBindings
 ================
 */
 interface StageBindings {
-	readonly renderer: Pick<Renderer, "setCharacterAssembly">;
+	readonly renderer: Pick<Renderer, "setCharacterAssembly" | "sharedActorRoom">;
 	readonly resources: { duration( path: string, clip: string ): number; };
 	readonly effects: {
 		animationModel( path: string ): {
@@ -152,7 +155,11 @@ interface StageBindings {
 			selectors: readonly ModifierSelector[];
 			particles: readonly AnimationParticleSet[];
 		} | undefined;
+		// The actors the effect owner drew and the effects its budget turned away.
+		takeBudget(): { readonly actors: number; readonly gaveWay: number; };
 	};
+	// The frame probe, when a bench installed one.
+	readonly probe: Pick<import("@/engine/contracts/runtime").RenderFrameProbe, "characterCount"> | undefined;
 }
 
 /*
@@ -161,6 +168,9 @@ createAuxiliaryPresentation
 ================
 */
 export function createAuxiliaryPresentation( allocateActor: () => number ) {
+	// The previous frame's effect actors' squared distances to the player,
+	// ascending, while the shared actor room is on (presentStages).
+	let effectDistances: number[] | undefined;
 	const booths = new Map<number, {
 		gid: number;
 		resource: SecondaryModel;
@@ -314,13 +324,33 @@ export function createAuxiliaryPresentation( allocateActor: () => number ) {
 		/*
 		================
 		presentStages
+
+		Admits the orb and effect actors into the frame and counts, for the
+		frame probe, the effects that gave way to either bound.
 		================
 		*/
 		presentStages( frame: StageFrame, bindings: StageBindings ) {
-			const { orbActors, effectActors, next, seconds, animationHolders } = frame;
-			const { renderer, resources, effects } = bindings;
+			const { orbActors, effectActors, next, seconds, animationHolders, player } = frame;
+			const { renderer, resources, effects, probe } = bindings;
+			// The Experimental shared actor room: next frame's selection ranks
+			// these effects with the characters (character-selection.ts).
+			effectDistances = renderer.sharedActorRoom?.() === true && player ?
+				effectActors.map( actor => effectDistanceSq( actor.pose, player ) ).filter( Number.isFinite )
+					.sort( ( a, b ) => a - b ) :
+				undefined;
 			const stageAlive = new Set<number>();
-			for ( const actor of [ ...orbActors, ...effectActors ] ) {
+			// The original draws every decoration (85C020 appends to an
+			// unbounded list); the port's renderer holds CHARACTER_ACTORS in
+			// all. When the effects outnumber the room left, the nearest draw
+			// instead of the first listed: the same number drop, never more.
+			const room = CHARACTER_ACTORS - next.size - orbActors.length;
+			let admitted = effectActors, gaveWay = 0;
+			if ( effectActors.length > room ) {
+				const nearest = [ ...effectActors ];
+				gaveWay = trimToEffectBudget( nearest, room, player );
+				admitted = nearest;
+			}
+			for ( const actor of [ ...orbActors, ...admitted ] ) {
 				if ( next.size >= CHARACTER_ACTORS ) continue;
 				const model = `effect:${actor.gid}:${actor.model}`;
 				renderer.setCharacterAssembly( model, actor.model, [] );
@@ -366,6 +396,11 @@ export function createAuxiliaryPresentation( allocateActor: () => number ) {
 				}
 			}
 			for ( const gid of stageAnimations.keys() ) if ( !stageAlive.has( gid ) ) stageAnimations.delete( gid );
+			// The benches' evidence of which bound, if either, a scene meets.
+			const budget = effects.takeBudget();
+			probe?.characterCount( "effect-actors", budget.actors );
+			probe?.characterCount( "effect-budget-gave-way", budget.gaveWay );
+			probe?.characterCount( "effect-actor-room-gave-way", gaveWay );
 		},
 		/*
 		================
@@ -375,7 +410,16 @@ export function createAuxiliaryPresentation( allocateActor: () => number ) {
 		resetStages() {
 			stageAnimations.clear();
 			booths.clear();
+			effectDistances = undefined;
 		},
+		/*
+		================
+		effectDistances
+
+		The shared actor room's effect distances, or undefined when it is off.
+		================
+		*/
+		effectDistances: () => effectDistances,
 		/*
 		================
 		step

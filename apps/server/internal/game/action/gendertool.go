@@ -64,21 +64,6 @@ func genderTwin(codename string) string {
 
 /*
 ================
-itemDegree
-
-4775A0 for equipment: (ItemClass - 1) / 3 + 1, 0 without a class.
-================
-*/
-func itemDegree(ref *enterworld.ItemRef) int64 {
-	class, ok := ref.NativeFields.Lookup("itemClass")
-	if !ok || class <= 0 {
-		return 0
-	}
-	return (int64(class)-1)/3 + 1
-}
-
-/*
-================
 useGenderTool
 
 Runs inside the item use's character Update.
@@ -115,17 +100,22 @@ func (rt *Runtime) useGenderTool(use skillItemUse, c *enterworld.Character, tail
 		return false
 	}
 	limit, _ := use.ref.NativeFields.Lookup("itemParam1_29c")
-	if itemDegree(ref) > int64(limit) {
+	// 49C55C reads the target's degree through 4775A0.
+	if int64(enterworld.ItemDegree(ref)) > int64(limit) {
 		*result = itemUseFailure(genderErrDegree)
 		return false
 	}
-	remaining := rt.consumeItemUseRow(c, use.row)
+	// Change the target while index still names it: spending the tool's
+	// last unit rebuilds the bag without the tool's row, which shifts every
+	// later row down one.
 	moved := &c.MissionInventory[index]
 	moved.RefObjID, moved.Codename, moved.TypeFlags = twin.RefObjID, twin.Codename, twin.TypeFlags()
+	changed := *moved
+	remaining := rt.consumeItemUseRow(c, use.row)
 	state := wire.NewWriter(6).U8(target).U8(itemStateRefFlag).U32(twin.RefObjID).Payload()
 	*result = OpResult{Frames: []wire.Frame{
 		{Opcode: wire.OpItemUseResponse, Payload: wire.EncodeItemUseSuccess(use.request.Slot, remaining, use.request.TypeWord)},
-		rt.commerceReferences(invItemsFromRowsWithin([]enterworld.InventoryRow{*moved}, int64(inventory.MaxBagEnd)), nil),
+		rt.commerceReferences(invItemsFromRowsWithin([]enterworld.InventoryRow{changed}, int64(inventory.MaxBagEnd)), nil),
 		{Opcode: cosItemStateOpcode, Payload: state},
 	}}
 	result.Frames = append(result.Frames, rt.updateQuestInventory(c)...)

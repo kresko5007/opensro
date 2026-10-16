@@ -27,11 +27,14 @@ import (
 	"opensro.online/server/internal/data/store"
 	"opensro.online/server/internal/game/action"
 	"opensro.online/server/internal/game/enterworld"
+	"opensro.online/server/internal/game/tunables"
 	"opensro.online/server/internal/game/world/simulation"
 	"opensro.online/server/internal/game/world/worldarea"
 	"opensro.online/server/internal/gamedata"
+	"opensro.online/server/internal/platform/economy"
 	"opensro.online/server/internal/platform/history"
 	"opensro.online/server/internal/platform/readiness"
+	"opensro.online/server/internal/platform/settingsapi"
 	"opensro.online/server/internal/security/auth"
 	"opensro.online/server/internal/transport"
 )
@@ -62,11 +65,13 @@ writer, releases the lease, and closes durable authority last.
 */
 
 type gameWorldApplication struct {
-	history         *history.Journal
+	history *history.Journal
+	// economy is the staff economy view's aggregates (port-only); nil off.
+	economy         *economy.Service
+	settings        *settingsapi.SQLiteStore
 	skillCache      io.Closer
 	itemCache       io.Closer
 	populationCache io.Closer
-	heightCache     io.Closer
 	transport       *transport.Server
 	authority       *store.Store
 	controlAPI      *agentapi.API
@@ -102,6 +107,40 @@ func newGameWorldApplication(
 		}
 	}()
 
+	// Port-only tunables (game/tunables): a value the registry refuses
+	// stops the boot here, before anything reads it.
+	if err := tunables.Load(); err != nil {
+		return nil, fmt.Errorf("tunables: %w", err)
+	}
+	// Port-only: the staff console's approved overrides (settings.db, next
+	// to the shard's other operator stores) lie over the environment.
+	settingsStore, err := settingsapi.OpenSQLiteStore(filepath.Join(store.DirForShardFromEnv(ownedShard.ID), settingsapi.FileName))
+	if err != nil {
+		return nil, fmt.Errorf("settings store: %w", err)
+	}
+	application.settings = settingsStore
+	overrides, err := settingsStore.Overrides()
+	if err != nil {
+		return nil, fmt.Errorf("settings store: %w", err)
+	}
+	rejected, err := tunables.InstallBoot(overrides)
+	if err != nil {
+		return nil, fmt.Errorf("tunables: %w", err)
+	}
+	for key, cause := range rejected {
+		// A stored value this build no longer accepts: the key boots on the
+		// environment or its default, the row is dropped and the audit says
+		// why, once (the next boot no longer finds it).
+		log.WithError(cause).WithField("key", key).Warn("tunables: stored override refused at boot; using the environment")
+		if err := settingsStore.DropOverride(key, settingsapi.AuditEntry{At: time.Now().UnixMilli(), Who: "gameworld",
+			Name: "boot", Action: settingsapi.ActionBoot, Key: key, To: overrides[key], Result: settingsapi.ResultRefused,
+			Error: cause.Error()}); err != nil {
+			return nil, fmt.Errorf("settings store: %w", err)
+		}
+	}
+	if len(overrides) > 0 {
+		log.Infof("tunables: %d stored override(s) from %s", len(overrides), settingsapi.FileName)
+	}
 	dataPaths, err := gamedata.Resolve()
 	if err != nil {
 		return nil, fmt.Errorf("game data: %w", err)
@@ -184,11 +223,22 @@ func newGameWorldApplication(
 	application.history = journal
 	ts.Hub.History = historyObserver{journal}
 	log.AddHook(journal)
+	// Port-only: the staff console's read of every tunable and SRO_ flag.
+	settingsHandler, err := settingsapi.Handler(filepath.Join(store.DirForShardFromEnv(ownedShard.ID), "operator-token"),
+		settingsapi.Getenv, &settingsapi.Service{Store: application.settings, Now: func() int64 { return time.Now().UnixMilli() },
+			NewID: func() string { id, _ := history.NewID(); return id }})
+	if err != nil {
+		return nil, fmt.Errorf("settings: %w", err)
+	}
 	historyHandler, err := history.OperatorHandler(journal, filepath.Join(store.DirForShardFromEnv(ownedShard.ID), "operator-token"))
 	if err != nil {
 		return nil, err
 	}
 	authority.agentAPI.InstallHistory(historyHandler)
+	authority.agentAPI.InstallSettings(settingsapi.Path, settingsHandler)
+	if err := installEconomy(application, &authority, ownedShard.ID); err != nil {
+		return nil, err
+	}
 	if err := configureCatalogues(authority.textdata.Skills, authority.textdata.Items, boundedCataloguesFromEnv()); err != nil {
 		return nil, err
 	}
@@ -216,10 +266,6 @@ func newGameWorldApplication(
 		application.populationCache = gameplay.deps.MonsterState
 		application.population = gameplay.deps.MonsterState
 	}
-	if err := gameplay.water.EnableBoundedHeightCache(2 << 20); err != nil {
-		return nil, fmt.Errorf("terrain height cache: %w", err)
-	}
-	application.heightCache = gameplay.water
 	// Built after gameplay construction: the static item rows name the
 	// alchemy and Magic Pop catalogues it configures.
 	references, err := enterworld.NewBrowserReferences(enterworld.BrowserReferenceSources{
@@ -440,6 +486,12 @@ func (application *gameWorldApplication) Run(ctx context.Context) error {
 		application.ticker.Run(groupContext)
 		return nil
 	})
+	if application.economy != nil {
+		group.Go(func() error {
+			application.economy.Run(groupContext)
+			return nil
+		})
+	}
 	// Shutdown joins admission before it closes readiness and drains, so a
 	// late admit can never start the transport behind the drain.
 	admitted := make(chan struct{})
@@ -482,9 +534,6 @@ func (application *gameWorldApplication) Run(ctx context.Context) error {
 	if application.populationCache != nil {
 		drainErr = errors.Join(drainErr, application.populationCache.Close())
 	}
-	if application.heightCache != nil {
-		drainErr = errors.Join(drainErr, application.heightCache.Close())
-	}
 	application.releaseLease()
 	if application.authority != nil {
 		log.Info("shutdown: closing the authority store")
@@ -494,6 +543,12 @@ func (application *gameWorldApplication) Run(ctx context.Context) error {
 	log.Info("shutdown: complete")
 	if application.history != nil {
 		drainErr = errors.Join(drainErr, application.history.Close())
+	}
+	if application.economy != nil {
+		drainErr = errors.Join(drainErr, application.economy.Close())
+	}
+	if application.settings != nil {
+		drainErr = errors.Join(drainErr, application.settings.Close())
 	}
 
 	return errors.Join(runErr, drainErr)
@@ -604,11 +659,6 @@ func (application *gameWorldApplication) rollback() {
 			log.Warnf("startup rollback population cache: %v", err)
 		}
 	}
-	if application.heightCache != nil {
-		if err := application.heightCache.Close(); err != nil {
-			log.Warnf("startup rollback height cache: %v", err)
-		}
-	}
 	if application.authority != nil {
 		application.authority.Close()
 	}
@@ -616,6 +666,12 @@ func (application *gameWorldApplication) rollback() {
 	application.leaseOwned = false
 	if application.history != nil {
 		_ = application.history.Close()
+	}
+	if application.economy != nil {
+		_ = application.economy.Close()
+	}
+	if application.settings != nil {
+		_ = application.settings.Close()
 	}
 }
 

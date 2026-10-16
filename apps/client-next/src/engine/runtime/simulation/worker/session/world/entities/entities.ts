@@ -5,6 +5,7 @@ entities.ts - The entity journal owns wire admission and ordered lifecycle publi
 
 ===========================================================================
 */
+import { petNameUpdate } from "@/engine/foundation/gameplay/pet-name";
 import { animationRate, decodeAnimationSpeed } from "@/engine/foundation/animation/animation-rate";
 import {
 	refreshNameColor,
@@ -45,6 +46,22 @@ const CHARACTER_KINDS = new Set( [ "player", "local-player", "npc", "monster", "
 const STALL_TITLE_SLOT = 6;
 // Skipped cosmetic steps held between world takes (degrade).
 const MAX_PENDING_DEGRADATIONS = 64;
+
+/*
+================
+localAppearanceRow
+
+The local latch has no peer appearance row, so it starts from the alive,
+idle defaults of one. LIFE (0x3122 channel 0) is then the local player's
+only death authority, as natively (777B60 sets +263 and the dead flag;
+8E64F0 plays the death from LIFE and the fatal impact, never from HP).
+Without a row, presentation fell back to the predicted vitals HP and could
+play a death, with its cry, that the next HP update stood back up.
+================
+*/
+function localAppearanceRow( pvpState: number ): number[] {
+	return [ 1, 0, 0, pvpState, 0, 0, 0, 0, 0 ];
+}
 // Wire authorities: server enterworld/{register,bootstrap,wire}.go,
 // world/simulation/{npc,monster}.go and item/wire/objectmove.go.
 /*
@@ -84,6 +101,9 @@ export function createEntities(
 	// directly are its own (the server's per-victim publication order).
 	let dropSource = 0;
 	let epoch = 0, sequence = 0, inflight: WorldBatch | null = null, bytes = 0;
+	// When the batch awaiting its acknowledgement was taken: a backlog failure
+	// reports the wait, telling a stalled main thread from a burst of events.
+	let inflightAt = 0;
 	let events: WorldEvent[] = [], staged: WorldEvent[] | null = null, remaining = 0, stagedBytes = 0;
 	// Cosmetic steps skipped since the world owner last took them (Degradation).
 	let degradations: Degradation[] = [];
@@ -92,6 +112,11 @@ export function createEntities(
 	const pendingPoses = new Map<number, { index: number; size: number; }>();
 	// The queued gameplay snapshot a newer one merges into (supersedeGameplay).
 	let pendingGameplay: { index: number; size: number; } | undefined;
+	// Arrays the queued batch has already counted (journal-cost.ts): the batch
+	// is one structured clone, so a walking path shared by many state events
+	// travels once. Replaceable events (poses, the gameplay snapshot) are
+	// costed in full instead, so replacing one never uncounts a shared array.
+	let sharedArrays = new WeakSet<object>();
 	let stagedMode = 1, removalTail = new Uint8Array( 0 );
 	let synchronized = false, localName = "", localActiveJob = 4;
 	let localSkills: readonly import("@/engine/foundation/gameplay/spawn-skills").SpawnSkill[] = [];
@@ -104,6 +129,17 @@ export function createEntities(
 	*/
 	function cost( event: WorldEvent ) {
 		return event.kind === "native" ? event.payload.byteLength : journalCost( event );
+	}
+	/*
+	================
+	batchCost
+
+	A reliable event's cost within the queued batch: arrays an earlier event
+	of the batch carries count once (sharedArrays).
+	================
+	*/
+	function batchCost( event: WorldEvent ) {
+		return event.kind === "native" ? event.payload.byteLength : journalCost( event, sharedArrays );
 	}
 	/*
 	================
@@ -121,7 +157,7 @@ export function createEntities(
 	function degrade( degradation: Degradation ) {
 		if ( degradations.length < MAX_PENDING_DEGRADATIONS ) degradations.push( degradation );
 	}
-	function append( event: WorldEvent, size = cost( event ) ) {
+	function append( event: WorldEvent, size = batchCost( event ) ) {
 		if ( events.length + (staged?.length ?? 0) >= 8192 || bytes + stagedBytes + size > journalByteLimit ) {
 			// Failure-only census distinguishes a stalled consumer from an
 			// unsupported packet stream without adding a per-frame telemetry walk.
@@ -133,8 +169,8 @@ export function createEntities(
 			throw new Error(
 				`Reliable world journal backlog exceeded: ${event.kind} adds ${size} bytes to ${bytes + stagedBytes}; ${
 					events.length + (staged?.length ?? 0)
-				} events queued; awaiting batch ${
-					inflight?.sequence ?? "none"
+				} events queued; awaiting batch ${inflight?.sequence ?? "none"}${
+					inflight ? ` for ${Math.round( performance.now() - inflightAt )} ms` : ""
 				}; ${pendingPoses.size} replaceable poses; ${JSON.stringify( kinds )}`
 			);
 		}
@@ -503,6 +539,7 @@ export function createEntities(
 			stagedBytes = 0;
 			events = [];
 			pendingGameplay = undefined;
+			sharedArrays = new WeakSet();
 			inflight = null;
 			bytes = 0;
 		},
@@ -711,11 +748,9 @@ export function createEntities(
 				// 751520 renames it, 74F8F0 takes it down (CICharactor_SetStallState).
 				const entity = entities.get( v.getUint32( 0, true ) );
 				if ( !entity ) return;
-				// The local latch has no peer appearance row. Supply its alive,
-				// idle defaults so the owner's booth reaches presentation too.
-				const appearanceState = [
-					...(entity.appearanceState ?? [ 1, 0, 0, entity.pvpState ?? 0, 0, 0, 0, 0, 0 ])
-				];
+				// The local latch has no peer appearance row (localAppearanceRow),
+				// so the owner's booth reaches presentation too.
+				const appearanceState = [ ...(entity.appearanceState ?? localAppearanceRow( entity.pvpState ?? 0 )) ];
 				if ( frame.opcode === 0x33d1 ) {
 					appearanceState[STALL_TITLE_SLOT] = 0;
 					apply( {
@@ -750,6 +785,13 @@ export function createEntities(
 						entity: { ...entity, groundItem: { ...entity.groundItem, ownerJid: undefined } }
 					} );
 				}
+				return;
+			}
+			// 77A570 case 5: a pet's new name, on its nameplate for every viewer.
+			const named = petNameUpdate( frame );
+			if ( named ) {
+				const entity = entities.get( named.gid );
+				if ( entity ) apply( { kind: "state", entity: { ...entity, name: named.name } } );
 				return;
 			}
 			if ( frame.opcode === 0x3508 && p[4] === 7 ) {
@@ -913,6 +955,7 @@ export function createEntities(
 						avatars: localAvatars,
 						arenaTeam: Number( local.arenaTeam ?? 255 ),
 						pvpState: Number( local.pvpState ?? 0 ),
+						appearanceState: Object.freeze( localAppearanceRow( Number( local.pvpState ?? 0 ) ) ),
 						...(local.visualFlags !== undefined ? { visualFlags: Number( local.visualFlags ) } : {}),
 						...(local.bodyShape !== undefined ? { bodyShape: Number( local.bodyShape ) } : {}),
 						localJob: {
@@ -1293,9 +1336,11 @@ export function createEntities(
 				return null;
 			}
 			inflight = { sequence: ++sequence, events };
+			inflightAt = performance.now();
 			events = [];
 			pendingPoses.clear();
 			pendingGameplay = undefined;
+			sharedArrays = new WeakSet();
 			bytes = 0;
 			return inflight;
 		},

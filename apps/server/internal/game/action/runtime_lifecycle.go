@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"opensro.online/server/internal/domain"
+	"opensro.online/server/internal/game/combat"
 	"opensro.online/server/internal/game/enterworld"
 	"opensro.online/server/internal/game/item/grounditem"
 	"opensro.online/server/internal/game/item/loot"
@@ -84,6 +85,7 @@ func (rt *Runtime) TickHook() simulation.TickHook {
 		}
 		step("retireGroundApproaches", rt.retireGroundApproaches)
 		step("advanceResidentRegions", func() { rt.advanceResidentRegions(nowMs) })
+		step("advanceWalkIns", func() { rt.advanceWalkIns(nowMs) })
 		if rt.AdvanceQuestCalendar != nil {
 			step("AdvanceQuestCalendar", func() { rt.AdvanceQuestCalendar(nowMs) })
 		}
@@ -165,6 +167,8 @@ func (rt *Runtime) TickHook() simulation.TickHook {
 		frames("ReleaseExpiredOwnership", rt.ReleaseExpiredOwnership)
 		frames("SweepExpired", rt.SweepExpired)
 		step("retireActionSessions", func() { out = append(out, rt.retireActionSessions()...) })
+		// Last, so a notice any step above queued leaves this same tick.
+		frames("drainAnnouncements", rt.drainAnnouncements)
 		return out
 	}
 }
@@ -500,6 +504,8 @@ func (rt *Runtime) forgetCharacterLocked(divisionID, characterName string) {
 	if c := rt.findCharacter(divisionID, characterName); c != nil {
 		departedGID = enterworld.ObjectIDForCharacter(c)
 		rt.noteLastSeen(c)
+		// The learned rank rows are content-keyed; dropping them only frees memory.
+		combat.ForgetRankRows(c.ID)
 		rt.releaseGuildStorage(divisionID, c.Name)
 		rt.retirePremiumSpend(divisionID, c, rt.Now().UnixMilli())
 	}

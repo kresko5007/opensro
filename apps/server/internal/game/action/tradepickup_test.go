@@ -42,9 +42,10 @@ func TestTraderPicksOwnGoodsIntoTheTransport(t *testing.T) {
 	rt, c := traderFixture(t, false)
 	bag := len(c.MissionInventory)
 	out, heap := pickTradeGoods(t, rt, c, "Trader")
-	if len(out.Frames) != 4 || out.Frames[0].Opcode != wire.OpPickupAnim || out.Frames[1].Opcode != wire.OpItemMoveResponse ||
-		out.Frames[2].Opcode != wire.OpObjectDespawn || out.Frames[3].Opcode != wire.OpActionState {
-		t.Fatalf("frames %+v, want scoop, receipt, despawn and the action release", out.Frames)
+	if len(out.Frames) != 5 || out.Frames[0].Opcode != wire.OpPickupAnim || out.Frames[1].Opcode != wire.OpItemMoveResponse ||
+		out.Frames[2].Opcode != wire.OpObjectDespawn || out.Frames[3].Opcode != wire.OpActionState ||
+		out.Frames[4].Opcode != wire.OpTradeStarCount || len(out.Frames[4].Payload) != 1 {
+		t.Fatalf("frames %+v, want scoop, receipt, despawn, the action release and the trade level", out.Frames)
 	}
 	p := out.Frames[1].Payload
 	if p[0] != 1 || p[1] != wire.MoveTypeCosPickup || uint32(p[2])|uint32(p[3])<<8|uint32(p[4])<<16|uint32(p[5])<<24 != c.ActiveCOS.GID {
@@ -74,13 +75,17 @@ func TestTradeGoodsPickupFollowsTheJobRule(t *testing.T) {
 		owner string
 		strip bool
 		cart  bool
-		code  uint8
+		// teleport is the picker's teleport mode (2: the Thief Den
+		// scroll's free-moving cast).
+		teleport uint8
+		code     uint8
 	}{
-		{"a trader cannot take another trader's goods", false, "Other", false, true, tradePickupErrNotBuyer},
-		{"a thief cannot take the goods it bought", true, "Trader", false, true, tradePickupErrOwnGoods},
-		{"a thief takes another's goods", true, "Other", false, true, 0},
-		{"a player out of job mode cannot", false, "Trader", true, true, tradePickupErrNoJob},
-		{"no transport, no goods", false, "Trader", false, false, tradePickupErrNoCart},
+		{"a trader cannot take another trader's goods", false, "Other", false, true, 0, tradePickupErrNotBuyer},
+		{"a thief cannot take the goods it bought", true, "Trader", false, true, 0, tradePickupErrOwnGoods},
+		{"a thief takes another's goods", true, "Other", false, true, 0, 0},
+		{"a thief scrolling to the den cannot", true, "Other", false, true, teleportModeFree, tradePickupErrTeleporting},
+		{"a player out of job mode cannot", false, "Trader", true, true, 0, tradePickupErrNoJob},
+		{"no transport, no goods", false, "Trader", false, false, 0, tradePickupErrNoCart},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rt, c := traderFixture(t, tc.thief)
@@ -90,6 +95,7 @@ func TestTradeGoodsPickupFollowsTheJobRule(t *testing.T) {
 			if !tc.cart {
 				c.ActiveCOS = nil
 			}
+			c.NativeTeleportMode = tc.teleport
 			out, heap := pickTradeGoods(t, rt, c, tc.owner)
 			_, left := rt.Ground.Get(testDivision, heap.Gid)
 			if tc.code == 0 {

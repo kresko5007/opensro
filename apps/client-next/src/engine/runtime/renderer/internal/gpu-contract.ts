@@ -140,6 +140,11 @@ DeviceOwner
 ================
 */
 export interface DeviceOwner extends Disposable {
+	/** The adapter's features and limits once acquired (device.ts gpuFacts). */
+	adapterFacts(): import("@/engine/foundation/rendering/gpu-facts").GpuFacts | null;
+	// The texture compression features of this device once it exists, empty
+	// when it never does (foundation/assets/texture-variants.ts).
+	textureFeatures(): Promise<readonly string[]>;
 	upscale(): {
 		encodeUpscale( encoder: GPUCommandEncoder, source: GPUTextureView, target: GPUTextureView ): void;
 		encodeDepthUpscale( encoder: GPUCommandEncoder, source: GPUTextureView, target: GPUTextureView ): void;
@@ -283,6 +288,10 @@ export interface GeometryDraw {
 	readonly binding: GPUBindGroup;
 	readonly vertices: GPUBuffer;
 	readonly indices: GPUBuffer;
+	// Where the draw's streams start in shared slab buffers (buffer-slabs.ts),
+	// in indices and in vertices; absent is 0.
+	readonly firstIndex?: number;
+	readonly baseVertex?: number;
 	readonly count: number;
 	readonly indexCount: number;
 	readonly instanceCount: number;
@@ -418,6 +427,9 @@ export interface GeometryCommands {
 	// Writes a packed vertex stream at vertex base of any draw, keeping no CPU
 	// copy: the caller owns the stream (a terrain layer member's vertices).
 	streamVertices( draw: GeometryDraw, base: number, vertices: Float32Array ): void;
+	// Forgets a dynamicVertices draw's CPU mirror once its positions are final
+	// (a settled frontend scene); a later position or vertex write throws.
+	dropMirror( draw: GeometryDraw ): void;
 	updateInstances(
 		draw: GeometryDraw,
 		instances: Float32Array,

@@ -1,6 +1,6 @@
-# Never edit after it ships: a new persisted field takes schema 25, its upgrade
-# account-storage record fields owned by store schema 24 (persisted_shape_test.go).
-# step and account-storage-fields-v25.txt.
+# account-storage record fields owned by store schema 22 (persisted_shape_test.go).
+# Never edit after it ships: a new persisted field takes schema 23, its upgrade
+# step and account-storage-fields-v23.txt.
 capacity
 gold
 rows
@@ -41,18 +41,6 @@ rows[].summon.satiety
 rows[].summon.stateFlags
 rows[].summon.summonGeneration
 rows[].summon.summoned
-rows[].summon.training
-rows[].summon.training.bonusPoints
-rows[].summon.training.gear
-rows[].summon.training.gear[].options
-rows[].summon.training.gear[].refObjId
-rows[].summon.training.levels
-rows[].summon.training.passiveReadyAtMs
-rows[].summon.training.rows
-rows[].summon.training.rows[].kind
-rows[].summon.training.rows[].left
-rows[].summon.training.rows[].readyAtMs
-rows[].summon.training.slotted
 rows[].tradeOwner
 rows[].transformRefObjId
 rows[].typeFlags

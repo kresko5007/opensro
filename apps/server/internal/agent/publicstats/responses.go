@@ -161,7 +161,8 @@ type WornItem struct {
 	Variance string `json:"variance,omitempty"`
 	// Durability is a worn item's current durability, present even at 0 (a
 	// broken item, which the tooltip prints as 0/max in red); absent on an
-	// avatar socket, which has none.
+	// avatar socket and on an item whose reference has no durability
+	// (ammunition, accessories), which can never be broken.
 	Durability *int64 `json:"durability,omitempty"`
 	// MagicOptions are the item's blue stats in the item's own order, each
 	// the encoded u64 the CSOItem wire carries (low u16 the magicoption.txt
@@ -281,10 +282,14 @@ type ChatResponse struct {
 	Lines []ChatLine `json:"lines"`
 }
 
-// Gear is a ranked player's worn equipment plus: the sum and the highest.
+// Gear is a ranked player's worn equipment: the plus sum and highest, and
+// the gear points the ranking orders by (rankings.go gearPoints).
 type Gear struct {
 	PlusTotal int `json:"plusTotal"`
 	BestPlus  int `json:"bestPlus"`
+	Points    int `json:"points"`
+	// best is the strongest single piece's points, the first tie-break.
+	best int
 }
 
 // RankingRow is one visible player in a ranking. ReachedAt is when the
@@ -319,4 +324,26 @@ type RankingsResponse struct {
 type RulesResponse struct {
 	Rules      []Rule      `json:"rules"`
 	Deviations []Deviation `json:"deviations"`
+}
+
+// GuildsResponse is GET /public/v1/guilds: one page of 50 (guilds.go).
+type GuildsResponse struct {
+	Page        int        `json:"page" doc:"1-based page number."`
+	Pages       int        `json:"pages" doc:"Pages in the full list (at least 1)."`
+	Total       int        `json:"total" doc:"Guilds matching the query."`
+	Query       *string    `json:"query,omitempty" doc:"The lower-cased name prefix searched for, when given."`
+	GeneratedAt string     `json:"generatedAt" doc:"When this answer was built (RFC 3339, UTC)."`
+	Rows        []GuildRow `json:"rows"`
+}
+
+// GuildRow is one guild on the list.
+type GuildRow struct {
+	Rank     int      `json:"rank" doc:"Place on the full list: level, then members, then name."`
+	Name     string   `json:"name"`
+	Level    int      `json:"level" doc:"Guild level, 1 to 5."`
+	Members  int      `json:"members"`
+	Master   string   `json:"master" doc:"The master's name, \"a hunter\" for a master who hides, \"\" if unknown."`
+	Union    []string `json:"union" doc:"The other guilds of its union, by name; empty when it has none."`
+	Fortress *string  `json:"fortress,omitempty" doc:"The fortress it holds, by town in lower case (\"jangan\")."`
+	Founded  *string  `json:"founded,omitempty" doc:"When the guild was founded (RFC 3339, UTC); absent when it predates the record."`
 }

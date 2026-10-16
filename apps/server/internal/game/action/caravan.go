@@ -153,9 +153,10 @@ roll.
 */
 func (rt *Runtime) spawnCaravanBandits(division string, c *enterworld.Character, vehicle simulation.Spawn, nowMs int64) error {
 	roll := rt.caravanRoll()
-	value := rt.caravanCargoValue(c)
-	tier := caravan.DifficultyTier(value)
-	count, err := caravan.SpawnCount(caravan.StarRating(value, cargoHolds(c, cargoSpecialGoods)), roll)
+	// Port-only, not native with SRO_TRADE_TIERS: both from cargo gold
+	// (tradetiers.go).
+	tier, stars := rt.caravanTier(c)
+	count, err := caravan.SpawnCount(stars, roll)
 	if err != nil || count == 0 {
 		return err
 	}
@@ -164,6 +165,12 @@ func (rt *Runtime) spawnCaravanBandits(division string, c *enterworld.Character,
 	// inside the loop and nothing after it, so stopping early leaves every
 	// remaining bandit's draws exactly where they fall natively.
 	count = caravan.CappedSpawnCount(count, rt.CaravanBanditCap)
+	if rt.CaravanStarAmbush {
+		// Port-only, not native: the fixed per-star table replaces the
+		// rolled and capped count (caravan/starambush.go). The native roll
+		// above still ran, so every bandit's draws fall where natively.
+		count = caravan.StarAmbushCount(stars)
+	}
 	job := c.Job.Type
 	tacticsID, err := caravan.TacticsID(job, roll)
 	if err != nil {

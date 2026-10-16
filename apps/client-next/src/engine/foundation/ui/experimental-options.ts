@@ -34,13 +34,68 @@ export interface ExperimentalOptions {
 	// Gameplay: a skill press's run-up walks before the server's answer.
 	readonly predictedRunUp: boolean;
 	// Camera: ease the follow target's height and the collision release
-	// (camera-smoothing.ts); native 68F830 snaps both.
+	// (camera-smoothing.ts); native 68F830 snaps both. On by default (owner
+	// 2026-10-15); an explicit false is the native snap.
 	readonly smoothCamera: boolean;
 	// Port-only, not native: the unused enchant sparks on +8 and higher
 	// weapons and shields (equipmentEnchantSparks).
 	readonly enchantSparks: boolean;
 	// Port-only wolf skill tree controls; requires the server's matching opt-in.
 	readonly attackPetTraining: boolean;
+	// Port-only, not native: a device without BC is served re-encoded
+	// textures (texture-variants.ts) instead of decoding them to RGBA.
+	// Read when the asset worker starts, so it applies from the next load.
+	// On unless turned off (the owner's choice, 2026-10-14): only devices
+	// without BC are affected, where RGBA ends the tab; off is the native
+	// texture content.
+	readonly compressedTextures: boolean;
+	// Port-only, not native: characters and effects share one nearest-first
+	// order under the renderer's CHARACTER_ACTORS (the original keeps every
+	// decoration, 85C020), so a far character gives way to a near effect.
+	// On unless turned off (the owner's choice, 2026-10-14); off is the
+	// previous rule, characters first.
+	readonly sharedActorRoom: boolean;
+	// Port-only, not native: a disabled tab is dimmed with a grey label (the
+	// original draws it like an unselected tab, 5376A0). On unless turned
+	// off (the owner's choice, 2026-10-15); off is the original look.
+	readonly greyDisabledTabs: boolean;
+	// Port-only, not native: the shard's job-kill announcements (their own
+	// 0x3667 channel, server wire.JobKillNoticeChannel). On unless turned off
+	// (the owner's choice, 2026-10-15); off hides them from the banner and
+	// the chat log.
+	readonly jobKillNotices: boolean;
+	// Port-only, not native: the shard's seal-drop and +8..+11 announcements
+	// (their own 0x3667 channel, server wire.DropPlusNoticeChannel). On unless
+	// turned off (the owner's choice, 2026-10-15); off hides them from the
+	// banner and the chat log.
+	readonly dropPlusNotices: boolean;
+	// Port-only, not native: holding V (UIIT_STT_USER_MOSTER_BLIND) also
+	// hides other players' pets and transports. The original hides only
+	// monsters and players (8602C0, 85E550): a COS draws through its owner
+	// (CICCos_ResolveDrawOwner 854680), which ignores the key. Off unless
+	// turned on (the balance advisor's ask, owner-approved 2026-10-15).
+	readonly vHidesCompanions: boolean;
+	// Port-only, not native: an authored label wider than its box wraps onto
+	// two lines inside it, and an open list that would leave its window opens
+	// upward (the original runs the text past the window's edge and draws the
+	// list below the box). On unless turned off (the owner's choice,
+	// 2026-10-15); off is the original look.
+	readonly fitWindowLabels: boolean;
+	// Port-only, not native: an item dropped on the other bag page's tab
+	// moves to that page's first free slot (bag-tab-drop.ts). On unless
+	// turned off (the owner's choice, 2026-10-15); off is the original,
+	// where a drop on a tab does nothing.
+	readonly dropOnBagTab: boolean;
+	// Port-only, not native: in the chat log, a drop or plus notice's player
+	// name links to a whisper and its item name shows the item's tooltip
+	// (foundation/gameplay/notice-links.ts). On unless turned off (the
+	// owner's choice, 2026-10-15); off is plain text.
+	readonly noticeLinks: boolean;
+	// Port-only, not native: the notice banner shows for 5000 ms with a
+	// 1000 ms fade instead of the native 7000 ms and 2000 ms (6B3180, 6B30F0;
+	// runtime/ui/hud/unique-banner.ts). On unless turned off (the balance
+	// advisor's ask, owner-approved 2026-10-15); off is the original timing.
+	readonly shortNotices: boolean;
 }
 
 /*
@@ -77,9 +132,12 @@ export function renderScales(): readonly RenderScale[] {
 ================
 experimentalOptions
 
-Only an explicit true enables a toggle. Missing or invalid render scales
-restore full resolution; legacy Video settings cannot enable scaling. Keys
-of retired rows (terrainRelief and texturedHorizon, removed at the owner's
+Only an explicit true enables a toggle, except smoothCamera,
+compressedTextures, sharedActorRoom, greyDisabledTabs, jobKillNotices, dropPlusNotices,
+fitWindowLabels, dropOnBagTab, noticeLinks and shortNotices, which only an
+explicit false turns off.
+Missing or invalid render scales restore full resolution; legacy Video
+settings cannot enable scaling. Keys of retired rows (terrainRelief and texturedHorizon, removed at the owner's
 request on 2026-10-11) are never read, so a saved preference holding them
 loads cleanly.
 ================
@@ -102,10 +160,43 @@ export function experimentalOptions( value: unknown = null ): ExperimentalOption
 		sunShadow: enabled( "sunShadow" ),
 		perPixelLighting: enabled( "perPixelLighting" ),
 		predictedRunUp: enabled( "predictedRunUp" ),
-		smoothCamera: enabled( "smoothCamera" ),
+		smoothCamera: record.smoothCamera !== false,
 		enchantSparks: enabled( "enchantSparks" ),
+		compressedTextures: record.compressedTextures !== false,
+		sharedActorRoom: record.sharedActorRoom !== false,
+		greyDisabledTabs: record.greyDisabledTabs !== false,
+		jobKillNotices: record.jobKillNotices !== false,
+		dropPlusNotices: record.dropPlusNotices !== false,
+		vHidesCompanions: enabled( "vHidesCompanions" ),
+		fitWindowLabels: record.fitWindowLabels !== false,
+		dropOnBagTab: record.dropOnBagTab !== false,
+		noticeLinks: record.noticeLinks !== false,
+		shortNotices: record.shortNotices !== false,
 		attackPetTraining: enabled( "attackPetTraining" )
 	};
+}
+
+// Where the preferences are kept (the platform saves them).
+export const EXPERIMENTAL_STORAGE_KEY = "sro:v1150:experimental-options:1";
+
+/*
+================
+storedExperimentalOptions
+
+The saved preferences from storage, or the defaults when there are none or
+they cannot be read. The platform owns saving them; an owner that must act
+before the platform starts (the asset worker's texture variant) reads them
+here. Throws only for a stored value that is not JSON, which the platform
+reports.
+================
+*/
+export function storedExperimentalOptions( storage: Pick<Storage, "getItem"> | undefined ): {
+	readonly options: ExperimentalOptions;
+	readonly raw: unknown;
+} {
+	const stored = storage?.getItem( EXPERIMENTAL_STORAGE_KEY ) ?? null;
+	const raw = stored === null ? null : JSON.parse( stored );
+	return { options: experimentalOptions( raw ), raw };
 }
 
 /*
@@ -128,6 +219,8 @@ export interface ExperimentalVideo {
 	readonly perPixelLighting: boolean;
 	readonly smoothCamera: boolean;
 	readonly enchantSparks: boolean;
+	readonly sharedActorRoom: boolean;
+	readonly vHidesCompanions: boolean;
 }
 
 /*
@@ -147,7 +240,9 @@ export function experimentalVideo( options: ExperimentalOptions ): ExperimentalV
 		sunShadow: options.sunShadow,
 		perPixelLighting: options.perPixelLighting,
 		smoothCamera: options.smoothCamera,
-		enchantSparks: options.enchantSparks
+		enchantSparks: options.enchantSparks,
+		sharedActorRoom: options.sharedActorRoom,
+		vHidesCompanions: options.vHidesCompanions
 	};
 }
 
@@ -161,6 +256,8 @@ native client.
 */
 export interface ExperimentalGameplay {
 	readonly predictedRunUp: boolean;
+	readonly jobKillNotices: boolean;
+	readonly dropPlusNotices: boolean;
 }
 
 /*
@@ -169,5 +266,9 @@ experimentalGameplay
 ================
 */
 export function experimentalGameplay( options: ExperimentalOptions ): ExperimentalGameplay {
-	return { predictedRunUp: options.predictedRunUp };
+	return {
+		predictedRunUp: options.predictedRunUp,
+		jobKillNotices: options.jobKillNotices,
+		dropPlusNotices: options.dropPlusNotices
+	};
 }

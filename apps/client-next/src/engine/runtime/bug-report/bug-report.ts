@@ -39,7 +39,7 @@ import { createBugReportDialog, type OutgoingReport, type SendOutcome } from "./
 import { createRecording } from "./recording";
 import { createReportArchive, createDiagnosticUpload, diagnosticUploadBudget } from "./archive";
 import { fitTrack } from "./transcode";
-import { createJournal, JOURNAL_WINDOW_MS } from "./journal";
+import { createJournal, JOURNAL_WINDOW_MS, refusalReason } from "./journal";
 
 const ROUTE = "/title/bug-report";
 const MAX_ERRORS = 50;
@@ -96,6 +96,8 @@ BugReportOptions
 export interface BugReportOptions {
 	readonly canvas: HTMLCanvasElement;
 	readonly apiBase: string;
+	/** The WebGPU adapter's facts, read by the device owner (foundation/rendering/gpu-facts.ts). */
+	readonly gpu?: () => import("@/engine/foundation/rendering/gpu-facts").GpuFacts | null;
 	/** Game context at the moment the window opens (character, place…). */
 	readonly context: () => readonly BugReportField[];
 	/** The game's sound for the replay, or null until there is any. */
@@ -171,6 +173,9 @@ export function createBugReport( options: BugReportOptions ): BugReportOwner {
 	// The newest chat sequence examined for a report request; lines at or
 	// below it are history. null until the first frame primes it.
 	let lastChatSequence: number | null = null;
+	// The last refusal message journaled (refusal), so a standing error is
+	// recorded once, not every frame.
+	let lastRefusal: string | null = null;
 	let disposed = false;
 
 	const dialog = createBugReportDialog( {
@@ -618,9 +623,25 @@ export function createBugReport( options: BugReportOptions ): BugReportOwner {
 				{ type: connection.effectiveType, rttMs: connection.rtt, downlinkMbps: connection.downlink } :
 				null,
 			replay: { phase: recording.phase(), droppedFrames: recorder.dropped(), lastError: recorder.lastError() },
+			gpu: options.gpu?.() ?? null,
 			preferences,
 			resources
 		};
+	}
+
+	/*
+	================
+	refusal
+
+	A refused command shows as the session's or gameplay's error; each new one
+	is journaled once as its reason, so a report names why a click did nothing.
+	================
+	*/
+	function refusal() {
+		const { session, gameplay } = options.state();
+		const message = session?.error ?? gameplay?.error ?? null;
+		if ( message && message !== lastRefusal ) journal.record( "refusal", { refusal: refusalReason( message ) } );
+		lastRefusal = message;
 	}
 
 	/*
@@ -639,6 +660,7 @@ export function createBugReport( options: BugReportOptions ): BugReportOwner {
 	================
 	*/
 	function chat( lines: readonly import("@/engine/contracts/gameplay").ChatLine[] ) {
+		refusal();
 		const newest = lines.length ? lines[lines.length - 1]!.sequence ?? 0 : 0;
 		// Unprimed, or a sequence that went backwards (a new session's chat):
 		// every line present now is history.

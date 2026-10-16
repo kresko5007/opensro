@@ -305,10 +305,11 @@ heavyCaravanAmbush
 The caravan fixture with a heavy cargo (20 special goods in a 40-slot
 transport over a base death EXP of 1), so 60C460 rolls far more bandits
 than the cap; it spawns them on a battlefield and returns the bandits and
-every draw the ambush made.
+every draw the ambush made. configure, when given, adjusts the runtime and
+character just before the ambush.
 ================
 */
-func heavyCaravanAmbush(t *testing.T, limit int) ([]monster.Instance, []uint32) {
+func heavyCaravanAmbush(t *testing.T, limit int, configure ...func(*Runtime, *enterworld.Character)) ([]monster.Instance, []uint32) {
 	t.Helper()
 	rt, clock, c := caravanFixture(t)
 	deps := rt.deps.(*enterworld.Deps)
@@ -339,6 +340,9 @@ func heavyCaravanAmbush(t *testing.T, limit int) ([]monster.Instance, []uint32) 
 	}
 	field := simulation.Spawn{RegionID: caravanBattlefield, X: 960, Y: 20, Z: 960}
 	rideCaravanTo(rt, c, field)
+	for _, adjust := range configure {
+		adjust(rt, c)
+	}
 	if err := rt.spawnCaravanBandits(testDivision, c, field, clock.Now().UnixMilli()); err != nil {
 		t.Fatal(err)
 	}
@@ -375,5 +379,62 @@ func TestCaravanBanditCapTrimsTheAmbush(t *testing.T) {
 	above, _ := heavyCaravanAmbush(t, len(native)+1)
 	if len(above) != len(native) {
 		t.Fatalf("a cap above the count changed it: %d bandits, native %d", len(above), len(native))
+	}
+}
+
+/*
+================
+TestStarAmbushFixesTheCountPerStar
+
+Port-only, not native: with SRO_CARAVAN_STAR_AMBUSH the heavy cargo's
+ambush is the table's count for its stars, above the shard's cap and
+without the native roll's extra or doubling; off, the capped native count
+stands.
+================
+*/
+func TestStarAmbushFixesTheCountPerStar(t *testing.T) {
+	var stars uint32
+	table, _ := heavyCaravanAmbush(t, 8, func(rt *Runtime, c *enterworld.Character) {
+		rt.CaravanStarAmbush = true
+		_, stars = rt.caravanTier(c)
+	})
+	if want := caravan.StarAmbushCount(stars); len(table) != want {
+		t.Fatalf("%d stars: %d bandits, want the table's %d", stars, len(table), want)
+	}
+	native, _ := heavyCaravanAmbush(t, 8)
+	if len(native) != 8 {
+		t.Fatalf("off: %d bandits, want the capped 8", len(native))
+	}
+}
+
+/*
+================
+TestIdleCaravanBanditsLeave
+
+CGObjMob_SpawnBase (4C10C0) gives a bandit the job monster's idle timer:
+an ambush that never strikes leaves 20 s after it spawned, as every other
+thief or hunter monster does.
+================
+*/
+func TestIdleCaravanBanditsLeave(t *testing.T) {
+	rt, clock, c := caravanFixture(t)
+	vehicle := simulation.Spawn{RegionID: caravanBattlefield, X: 960, Y: 20, Z: 960}
+	rideCaravanTo(rt, c, vehicle)
+	spawnedAt := clock.Now().UnixMilli()
+	if err := rt.spawnCaravanBandits(testDivision, c, vehicle, spawnedAt); err != nil {
+		t.Fatal(err)
+	}
+	ambush := len(caravanBandits(rt, vehicle.RegionID))
+	if ambush == 0 {
+		t.Fatal("no bandits spawned")
+	}
+	if left := rt.Monsters.ExpireMonsterLifetimes(spawnedAt + 19999); left != 0 {
+		t.Fatalf("%d bandits left before their idle timer", left)
+	}
+	if left := rt.Monsters.ExpireMonsterLifetimes(spawnedAt + 20000); left != ambush {
+		t.Fatalf("%d of %d idle bandits left at 20 s", left, ambush)
+	}
+	if len(caravanBandits(rt, vehicle.RegionID)) != 0 {
+		t.Fatal("an idle bandit stayed in the world")
 	}
 }

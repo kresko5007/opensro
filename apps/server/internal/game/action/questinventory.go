@@ -1,3 +1,8 @@
+/*
+===========================================================================
+questinventory.go - shared inventory plans for quests, pet gear and gacha receipts.
+===========================================================================
+*/
 package action
 
 import (
@@ -9,8 +14,13 @@ import (
 	"sort"
 )
 
-// PlanQuestInventory runs under the caller's character transaction. It never
-// mutates the character: all removals and grants must fit before rewards commit.
+/*
+================
+PlanQuestInventory
+
+Plans removals and grants before the caller commits any reward.
+================
+*/
 func (rt *Runtime) PlanQuestInventory(c *enterworld.Character, consume, grant []inventory.ItemAmount) ([]enterworld.InventoryRow, []wire.Frame, error) {
 	if c == nil || c.DeletePending {
 		return nil, nil, fmt.Errorf("quest inventory: unavailable character")
@@ -110,6 +120,20 @@ func (rt *Runtime) planBagChange(c *enterworld.Character, change func(inv *inven
 	if err := change(inv); err != nil {
 		return nil, nil, err
 	}
+	return rt.planInventoryGrant(c, before, inv, nil, nil)
+}
+
+/*
+================
+planInventoryGrant
+
+Gacha suppresses its own removal receipt; pet/quest changes keep ordinary receipts.
+================
+*/
+func (rt *Runtime) planInventoryGrant(c *enterworld.Character, before []inventory.Item, inv *inventory.Inventory, grant []inventory.ItemAmount, silent map[uint8]bool) ([]enterworld.InventoryRow, []wire.Frame, error) {
+	if err := rt.questInventoryChange(inv, nil, grant); err != nil {
+		return nil, nil, err
+	}
 	after := inv.Items()
 	frames := []wire.Frame{rt.commerceReferences(after, before)}
 	previous := map[uint8]inventory.Item{}
@@ -124,7 +148,7 @@ func (rt *Runtime) planBagChange(c *enterworld.Character, change func(inv *inven
 	for slot := inventory.EquipmentSlotEnd; slot < inventory.BagEnd(c); slot++ {
 		old, had := previous[slot]
 		row, has := next[slot]
-		if had && (!has || old.RefObjID != row.RefObjID || (!inventory.IsEtcStackableTypeFlags(row.TypeFlags) && !reflect.DeepEqual(old, row))) {
+		if had && !silent[slot] && (!has || old.RefObjID != row.RefObjID || (!inventory.IsEtcStackableTypeFlags(row.TypeFlags) && !reflect.DeepEqual(old, row))) {
 			frames = append(frames, wire.Frame{Opcode: wire.OpItemMoveResponse, Payload: []byte{1, 15, slot, 0}})
 		}
 		if has && (!had || !reflect.DeepEqual(old, row)) {

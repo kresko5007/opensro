@@ -40,6 +40,7 @@ import (
 	"opensro.online/server/internal/game/social/mentor"
 	"opensro.online/server/internal/game/social/party"
 	"opensro.online/server/internal/game/social/union"
+	"opensro.online/server/internal/game/tunables"
 	"opensro.online/server/internal/game/world/movement"
 	"opensro.online/server/internal/game/world/simulation"
 	"opensro.online/server/internal/game/world/worldarea"
@@ -65,6 +66,7 @@ type gameplayPlane struct {
 	chat          *chat.Runtime
 	chatFeed      *chatfeed.Feed
 	parties       *party.Runtime
+	friends       *community.FriendRequests
 	guildInvites  *guild.InviteRuntime
 	unions        *guild.UnionRuntime
 	guildWars     *guild.WarRuntime
@@ -162,6 +164,9 @@ func newGameplayPlane(
 	if err := items.ConfigureStallNetwork(devPaths.TextdataDir); err != nil {
 		return nil, err
 	}
+	if err := items.ConfigureNameFilter(devPaths.TextdataDir); err != nil {
+		return nil, err
+	}
 	// SRO_SHOP_EXTRA_GOODS (port-only, not native): operator NPC shop goods;
 	// "off" is the v1.150 stock (commerce/extragoods.go).
 	extraGoods, err := commerce.ExtraGoodsFromEnv()
@@ -187,6 +192,21 @@ func newGameplayPlane(
 	if items.ElixirDrops.Off() {
 		log.Infof("loot: elixir drops OFF (%s): the shop sells them", progression.EnvElixirDropsOff)
 	}
+	// SRO_ALCHEMY_MATERIAL_DROPS_OFF (port-only, not native): alchemy
+	// materials leave every monster drop. Nothing needs them on the beta.
+	items.MaterialDrops = progression.MaterialDropsFromEnv()
+	if items.MaterialDrops.Off() {
+		log.Infof("loot: alchemy material drops OFF (%s)", progression.EnvAlchemyMaterialDropsOff)
+	}
+	// SRO_SUN_EVENT_ONLY (port-only, not native): degree-9 Seal of Sun gear
+	// leaves monster drops and NPC shops; it returns only as an event reward.
+	items.SunEventOnly = progression.SunEventOnlyFromEnv()
+	if items.SunEventOnly.Enabled() {
+		log.Infof("loot: degree-9 Seal of Sun gear neither drops nor is sold (%s)", progression.EnvSunEventOnly)
+	}
+	// SRO_TRADE_TIERS (port-only, not native) prices the shops' trade goods
+	// as ConfigureCommerce loads them, so it is set first.
+	items.TradeTiers = action.TradeTiersFromEnv()
 	if err := items.ConfigureCommerce(devPaths.TextdataDir, extraGoods); err != nil {
 		return nil, fmt.Errorf("commerce catalogue: %w", err)
 	}
@@ -217,7 +237,7 @@ func newGameplayPlane(
 		return nil, fmt.Errorf("mall catalogue: %w", err)
 	}
 	deps.SceneReferenceFrames = items.CommerceReferenceSeed
-	deps.ReconcileSceneObjects = items.ReconcileGroundScope
+	deps.ReconcileSceneObjects = items.ReconcileScene
 	deps.ExtraRefItemCodenames = items.GroundRefItemCodenames
 	deps.StaticRefItemCodenames = items.StaticRefItemCodenames
 	deps.ExtraMagicOptionIDs = items.AlchemyMagicOptionIDs
@@ -232,6 +252,7 @@ func newGameplayPlane(
 	if err := water.ValidateSecurityAssets(); err != nil {
 		return nil, err
 	}
+	water.SetClosedObjectRescue(movement.ClosedObjectRescueFromEnv())
 	navigationStarted := time.Now()
 	navigationRegions, err := water.PreloadOutdoorNavigation()
 	if err != nil {
@@ -264,12 +285,14 @@ func newGameplayPlane(
 	items.ConstrainMovement = movementRuntime.ConstrainMovement
 	items.SpawnRegionAvailable = water.SpawnRegionAvailable
 	items.ConstrainCompanionSpawn = water.ConstrainCompanionSpawn
+	items.InsideClosedObject = water.InsideClosedObject
 	items.CompanionSurfaceHeight = water.WalkableSpawnHeightAt
 	items.ConstrainWalk = movementRuntime.ConstrainMovementFrom
 	items.PlanCompanionRoute = simulation.PetRouteFromMonster(water.PlanMonsterRoute)
 	items.AdmitGroundWalk = movementRuntime.AdmitGroundWalk
 	items.LineOfSight = movementRuntime.LineOfSight
 	items.ResolveNavOwner = water.ResolveNavOwner
+	items.WalkInZoneAt = water.WalkInZoneAt
 	items.MoveCOS = movementRuntime.HandleCOSMove
 	items.MoveCOSPublished = movementRuntime.HandleCOSMovePublished
 	items.SteerCOS = movementRuntime.HandleCOSSteer
@@ -330,7 +353,7 @@ func newGameplayPlane(
 	parties.UseLivePose(items.LiveSpawnFor)
 	parties.UseMasteries(party.MasteriesFromEnv())
 	if party.MasteriesFromEnv() {
-		log.Infof("party: member rows carry the two main masteries ON (%s=off disables)", party.EnvPartyMasteries)
+		log.Infof("party: member rows carry the two main masteries (%s, port-only)", party.EnvPartyMasteries)
 	}
 	items.NextPartyLootMember = parties.Registry().NextLootMember
 	items.RewardActorPresent = func(division, name string) bool {
@@ -542,6 +565,78 @@ func (game *gameplayPlane) register(hub *transport.Hub, loadQuests questDefiniti
 	game.deps.MasteryTotalOverride = masteryOverride
 	// Port-only, not native: storage quick moves prefer a matching stack.
 	game.deps.StorageAutoStack = action.StorageAutoStackFromEnv()
+	// Port-only, not native: the Bandit Den scroll counts down half as long,
+	// and the client's delay bar learns it at world entry.
+	// Port-only, not native: the job-kill streak, its bonuses and bounty.
+	game.items.MostWanted = action.MostWantedFromEnv()
+	if game.items.MostWanted {
+		log.Infof("job: most wanted streaks, bonuses and bounties ON (%s)", action.EnvMostWanted)
+	}
+	// Port-only, not native, temporary: Most Wanted's test pacing.
+	game.items.MostWantedTest = action.MostWantedTestFromEnv()
+	step, err := action.MostWantedTestStreakStepFromEnv()
+	if err != nil {
+		return err
+	}
+	game.items.MostWantedTestStreakStep = step
+	if game.items.MostWantedTest {
+		log.Infof("job: most wanted test pacing ON: %d kills a level, no anti-farm window, %d gold bounty a level (%s)",
+			10/step, tunables.Current().Int(tunables.MostWantedTestBounty), action.EnvMostWantedTest)
+	}
+	// Port-only, not native: the bounty comes out of the victim's gold.
+	game.items.MostWantedBountyTransfer = action.MostWantedBountyTransferFromEnv()
+	if game.items.MostWantedBountyTransfer {
+		log.Infof("job: most wanted bounties paid from the victim's gold (%s)", action.EnvMostWantedBountyTransfer)
+	}
+	// Port-only, not native: a trader's goods stay in the world when the
+	// trader dies riding or disconnects in the field.
+	game.items.TraderCargoDrop = action.TraderCargoDropFromEnv()
+	if game.items.TraderCargoDrop {
+		log.Infof("trade: transport cargo drops on rider death and field disconnect (%s)", action.EnvTraderCargoDrop)
+	}
+	// Port-only, not native: caravans rated by cargo gold, Jangan route profit.
+	game.deps.TradeTiers = game.items.TradeTiers
+	if game.items.TradeTiers {
+		log.Infof("trade: stars by cargo gold and Jangan route profit (%s)", action.EnvTradeTiers)
+	}
+	// Port-only, not native: trader and hunter suits hide worn armour
+	// (presentation, published to the client).
+	game.deps.JobSuitHidesArmor = action.JobSuitHidesArmorFromEnv()
+	if game.deps.JobSuitHidesArmor {
+		log.Infof("job: trader and hunter suits hide worn armour (%s)", action.EnvJobSuitHidesArmor)
+	}
+	// Port-only, not native: level-20 thief suits wear the Moonlit Ash look
+	// (presentation, published to the client).
+	game.deps.MoonlitThiefSuit = action.MoonlitThiefSuitFromEnv()
+	if game.deps.MoonlitThiefSuit {
+		log.Infof("job: level-20 thief suits wear Moonlit Ash (%s)", action.EnvMoonlitThiefSuit)
+	}
+	game.items.FastDenReturn = action.FastDenReturnFromEnv()
+	game.deps.FastDenReturn = game.items.FastDenReturn
+	if game.items.FastDenReturn {
+		log.Infof("return: Bandit Den scroll countdown halved (%s)", action.EnvFastDenReturn)
+	}
+	// Port-only, not native: shard notices for seal drops, high plus and job
+	// kills (announce.go).
+	game.items.Announce = action.AnnouncementsFromEnv()
+	if a := game.items.Announce; a.SoxDrop || a.Plus || a.JobKill || a.MostWanted {
+		log.Infof("announce: seal drops %v, plus %v, job kills %v, most wanted %v", a.SoxDrop, a.Plus, a.JobKill, a.MostWanted)
+	}
+	// Port-only, not native: a party's thieves raise its EXP and gold.
+	game.items.ThiefPartyBonus = action.ThiefPartyBonusFromEnv()
+	if game.items.ThiefPartyBonus {
+		log.Infof("party: +10%% EXP and gold per thief (%s)", action.EnvThiefPartyBonus)
+	}
+	// Port-only, not native: traders and their hunters earn more together.
+	game.items.TradeJobBonus = action.TradeJobBonusFromEnv()
+	if game.items.TradeJobBonus {
+		log.Infof("trade: party traders and hunters share a gold bonus (%s)", action.EnvTradeJobBonus)
+	}
+	// Port-only, not native: no transport comes out during the Den countdown.
+	game.items.DenNoTransportSummon = action.DenNoTransportSummonFromEnv()
+	if game.items.DenNoTransportSummon {
+		log.Infof("return: no transport summon during the Bandit Den countdown (%s)", action.EnvDenNoTransportSummon)
+	}
 	// Port-only, not native: a GM's /SETSPEED.
 	game.items.GMSetSpeed = action.GMSetSpeedFromEnv()
 	if game.items.GMSetSpeed {
@@ -564,6 +659,19 @@ func (game *gameplayPlane) register(hub *transport.Hub, loadQuests questDefiniti
 	game.items.CaravanBanditCap = banditCap
 	if banditCap > 0 {
 		log.Infof("caravan: at most %d bandits per ambush (%s)", banditCap, caravan.EnvBanditCap)
+	}
+	game.items.CaravanStarAmbush = caravan.StarAmbushFromEnv()
+	if game.items.CaravanStarAmbush {
+		log.Infof("caravan: a fixed ambush per star replaces the rolled count (%s)", caravan.EnvStarAmbush)
+	}
+	game.items.TransportFollow = action.TransportFollowFromEnv()
+	if game.items.TransportFollow {
+		log.Infof("cos: a dismounted trade transport follows its trader (%s)", action.EnvTransportFollow)
+	}
+	// Port-only, not native: town teleports admit a trader's transport.
+	game.items.JobGoodsTeleport = action.JobGoodsTeleportFromEnv()
+	if game.items.JobGoodsTeleport {
+		log.Infof("job: town gates and return scrolls admit a trader's transport (%s)", action.EnvJobGoodsTeleport)
 	}
 	if game.deps.StorageAutoStack {
 		log.Infof("storage: quick moves auto-stack ON (%s)", action.EnvStorageAutoStack)
@@ -788,7 +896,10 @@ func (game *gameplayPlane) register(hub *transport.Hub, loadQuests questDefiniti
 	quest.Register(hub, quests)
 
 	community.Register(hub, game.deps)
-	community.RegisterFriend(hub, game.deps, game.presence)
+	game.friends = community.RegisterFriend(hub, game.deps, game.presence)
+	// The friend request's consent shares 0x3012 with game-ready
+	// (enterworld.ConsentAnswerLength).
+	game.deps.FriendConsent = game.friends.Consent
 	community.RegisterLetter(hub, game.deps, game.presence)
 	game.chat = chat.Register(hub, game.deps, game.presence, game.parties.Registry())
 	// The website's public chat feed (port-only): beta chat, the Global

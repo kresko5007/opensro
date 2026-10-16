@@ -336,7 +336,7 @@ Project the live character with the working block's own modifier writes.
 ================
 */
 func (o *playerAbnormalOwner) Param(id uint16) float32 {
-	stats, _, err := combat.PlayerStatsWithModifiers(o.c, o.rt.statCatalogs(), o.rt.effects.ModifierWrites(o.division, o.c.Name), o.block)
+	stats, _, err := combat.PlayerStatsWithModifiers(o.c, o.rt.statCatalogs(), o.rt.statModifierWrites(o.division, o.c), o.block)
 	if err != nil {
 		log.WithError(err).WithFields(log.Fields{"division": o.division, "character": o.c.Name, "param": id}).Error("abnormal parameter projection failed")
 		return 0
@@ -672,6 +672,10 @@ func (rt *Runtime) settlePlayerDeathInDoor(division string, c *enterworld.Charac
 	cost := rt.settleDeathCostInDoor(division, c, killer, now)
 	effects = append(effects, cost.public...)
 	progression = cost.actor
+	// Port-only, not native: any death clears the streak (mostwanted.go).
+	wantedPrivate, wantedPublic := rt.clearMostWantedInDoor(division, c, "death", now)
+	effects = append(effects, wantedPublic...)
+	progression = append(progression, wantedPrivate...)
 	if rt.ReleaseQuestCapturesOnDeath != nil {
 		frames, _ := rt.ReleaseQuestCapturesOnDeath(c)
 		progression = append(progression, frames...)
@@ -768,14 +772,17 @@ func (rt *Runtime) playerAbnormalPublication(division string, c *enterworld.Char
 			killer := rt.findCharacterByGid(division, enterworld.ObjectIDForCharacter(o.deathKiller))
 			if killer != nil {
 				var actor, public []wire.Frame
-				var shares []jobKillShare
-				rt.deps.Update(killer, "player-abnormal-kill", func() bool {
-					actor, public, shares = rt.payPlayerKillInDoor(division, killer, c, o.deathKill, o.now)
+				var after jobKillPayout
+				if !rt.deps.Update(killer, "player-abnormal-kill", func() bool {
+					actor, public, after = rt.payPlayerKillInDoor(division, killer, c, o.deathKill, o.now)
 					return len(actor) != 0 || len(public) != 0
-				})
+				}) {
+					// Nothing of the killer's side committed: no notice.
+					after.notices = nil
+				}
 				out.sources = append(out.sources, privateFrames{killer.ID, actor})
 				out.public = append(out.public, public...)
-				for _, recipient := range rt.payJobKillShares(shares) {
+				for _, recipient := range rt.payJobKillShares(after) {
 					out.sources = append(out.sources, privateFrames{recipient.CharacterID, recipient.Frames})
 				}
 			}

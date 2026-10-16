@@ -13,6 +13,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { build } from "esbuild";
 import { root } from "../../tools/project.mjs";
+// How long a worker answer may take on a loaded machine before the test
+// calls it stranded. Generous: a correct loader answers in milliseconds.
+const ANSWER_TIMEOUT_MS = 10000;
 const result = await build( {
 	stdin: {
 		resolveDir: root,
@@ -121,6 +124,59 @@ test("terrain seam plans are rebuilt at admission and transferred with exclusive
 	const frame = world.prepare( geometry, images, 1 );
 	assert.equal( frame.draws[0].data.positions[7], 0, "first selection restores the mismatched interior height" );
 	world.dispose( geometry, images );
+});
+
+/*
+================
+terrainScene
+
+One terrain cell with every vertex attribute, residency as given.
+================
+*/
+function terrainScene( residency ) {
+	const source = scene(), g = source.groups[0].geometry;
+	if ( residency ) source.residency = residency;
+	g.positions = new Float32Array( [ 0, 1, 0, 20, 2, 0, 0, 3, 20 ] );
+	g.normals = new Float32Array( [ 0, 1, 0, .6, .8, 0, 0, .8, .6 ] );
+	g.uvs = new Float32Array( [ 0, 0, 1, 0, 0, 1 ] );
+	g.colors = new Float32Array( [ 1, .5, .25, 1, .5, .25, 1, .75, .25, 1, .5, .5 ] );
+	g.maskUVs = new Float32Array( [ .1, .2, .3, .4, .5, .6 ] );
+	source.groups[0].ranges = [ {
+		cell: [ 0, 0 ],
+		lod: 0,
+		indexStart: 0,
+		indexCount: 3,
+		vertexStart: 0,
+		vertexCount: 3,
+		center: [ 160, 0, 160 ],
+		radius: 300,
+		heights: Array( 289 ).fill( 0 ),
+		seamVertices: new Uint32Array( 0 )
+	} ];
+	return source;
+}
+
+test("terrain transfers only the packed stream it draws and its positions, world and frontend alike", () => {
+	for ( const residency of [ undefined, "frontend" ] ) {
+		const source = terrainScene( residency ), split = source.groups[0].geometry;
+		const prepared = prepareWorldScene( terrainScene( residency ) ),
+			full = worldSceneBytes( terrainScene( residency ) ),
+			received = structuredClone( prepared, { transfer: worldSceneTransfers( prepared.scene ) } ).scene.groups[0]
+				.geometry;
+		for ( const name of [ "normals", "uvs", "colors", "maskUVs" ] ) {
+			assert.equal( received[name], undefined, `${residency ?? "world"} terrain drops split ${name}` );
+		}
+		// The interleave carries every dropped stream: picking reads uv and
+		// colour alpha there (picking.ts).
+		for ( let v = 0; v < split.positions.length / 3; v++ ) {
+			assert.deepEqual( [ ...received.vertices.subarray( v * 14 + 6, v * 14 + 8 ) ], [
+				...split.uvs.subarray( v * 2, v * 2 + 2 )
+			] );
+			assert.equal( received.vertices[v * 14 + 11], split.colors[v * 4 + 3] );
+		}
+		assert.deepEqual( [ ...received.positions ], [ ...split.positions ], "seam stitching keeps its positions" );
+		assert.equal( prepared.bytes, full - (9 + 6 + 12 + 6) * 4, "residency is charged for what is held" );
+	}
 });
 
 // Preparation moves every group stream into one arena: the receiving clone pays per buffer.
@@ -272,7 +328,7 @@ test("failed worker world transfer publishes an error instead of stranding the r
 					{ filter: /.*/, namespace: "fixture" },
 					() => ({
 						contents: `export class AssetAbsentError extends Error {}
-export const createPacks=()=>({worldAnimationManifests:async()=>[],dispose(){}});`
+export const createPacks=()=>({worldAnimationManifests:async()=>[],textureVariant(){},dispose(){}});`
 					})
 				);
 			}
@@ -282,10 +338,17 @@ export const createPacks=()=>({worldAnimationManifests:async()=>[],dispose(){}})
 		"data:text/javascript;base64," + Buffer.from( compiled.outputFiles[0].contents ).toString( "base64" )
 	);
 	const results = [];
+	// The load chain (fetch, decode, the failing transfer) is asynchronous;
+	// a fixed count of event-loop turns ran out under machine load. Wait
+	// for the answer itself, bounded so a stranded request still fails.
+	let answered;
+	const answer = new Promise( resolve => answered = resolve );
 	const loader = createLoader( result => {
 		if ( result.kind === "world" ) throw Error( "fixture transfer failed" );
 		results.push( result );
+		answered();
 	} );
+	let timer;
 	try {
 		loader.receive( {
 			kind: "load",
@@ -294,11 +357,15 @@ export const createPacks=()=>({worldAnimationManifests:async()=>[],dispose(){}})
 			limit: 1024 * 1024,
 			decode: "world"
 		} );
-		for ( let i = 0; i < 20 && !results.length; i++ ) await new Promise( setImmediate );
+		await Promise.race( [
+			answer,
+			new Promise( resolve => timer = setTimeout( resolve, ANSWER_TIMEOUT_MS ) )
+		] );
 		assert.equal( results.length, 1 );
 		assert.equal( results[0].kind, "error" );
 		assert.match( results[0].error, /fixture transfer failed/ );
 	} finally {
+		clearTimeout( timer );
 		loader.dispose();
 	}
 });

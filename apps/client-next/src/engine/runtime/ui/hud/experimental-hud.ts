@@ -99,6 +99,18 @@ export const EXPERIMENTAL_TABS: readonly {
 				id: "experimental-dynamic-sun",
 				label: "Moving sunlight",
 				description: "Lighting follows the time of day."
+			},
+			{
+				key: "compressedTextures",
+				id: "experimental-compressed-textures",
+				label: "Compressed textures",
+				description: "Phones and tablets: less memory. After reload."
+			},
+			{
+				key: "sharedActorRoom",
+				id: "experimental-shared-actor-room",
+				label: "Effects in crowds",
+				description: "In a crowd, near skill effects draw before far characters."
 			}
 		]
 	},
@@ -138,27 +150,72 @@ export const EXPERIMENTAL_TABS: readonly {
 			key: "predictedRunUp",
 			id: "experimental-predicted-run-up",
 			label: "Predicted run-up",
-			description: "Walk toward a far target at the press; may jump at the cast."
+			description: "Walk to a far target on press; may jump at the cast."
 		}, {
 			key: "smoothCamera",
 			id: "experimental-smooth-camera",
 			label: "Smooth camera",
-			description: "Ease small camera height jumps and the return after a wall."
+			description: "Ease small camera jumps and the return from a wall."
+		}, {
+			key: "vHidesCompanions",
+			id: "experimental-v-hides-companions",
+			label: "V hides pets and transports",
+			description: "Holding V also hides other players' pets and transports."
 		}, {
 			key: "attackPetTraining",
 			id: "experimental-attack-pet-training",
 			label: "Attack-pet training",
-			description: "Wolf skill tree and gear in Pet info / Technology. Server must enable it."
+			description: "Pet skills and gear; requires server opt-in."
 		} ]
 	},
 	{
-		title: "Developer",
-		section: "Diagnostics",
+		title: "Notices",
+		section: "Shard notices",
+		rows: [ {
+			key: "jobKillNotices",
+			id: "experimental-job-kill-notices",
+			label: "Job kill notices",
+			description: "Show the shard's job kill announcements."
+		}, {
+			key: "dropPlusNotices",
+			id: "experimental-drop-plus-notices",
+			label: "Drop & plus notices",
+			description: "Show the shard's seal drop and +8 to +11 notices."
+		}, {
+			key: "noticeLinks",
+			id: "experimental-notice-links",
+			label: "Links in notices",
+			description: "Hover an item for details; click a name to whisper."
+		}, {
+			key: "shortNotices",
+			id: "experimental-short-notices",
+			label: "Short notices",
+			description: "Show a notice for 5 seconds instead of 7."
+		} ]
+	},
+	{
+		title: "Other",
+		section: "Windows and diagnostics",
 		rows: [ {
 			key: "developerDiagnostics",
 			id: "experimental-developer-diagnostics",
 			label: "Developer diagnostics",
 			description: "Show a diagnostics icon beside FPS."
+		}, {
+			key: "greyDisabledTabs",
+			id: "experimental-grey-disabled-tabs",
+			label: "Grey disabled tabs",
+			description: "Dim a window tab you cannot use."
+		}, {
+			key: "fitWindowLabels",
+			id: "experimental-fit-window-labels",
+			label: "Fit window labels",
+			description: "Fit long labels and captions; open lists upward."
+		}, {
+			key: "dropOnBagTab",
+			id: "experimental-drop-on-bag-tab",
+			label: "Drop on bag tabs",
+			description: "Drop an item on a bag tab to move it to that page."
 		} ]
 	}
 ];

@@ -1,7 +1,7 @@
 /*
 ===========================================================================
 
-pet_training_upgrade_test.go - the schema 24 step (companion training)
+pet_training_upgrade_test.go - preserve pet saves across merged schema histories
 
 ===========================================================================
 */
@@ -11,23 +11,27 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+
+	"opensro.online/server/internal/domain"
 )
 
 /*
 ================
 TestPetTrainingUpgradeRewritesNothing
 
-A schema 23 authority at layout 9 upgrades to 24 with its records
-untouched (the new field is optional and absent); a second upgrade has
-nothing to do.
+Legacy lab schemas 23-25 and main schema 26 preserve learned pet ranks and
+equipment byte-for-byte while moving to schema 27; a repeated upgrade is idle.
 ================
 */
 func TestPetTrainingUpgradeRewritesNothing(t *testing.T) {
-	for _, sourceVersion := range []int{prePetTrainingVersion, preSequentialPetTreeVersion} {
+	for _, sourceVersion := range []int{prePetTrainingVersion, preSequentialPetTreeVersion, preGuildFoundedVersion, preMergedPetVersion} {
 		t.Run(fmt.Sprint(sourceVersion), func(t *testing.T) {
 			dir := t.TempDir()
 			s := openTest(t, dir, newTestClock())
 			c := seededCharacter()
+			c.MissionInventory[0].Summon = &domain.CharacterCOS{Codename: "COS_P_BEAR_090", Level: 90,
+				Training: domain.PetTraining{TreeVersion: 2, Levels: [15]uint8{10, 10, 1},
+					Gear: [3]domain.PetGear{{RefObjID: 30209, Options: [6]uint64{214748397645}}}}}
 			if err := s.CreateCharacter(testDivision, "account", c); err != nil {
 				t.Fatal(err)
 			}
@@ -36,6 +40,9 @@ func TestPetTrainingUpgradeRewritesNothing(t *testing.T) {
 				t.Fatal(err)
 			}
 			s.Close()
+			if sourceVersion <= preGuildFoundedVersion {
+				downgradeToLayout9(t, dir)
+			}
 			rewriteDatabaseMeta(t, dir, metaKeySchemaVersion, sourceVersion)
 			if backup, err := UpgradeAuthority(dir, true); err != nil || backup == "" {
 				t.Fatalf("upgrade %q: %v", backup, err)

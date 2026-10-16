@@ -37,7 +37,9 @@ const (
 // index or bundle degrades to ACCEPT (`.catch(() => null)`), never to a
 // refusal or a fault.
 type WaterValidator struct {
-	heightCache          *heightCache
+	// closedObjectRescue: RelocateStrandedSpawn also frees a spawn inside a
+	// closed object (placementguard.go, SRO_CLOSED_OBJECT_RESCUE).
+	closedObjectRescue   bool
 	root                 string
 	catalogPath          string
 	dungeonResourcesPath string
@@ -86,6 +88,9 @@ type WaterValidator struct {
 	// (objectnav_reach.go), filled with the set: a chord that misses it
 	// can skip the whole set.
 	objectNavReaches map[objectNavSetKey]objectReach
+	// walkInSets holds, per cached set, the indices of the placements
+	// whose meshes carry event-zone cells (walkin_zone.go).
+	walkInSets map[objectNavSetKey][]int
 	// dungeonSpawnOnce owns the separately packaged DOF resident-nav
 	// plane. Dungeon coordinates are not outdoor sector-local frames and
 	// must never enter surfaceByRegion/grid tile math.
@@ -127,6 +132,7 @@ func newWaterValidator(root, catalogPath, dungeonResourcesPath string) *WaterVal
 		objectNavMeshes:      make(map[string][]*objectNavMesh),
 		objectNavSets:        make(map[objectNavSetKey][]resolvedObjectNav),
 		objectNavReaches:     make(map[objectNavSetKey]objectReach),
+		walkInSets:           make(map[objectNavSetKey][]int),
 	}
 	if _, err := os.Stat(v.assetPath(catalogPath)); err != nil {
 		log.Warnf("movement: world-region catalog unreadable under %s (%v); deep-water gate degrades to accept-all", root, err)

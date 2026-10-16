@@ -1,15 +1,17 @@
 /*
 ===========================================================================
-main.mjs - loopback observatory, authenticated player recovery and invite keys
+main.mjs - loopback observatory, authenticated player recovery, invite keys, economy and shard rules reads
 ===========================================================================
 */
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { loadShards, createSource } from "./source.mjs";
-import { allowedRequest, allowedMutation } from "./security.mjs";
+import { allowedRequest, allowedMutation, edgeIdentity, LOCAL_OPERATOR, requestOperator } from "./security.mjs";
 import { createItems } from "./items.mjs";
 import { createPlayerOperations, readBody } from "./player-operations.mjs";
 import { createHistory } from "./history.mjs";
+import { createEconomy } from "./economy.mjs";
+import { createSettings } from "./settings.mjs";
 import { createInviteKeys, siteAdminURL } from "./invite-keys.mjs";
 import { clientPublicPath } from "../../../scripts/lib/generatedRoot.mjs";
 const port = Number( process.env.SRO_OBSERVATORY_PORT ?? 5190 );
@@ -21,7 +23,7 @@ const edge = config.edge ?? null;
 if (
 	edge &&
 	(new URL( edge.origin ).protocol !== "https:" || typeof edge.secret !== "string" || edge.secret.length < 32 ||
-		!edge.operator)
+		(edge.identity !== "discord" && !edge.operator))
 ) throw Error( "Invalid console edge configuration" );
 const token = config.operatorTokenFile ? (await readFile( config.operatorTokenFile, "utf8" )).trim() : "";
 const shards = await loadShards( config.shards ?? new URL( "../../server/config/shards.json", import.meta.url ) );
@@ -36,6 +38,13 @@ const historySources = [ {
 	token: agentToken
 }, ...shards.map( row => ({ ...row, token }) ) ];
 const history = createHistory( historySources );
+// Each GameWorld's economy aggregates (economy.mjs), read with their own
+// token; absent, the Economy page says it is off.
+const economyToken = config.economyTokenFile ? (await readFile( config.economyTokenFile, "utf8" )).trim() : "";
+const economy = createEconomy( shards, economyToken );
+// Each GameWorld's shard rules (settings.mjs), read under the operator
+// token the GameWorld's settings guard shares with its other readers.
+const settings = createSettings( shards, token );
 // The website's invite keys (opensro-web /internal/admin/invites), with the
 // console's own secret; absent, the Invite keys page says it is off.
 const siteAdmin = config.siteAdmin ?? null;
@@ -74,7 +83,15 @@ for (
 		"invites.js",
 		"invite-made.js",
 		"invites.css",
-		"request.js"
+		"request.js",
+		"economy.html",
+		"economy.js",
+		"economy-view.js",
+		"economy.css",
+		"settings.html",
+		"settings.js",
+		"settings-view.js",
+		"settings.css"
 	]
 ) files.set( "/" + file, file );
 /*
@@ -120,7 +137,7 @@ async function handleRequest( req, res ) {
 				}
 				rescue = await readBody( req );
 				if ( !rescue || Array.isArray( rescue ) || typeof rescue !== "object" ) throw Error( "Invalid body" );
-				rescue.operator = edge?.operator ?? "local-operator";
+				rescue.operator = requestOperator( req, edge );
 			} else if ( req.method !== "GET" ) {
 				res.writeHead( 405 );
 				res.end();
@@ -135,7 +152,7 @@ async function handleRequest( req, res ) {
 			return;
 		}
 		if ( url.pathname === "/api/invites" || INVITE_REVOKE.test( url.pathname ) ) {
-			const operator = edge?.operator ?? "local-operator";
+			const operator = requestOperator( req, edge );
 			let result;
 			if ( req.method === "GET" && url.pathname === "/api/invites" ) {
 				try {
@@ -186,9 +203,12 @@ async function handleRequest( req, res ) {
 		}
 		if ( url.pathname === "/api/console" ) {
 			respondJSON( res, 200, {
-				operator: edge?.operator ?? "local-operator",
+				operator: edge ? edgeIdentity( req, edge )?.name : LOCAL_OPERATOR,
+				role: edge ? edgeIdentity( req, edge )?.role : "operator",
 				enabled: Boolean( token ),
 				invites: Boolean( siteAdminToken ),
+				economy: economy.enabled,
+				settings: settings.enabled,
 				historySources: historySources.map( ( { id, name } ) => ({ id, name }) ),
 				shards: shards.map( ( { id, name } ) => ({ id, name }) )
 			} );
@@ -196,6 +216,16 @@ async function handleRequest( req, res ) {
 		}
 		if ( url.pathname === "/api/history" ) {
 			const result = await history.request( url.searchParams );
+			respondJSON( res, result.status, result.body );
+			return;
+		}
+		if ( url.pathname.startsWith( "/api/economy/" ) ) {
+			const result = await economy.request( url.pathname, url.searchParams );
+			respondJSON( res, result.status, result.body );
+			return;
+		}
+		if ( url.pathname === "/api/settings" ) {
+			const result = await settings.request( url.searchParams );
 			respondJSON( res, result.status, result.body );
 			return;
 		}

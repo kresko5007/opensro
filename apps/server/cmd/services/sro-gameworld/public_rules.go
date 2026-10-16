@@ -6,7 +6,9 @@ public_rules.go - the "Original vs OpenSRO" list the public API serves (P9)
 Every player-facing port-only switch, read through the same function the
 game reads it with, so the site shows the shard's live setting, plus the
 deliberate deviations that have no switch. Operator-only switches (movement
-clip telemetry, data paths) are not player-facing and are left out.
+clip telemetry, data paths, GM commands) are not player-facing and are left
+out; unlistedSettings names each shard setting left out and why, and a test
+keeps every setting either here or there.
 
 ===========================================================================
 */
@@ -14,6 +16,7 @@ package main
 
 import (
 	"fmt"
+	"strconv"
 
 	"opensro.online/server/internal/agent/publicstats"
 	"opensro.online/server/internal/game/action"
@@ -21,11 +24,27 @@ import (
 	"opensro.online/server/internal/game/companion"
 	"opensro.online/server/internal/game/enterworld"
 	"opensro.online/server/internal/game/item/alchemy"
+	"opensro.online/server/internal/game/item/commerce"
 	"opensro.online/server/internal/game/progression"
 	"opensro.online/server/internal/game/quest"
 	"opensro.online/server/internal/game/social/party"
+	"opensro.online/server/internal/game/tunables"
+	"opensro.online/server/internal/game/world/monster"
+	"opensro.online/server/internal/game/world/movement"
 	"opensro.online/server/internal/game/world/simulation"
 )
+
+// unlistedSettings are the shard settings the rules page leaves out, each
+// with the reason; every other setting is a rule (public_rules_test.go).
+var unlistedSettings = map[string]string{
+	action.EnvGMSetSpeed: "a GM command, not a rule players meet",
+	// The tunables a rule's own text shows (game/tunables).
+	"SRO_MOST_WANTED_TEST_KILLS":         "shown in the Most Wanted test pacing rule",
+	"SRO_MOST_WANTED_TEST_BOUNTY":        "shown in the Most Wanted test pacing rule",
+	"SRO_JOB_KILL_NOTICES_PER_MINUTE":    "shown in the job-kill repeat rule",
+	"SRO_JOB_KILL_REPEAT_MINUTES":        "shown in the job-kill repeat rule",
+	"SRO_MOST_WANTED_NOTICES_PER_MINUTE": "a cap on the Most Wanted notices, an operator throttle",
+}
 
 /*
 ================
@@ -44,6 +63,13 @@ func publicRules() publicstats.RulesResponse {
 	noAssimilation, _ := alchemy.NoAssimilationFromEnv()
 	banditCap, _ := caravan.BanditCapFromEnv()
 	dropMix, _ := progression.BetaDropMixFromEnv()
+	growth := progression.BetaGrowthFromEnv()
+	betaMastery, _ := progression.BetaMasteryFromEnv()
+	shopGoods, _ := commerce.ExtraGoodsFromEnv()
+	mallGoods, _ := commerce.MallExtraGoodsFromEnv()
+	rideFactor, rideOn, _ := enterworld.MallRideSpeedFromEnv()
+	settings := tunables.Current()
+	testKills := settings.Int(tunables.MostWantedTestKills)
 	return publicstats.RulesResponse{
 		Rules: []publicstats.Rule{
 			{Flag: companion.EnvAttackPetExpansion, On: companion.AttackPetExpansionEnabled(),
@@ -58,10 +84,38 @@ func publicRules() publicstats.RulesResponse {
 				Native: "Every kind of item drops at the retail rate.",
 				Now:    "Each item kind has its own beta drop rate; by default equipment keeps the raised rate while potions, pills, scrolls, arrows and alchemy materials drop at the retail rate.",
 				Why:    "So raised drops bring gear rather than a floor of potions."},
+			{Flag: progression.EnvBetaSkillExpRate, On: growth.Enabled,
+				Native: "Skill experience comes at the retail rate.",
+				Now:    fmt.Sprintf("Skill experience comes %d times as fast.", growth.SkillExpRate),
+				Why:    "Testers can train skills without long grinding."},
+			{Flag: progression.EnvBetaDropRate, On: growth.Enabled,
+				Native: "A kill rolls each of its drops once.",
+				Now:    fmt.Sprintf("A kill rolls each of its drops %d times.", growth.DropRate),
+				Why:    "So plus upgrades and alchemy can be tried without long farming."},
+			{Flag: progression.EnvBetaDropCap, On: growth.Enabled && growth.DropCap > 0,
+				Native: "A monster drops as many items as its rolls give, within its own capacity.",
+				Now:    fmt.Sprintf("A kill drops at most %d ordinary items.", growth.DropCap),
+				Why:    "The raised rate shows as better finds rather than a carpet of potions."},
+			{Flag: progression.EnvBetaGoldRate, On: growth.Enabled,
+				Native: "Gold heaps hold the retail amount.",
+				Now:    fmt.Sprintf("Each gold heap holds %d times the retail amount.", growth.GoldRate),
+				Why:    "Testers can afford the shop goods the beta sells for gold."},
+			{Flag: progression.EnvBetaRareRate, On: growth.Enabled,
+				Native: "Rare (Seal) equipment drops at the retail chance.",
+				Now:    fmt.Sprintf("Rare (Seal) equipment drops %d times as often.", growth.RareRate),
+				Why:    "Beta balance, so testers can try seal gear."},
+			{Flag: progression.EnvBetaMastery, On: betaMastery > 0,
+				Native: "The total of all mastery levels is capped at 300 for Chinese characters and at twice the level, up to 240, for Europeans.",
+				Now:    fmt.Sprintf("Every character may train masteries up to a total of %d; each mastery's own limits stay.", betaMastery),
+				Why:    "Testers can try every mastery tree on one character."},
 			{Flag: progression.EnvBetaSealRates, On: progression.BetaSealRatesFromEnv().Enabled(),
 				Native: "Each Seal of Star, Moon and Sun drops at the rare rate, and degree-9 Star and Moon only from monsters of level 76 to 85.",
 				Now:    "Seals of degrees 1 to 8 drop three times as often; at degree 9 Star drops three times and Moon five times as often, Sun as before, and Star and Moon also from monsters of level 86 to 94.",
 				Why:    "Beta balance, so testers can try seal gear."},
+			{Flag: progression.EnvSunEventOnly, On: progression.SunEventOnlyFromEnv().Enabled(),
+				Native: "Degree-9 Seal of Sun gear drops from monsters, and the honor shop lists it.",
+				Now:    "Degree-9 Seal of Sun gear neither drops nor is sold; it comes back only as an event reward. Sun gear you already own is kept, and every other drop keeps its chance.",
+				Why:    "Requested for the beta, to keep the top seal rare; the original returns with one setting."},
 			{Flag: progression.EnvBetaShopOnlyDegree9, On: progression.BetaShopOnlyDegree9FromEnv().Enabled(),
 				Native: "Monsters drop magic stones and attribute stones of every degree; Lucky Powder never drops.",
 				Now:    "Degree-9 magic stones and attribute stones no longer drop; Jangan's smith and grocer sell them, and every town's grocer sells degree-9 Lucky Powder.",
@@ -70,6 +124,10 @@ func publicRules() publicstats.RulesResponse {
 				Native: "Monsters drop elixirs.",
 				Now:    "Elixirs no longer drop; the Jangan blacksmith sells them for 1,000,000 gold.",
 				Why:    "Beta balance: gold buys enhancement, so elixirs keep a steady price."},
+			{Flag: progression.EnvAlchemyMaterialDropsOff, On: progression.MaterialDropsFromEnv().Off(),
+				Native: "Monsters drop alchemy materials (claws, hides and other monster parts).",
+				Now:    "Alchemy materials no longer drop.",
+				Why:    "On the beta the stones they once made are bought, so the materials only piled up on the ground."},
 			{Flag: action.EnvBetaSilk, On: silkRate > 0,
 				Native: "Silk is bought for the account.",
 				Now:    "Every full hour in the world earns silk, up to a cap.",
@@ -86,6 +144,22 @@ func publicRules() publicstats.RulesResponse {
 				Native: "Grab and growth pets run at their full projected speed.",
 				Now:    "Grab and growth pets run at four fifths of it.",
 				Why:    "Owner-approved beta pacing for pets."},
+			{Flag: action.EnvStorageAutoStack, On: action.StorageAutoStackFromEnv(),
+				Native: "A quick move into or out of storage takes the first empty slot.",
+				Now:    "A quick move lands on a matching stack with room first.",
+				Why:    "Owner decision: storage fills less with split stacks."},
+			{Flag: action.EnvReverseReturnMap, On: action.ReverseReturnMapFromEnv(),
+				Native: "The reverse return scroll offers the last recall point and the last death point.",
+				Now:    "It also offers town gates and unique monster areas on the map.",
+				Why:    "Later clients offer a map choice; the destinations are places the original already sends players to."},
+			{Flag: commerce.EnvShopExtraGoods, On: len(shopGoods) > 0,
+				Native: "NPC shops sell the v1.150 stock.",
+				Now:    "Some NPC shops also sell extra goods for gold, such as elixirs and degree-9 stones.",
+				Why:    "Beta balance: gold buys enhancement."},
+			{Flag: commerce.EnvMallExtraGoods, On: len(mallGoods) > 0,
+				Native: "The Item Mall lists the v1.150 goods.",
+				Now:    "It also lists avatar outfits the client ships but its mall never listed.",
+				Why:    "Beta balance: the outfits were already in the game data."},
 			{Flag: party.EnvPartyMasteries, On: party.MasteriesFromEnv(),
 				Native: "The party board shows the basic member row.",
 				Now:    "The party board also shows each member's two main masteries.",
@@ -118,6 +192,106 @@ func publicRules() publicstats.RulesResponse {
 				Native: "A caravan ambush has as many bandits as its cargo's value calls for, with no limit.",
 				Now:    fmt.Sprintf("At most %d bandits per ambush.", banditCap),
 				Why:    "A full load drew dozens of bandits at once; the cap keeps an ambush fightable."},
+			{Flag: caravan.EnvStarAmbush, On: caravan.StarAmbushFromEnv(),
+				Native: "A caravan ambush has one bandit per cargo star, sometimes one more, and rarely twice as many.",
+				Now:    "An ambush is fixed by the cargo's stars: 1 star 2 bandits, 2 stars 3, 3 stars 4, 4 stars 7, 5 stars 10.",
+				Why:    "Requested for the beta so a bigger cargo draws a clearly bigger ambush; the original returns with one setting."},
+			{Flag: monster.EnvJobMonsterSpeed, On: monster.JobMonsterSpeedFromEnv(),
+				Native: "Thief and hunter monsters move at their original speed.",
+				Now:    "Thief and hunter monsters walk and run 20% faster.",
+				Why:    "Requested for the beta so job ambushes keep up with a transport; the original returns with one setting."},
+			{Flag: action.EnvTransportFollow, On: action.TransportFollowFromEnv(),
+				Native: "A trade transport you step off stays where it stands, and you cannot walk more than 100 m away from it.",
+				Now:    "A trade transport you step off follows you on foot, like a pet.",
+				Why:    "Requested for the beta so a trader or a thief can fight or loot beside the cargo; the original returns with one setting."},
+			{Flag: action.EnvJobGoodsTeleport, On: action.JobGoodsTeleportFromEnv(),
+				Native: "With a trade transport out you cannot use a town gate, a return scroll or the reverse return (ferries are allowed).",
+				Now:    "You can use town gates, return scrolls and the reverse return with a trade transport out; the transport travels with you.",
+				Why:    "Requested for the beta, for testing trade runs; the original returns with one setting."},
+			{Flag: action.EnvMostWanted, On: action.MostWantedFromEnv(),
+				Native: "Job kills earn job EXP only.",
+				Now: "Each job kill while suited adds to a streak; every 10 is a wanted level (up to 10), worth +1 STR, +1 INT and +1% move speed each, " +
+					"and 1%/2%/3% more damage dealt and less taken at levels 3/5/10. Killing a wanted player pays 100,000,000 gold per level. " +
+					"Kills of your own account, party, guild or union never count, and one victim counts at most 3 times an hour. Death or taking the suit off ends the streak.",
+				Why: "Requested for the beta, to reward job-war streaks and put a price on them; the original returns with one setting."},
+			{Flag: action.EnvMostWantedTest, On: action.MostWantedFromEnv() && action.MostWantedTestFromEnv(),
+				Native: "There is no Most Wanted rule.",
+				Now: fmt.Sprintf("Most Wanted is in test pacing: %d job kills a wanted level (level 10 at %d), the same player counts every time, and the bounty is %s gold per level.",
+					testKills, 10*testKills, groupedGold(settings.Int(tunables.MostWantedTestBounty))),
+				Why: "Temporary, for testing the rule quickly without moving real gold; the ordinary rule returns with one setting."},
+			{Flag: action.EnvMostWantedBountyTransfer, On: action.MostWantedFromEnv() && action.MostWantedBountyTransferFromEnv(),
+				Native: "There is no bounty; a kill moves no gold.",
+				Now:    "A wanted player's bounty comes out of their own gold: the killer takes up to 100,000,000 per wanted level, never more than the wanted player carries. No new gold enters the game.",
+				Why:    "Requested for the beta so a bounty puts the wanted player's own gold at stake; the original returns with one setting."},
+			{Flag: action.EnvTradeTiers, On: action.TradeTiersFromEnv(),
+				Native: "Every trade good is worth 348 gold, a caravan's stars count its goods against the trader's level, and every route pays its listed price.",
+				Now: "Trade goods are worth 21 times as much (7,308 for a 348 good): buying, selling, stolen goods at the Den and the cargo value all scale, so profit, trader job EXP, hunter shares, the weekly trade pool and the fortress trade tax are 21 times larger too. " +
+					"Stars follow the cargo's gold value: 1 star below 10M, 2 from 10M, 3 from 20M, 4 from 35M, 5 from 50M (bandits, the trade-scale menu and the stars in the transport's bag follow them). " +
+					"Selling between Jangan and another town raises the PROFIT (sale minus cost), both ways: Donwhang +50%, Hotan +100%, Samarkand +200%, Constantinople +300%.",
+				Why: "Requested for the beta so bigger loads and longer roads pay; the original returns with one setting."},
+			{Flag: action.EnvJobSuitHidesArmor, On: action.JobSuitHidesArmorFromEnv(),
+				Native: "Only a thief suit hides the armour worn under it; trader and hunter suits are drawn over it.",
+				Now:    "Trader and hunter suits hide worn armour too.",
+				Why:    "Requested for the beta, so every job suit reads clearly; the original look returns with one setting."},
+			{Flag: action.EnvMoonlitThiefSuit, On: action.MoonlitThiefSuitFromEnv(),
+				Native: "The level-20 thief suits look as they always have: a black hood with red trim, or the European suit's own look.",
+				Now:    "They wear the Moonlit Ash look: the higher thief suit's outfit in ash-silver silk with pale-gold trim. Only the look changes.",
+				Why:    "Picked for the beta by the community's balance advisor; the original look returns with one setting."},
+			{Flag: action.EnvFastDenReturn, On: action.FastDenReturnFromEnv(),
+				Native: "The Bandit Den Return Scroll counts down 5 minutes before the thief arrives.",
+				Now:    "It counts down 2 minutes 30 seconds.",
+				Why:    "Owner-approved for the beta; the original countdown returns with one setting."},
+			{Flag: movement.EnvClosedObjectRescue, On: movement.ClosedObjectRescueFromEnv(),
+				Native: "A character that logs in inside a tree trunk or a rock stays there and cannot walk out.",
+				Now:    "Logging in inside one moves the character to the nearest open ground.",
+				Why:    "A player was stuck inside a tree with every move refused; the original returns with one setting."},
+			{Flag: action.EnvDenNoTransportSummon, On: action.DenNoTransportSummonFromEnv(),
+				Native: "A transport can be summoned while the Bandit Den Return Scroll counts down.",
+				Now:    "No transport can be summoned during that countdown.",
+				Why:    "Thieves left stolen goods on the ground and loaded them just before arriving; the original rule returns with one setting."},
+			{Flag: action.EnvTraderCargoDrop, On: action.TraderCargoDropFromEnv(),
+				Native: "A trader killed while riding a transport, or logging out with one, takes the goods with it; only the transport's own death drops them.",
+				Now: "A trader killed while riding drops the goods around the transport. Logging out outside a town kills a loaded transport where it stands and drops " +
+					"its goods; in town the transport is dismissed as before. A parked transport stays when its trader dies, and a server restart drops nothing.",
+				Why: "Traders made goods vanish by dying on the transport or logging out when thieves or hunters caught them; the original rule returns with one setting."},
+			{Flag: enterworld.EnvMallTransportSpeed, On: enterworld.MallTransportSpeedFromEnv(),
+				Native: "Item Mall transports (buffalo, rhinoceros, white elephant) move at their listed speed.",
+				Now:    "They move 50% faster.",
+				Why:    "Requested for the beta; the original speed returns with one setting."},
+			{Flag: enterworld.EnvMallRideSpeed, On: rideOn,
+				Native: "Item Mall riding vehicles (ostrich, scarab, tiger) and pets move at their listed speed.",
+				Now:    fmt.Sprintf("They move %.0f%% faster.", (rideFactor-1)*100),
+				Why:    "Requested for the beta; the original speed returns with one setting."},
+			{Flag: action.EnvAnnounceSoxDrop, On: action.AnnouncementsFromEnv().SoxDrop,
+				Native: "A Seal of Star, Moon or Sun drop is not announced.",
+				Now:    "Everyone sees \"<player> has dropped <item> (<seal>) from <monster>\".",
+				Why:    "Requested for the beta; the original quiet drop returns with one setting."},
+			{Flag: action.EnvAnnouncePlus, On: action.AnnouncementsFromEnv().Plus,
+				Native: "Reinforcement results are private.",
+				Now:    "Everyone sees \"<player> advanced <item> (<seal>) to +N\" for +8 to +11.",
+				Why:    "Requested for the beta; the original returns with one setting."},
+			{Flag: action.EnvAnnounceJobKill, On: action.AnnouncementsFromEnv().JobKill,
+				Native: "Job kills are not announced.",
+				Now:    "Everyone sees which job killed which (\"Thief killed Trader\"), no names.",
+				Why:    "Requested for the beta; the original returns with one setting."},
+			{Flag: action.EnvAnnounceMostWanted, On: action.AnnouncementsFromEnv().MostWanted,
+				Native: "Most Wanted levels and bounties are not announced.",
+				Now:    "Everyone sees a player's new Most Wanted level and each claimed bounty, by job alias, no names.",
+				Why:    "Requested for the beta; the original returns with one setting."},
+			{Flag: action.EnvJobKillNoticeRepeat, On: action.AnnouncementsFromEnv().JobKillRepeat,
+				Native: fmt.Sprintf("The same two players' job kills are announced at most once every %d minutes.",
+					settings.Int(tunables.JobKillRepeatMinutes)),
+				Now: fmt.Sprintf("Every job kill between the same two players is announced, up to %d notices a minute.",
+					settings.Int(tunables.JobKillNoticesPerMinute)),
+				Why: "Requested for the beta, so repeated kills between one pair can be seen; the window returns with one setting."},
+			{Flag: action.EnvThiefPartyBonus, On: action.ThiefPartyBonusFromEnv(),
+				Native: "A party's thieves change nothing about its monster rewards.",
+				Now:    "Each party member dressed as a thief adds 10% monster EXP and gold for the party, up to 50%.",
+				Why:    "Requested for the beta, to make thieves welcome in hunting parties; the original returns with one setting."},
+			{Flag: action.EnvTradeJobBonus, On: action.TradeJobBonusFromEnv(),
+				Native: "A trade sale's party hunters take their usual share and the trader its usual profit.",
+				Now:    "The trader earns 10% more profit per party hunter nearby (up to 20%), and each hunter 10% more gold per party trader (up to 60%).",
+				Why:    "Requested for the beta, so traders and hunters gain from escorting each other; the original returns with one setting."},
 		},
 		Deviations: []publicstats.Deviation{
 			{Title: "Storage Ctrl+click",
@@ -137,4 +311,23 @@ func publicRules() publicstats.RulesResponse {
 				Now:    "It says which stat the stone changed, from the old value to the new."},
 		},
 	}
+}
+
+/*
+================
+groupedGold
+
+A gold amount with comma thousands separators, as the rules page writes it.
+================
+*/
+func groupedGold(gold int64) string {
+	digits := strconv.FormatInt(gold, 10)
+	var out []byte
+	for i := range digits {
+		if i > 0 && (len(digits)-i)%3 == 0 {
+			out = append(out, ',')
+		}
+		out = append(out, digits[i])
+	}
+	return string(out)
 }

@@ -30,6 +30,12 @@ installSessionLifecycle
 ================
 */
 func (game *gameplayPlane) installSessionLifecycle(hub *transport.Hub, authorityStore *store.Store) {
+	// Port-only: the economy ledger's committed gold per reason.
+	hub.SetEconomyMetrics(authorityStore.EconomyCounters)
+	// Attack pet fights that ended on a dead or departed target (petdiagnostics.go).
+	hub.SetPetCombatMetrics(game.items.PetCombatCounters)
+	// Players a non-walk path placed inside a closed object (placementguard.go).
+	hub.SetPlacementMetrics(game.items.PlacementCounters)
 	game.deps.LockPublication = game.items.LockPublication
 	game.deps.OnWorldBound = func(
 		session *transport.Session,
@@ -41,8 +47,8 @@ func (game *gameplayPlane) installSessionLifecycle(hub *transport.Hub, authority
 	// The entry batch carries the 0x32C4 seed: the guild lane records the
 	// block in the same order as the send (guild/baseline.go).
 	game.deps.PublishEntry = guild.EntryPublisher(func() domain.GuildStore { return game.deps.Guilds })
-	hub.OnSessionClose(func(session *transport.Session, _ error) {
-		game.sessionClosed(session)
+	hub.OnSessionClose(func(session *transport.Session, cause error) {
+		game.sessionClosed(session, cause)
 		guild.ForgetSession(session)
 	})
 }
@@ -133,10 +139,16 @@ func (game *gameplayPlane) worldBound(
 /*
 ================
 sessionClosed
+
+cause is the transport's close cause: a server shutdown is no player's
+disconnect, so the port-only trader cargo rule skips it.
 ================
 */
-func (game *gameplayPlane) sessionClosed(session *transport.Session) {
+func (game *gameplayPlane) sessionClosed(session *transport.Session, cause error) {
 	community.FriendSessionClosed(game.deps, game.presence, session)
+	if game.friends != nil {
+		game.friends.SessionClosed(session)
+	}
 	game.parties.SessionClosed(session)
 	game.matches.SessionClosed(session)
 	game.guildInvites.SessionClosed(session)
@@ -149,6 +161,9 @@ func (game *gameplayPlane) sessionClosed(session *transport.Session) {
 		game.items.EndCommerceSession(divisionID, character, session.ID)
 		game.items.AbandonExchange(divisionID, character.Name)
 		game.items.AbandonStall(divisionID, character.Name)
+		if !transport.ShutdownClose(cause) {
+			game.items.DropDisconnectedCargo(divisionID, character.Name, session.ID)
+		}
 		game.items.ForgetCharacterSession(divisionID, character.Name, session.ID)
 	}
 }

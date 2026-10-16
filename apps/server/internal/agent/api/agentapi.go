@@ -194,6 +194,10 @@ API
 */
 type API struct {
 	history                 http.Handler
+	economy                 http.Handler
+	economyPath             string
+	settings                http.Handler
+	settingsPath            string
 	operator                http.Handler
 	notices                 *noticePublisher
 	observatory             *observatoryReader
@@ -350,6 +354,13 @@ func (api *API) Handler() http.Handler {
 	mux := http.NewServeMux()
 	if api.history != nil {
 		mux.Handle("/internal/operations/history", api.history)
+	}
+	if api.economy != nil {
+		mux.Handle(api.economyPath, api.economy)
+	}
+	if api.settings != nil {
+		mux.Handle(api.settingsPath, api.settings)
+		mux.Handle(api.settingsPath+"/", api.settings)
 	}
 	if api.operator != nil {
 		mux.Handle("/internal/operations/player", api.requireRunning(api.operator))

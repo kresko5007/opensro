@@ -61,6 +61,18 @@ type Deps struct {
 	// StorageAutoStack publishes the port-only SRO_STORAGE_AUTO_STACK rule
 	// (action/storageautostack.go); false is native.
 	StorageAutoStack bool
+	// FastDenReturn publishes the port-only SRO_FAST_DEN_RETURN rule
+	// (action/denreturn.go); false is native.
+	FastDenReturn bool
+	// TradeTiers publishes the port-only SRO_TRADE_TIERS rule
+	// (action/tradetiers.go); false is native.
+	TradeTiers bool
+	// JobSuitHidesArmor publishes the port-only SRO_JOB_SUIT_HIDES_ARMOR
+	// rule (action/jobsuitarmor.go); false is native.
+	JobSuitHidesArmor bool
+	// MoonlitThiefSuit publishes the port-only SRO_MOONLIT_THIEF_SUIT rule
+	// (action/moonlitthiefsuit.go); false is native.
+	MoonlitThiefSuit bool
 	// StarterRefills are the beta's HP/MP potion refills (starterrefill.go);
 	// empty when the kit is disabled.
 	StarterRefills []StarterRefill
@@ -148,7 +160,11 @@ type Deps struct {
 	// LockPublication orders bootstrap snapshots with action/tick inventory
 	// receipts. The returned release runs only after the full batch is queued.
 	LockPublication func(divisionID string) func()
-	OnWorldBound    func(
+	// FriendConsent receives a ConsentAnswerLength 0x3012 body: the native
+	// client's friend-request answer shares the opcode with the port's
+	// empty game-ready (RegisterGameReady). Nil drops consents.
+	FriendConsent func(session *transport.Session, payload []byte)
+	OnWorldBound  func(
 		session *transport.Session,
 		divisionID string,
 		character *Character,
@@ -168,7 +184,9 @@ type Deps struct {
 	SceneReferenceFrames func() []wire.Frame
 	// ReconcileSceneObjects runs once a loading scene goes live. Removals
 	// committed while it loaded reached no viewer (scope routing skips a
-	// loading scene), so the owner retires bootstrap objects that are gone.
+	// loading scene), so the owner retires bootstrap objects that are gone,
+	// and repeats state the new local player starts without (the trade
+	// level of a loaded transport).
 	ReconcileSceneObjects  func(session *transport.Session, divisionID string, character *Character)
 	CommunitySeedFramesFor func(
 		divisionID string,
@@ -224,6 +242,7 @@ bool
 ================
 */
 func (d *Deps) Update(character *Character, label string, update func() bool) bool {
+	update = refusalAudited(label, []*Character{character}, update)
 	if d.UpdateCharacter != nil {
 		return d.UpdateCharacter(character, label, update)
 	}
@@ -263,6 +282,7 @@ bool
 ================
 */
 func (d *Deps) UpdateMany(characters []*Character, label string, update func() bool) bool {
+	update = refusalAudited(label, characters, update)
 	if d.UpdateCharacters != nil {
 		return d.UpdateCharacters(characters, label, update)
 	}
@@ -305,7 +325,7 @@ Update for a path only the simulation tick reaches (see MutateDeferred).
 */
 func (d *Deps) UpdateDeferred(character *Character, label string, update func() bool) bool {
 	if d.UpdateCharacterDeferred != nil {
-		return d.UpdateCharacterDeferred(character, label, update)
+		return d.UpdateCharacterDeferred(character, label, refusalAudited(label, []*Character{character}, update))
 	}
 	return d.Update(character, label, update)
 }
@@ -334,7 +354,7 @@ UpdateMany for a path only the simulation tick reaches (see MutateDeferred).
 */
 func (d *Deps) UpdateManyDeferred(characters []*Character, label string, update func() bool) bool {
 	if d.UpdateCharactersDeferred != nil {
-		return d.UpdateCharactersDeferred(characters, label, update)
+		return d.UpdateCharactersDeferred(characters, label, refusalAudited(label, characters, update))
 	}
 	return d.UpdateMany(characters, label, update)
 }

@@ -29,6 +29,7 @@ import (
 	"opensro.online/server/internal/game/item/statuseffect"
 	"opensro.online/server/internal/game/item/wire"
 	"opensro.online/server/internal/game/linkedpulse"
+	"opensro.online/server/internal/game/namefilter"
 	"opensro.online/server/internal/game/pk"
 	"opensro.online/server/internal/game/progression"
 	"opensro.online/server/internal/game/social/chatfeed"
@@ -69,6 +70,17 @@ type Runtime struct {
 	// CaravanBanditCap caps the bandits per ambush (port-only,
 	// SRO_CARAVAN_BANDIT_CAP; 0 is native, uncapped).
 	CaravanBanditCap int
+	// CaravanStarAmbush replaces an ambush's count with the fixed per-star
+	// table (port-only, SRO_CARAVAN_STAR_AMBUSH; false is native).
+	CaravanStarAmbush bool
+	// TransportFollow has a dismounted trade transport follow its trader
+	// instead of tethering it (port-only, SRO_TRANSPORT_FOLLOW; false is
+	// native, transportfollow.go).
+	TransportFollow bool
+	// JobGoodsTeleport lets a trader with a transport out use town gates,
+	// return scrolls and the reverse return (port-only,
+	// SRO_JOB_GOODS_TELEPORT; false is native, goodsteleport.go).
+	JobGoodsTeleport bool
 	BerserkRoll      combat.Roll32767
 	// WearRoll is CGObjPC_RollEquipmentWear's rand(); nil is the secure roll.
 	WearRoll combat.Roll32767
@@ -221,15 +233,21 @@ type Runtime struct {
 	storageAuthority domain.StorageAuthority
 	petMu            sync.Mutex
 	// petDiag throttles the attack pet fight log (petdiagnostics.go).
-	petDiag     petDiagnostics
+	petDiag petDiagnostics
+	// placements counts non-walk placements inside a closed object
+	// (placementguard.go).
+	placements  placementGuard
 	petSessions map[petOwnerKey]*petSession
 
 	// Admission precedes game-ready/pet binding; teardown follows this owner.
 	characterAdmissions sync.Map // simulation.WorldKey -> populationAdmission
-	recoveryMu          sync.Mutex
-	recoverySessions    map[recoveryKey]*recoverySession
-	petSkillWindows     petSkillWindowIndex
-	paramJobOwners      petSkillWindowIndex
+	// walkInZones is the walk-in zone each admitted player stood in at the
+	// last tick (walkin.go): only entering one teleports.
+	walkInZones      sync.Map // simulation.WorldKey -> zone codename
+	recoveryMu       sync.Mutex
+	recoverySessions map[recoveryKey]*recoverySession
+	petSkillWindows  petSkillWindowIndex
+	paramJobOwners   petSkillWindowIndex
 	// premiumSpend is the online premium clocks' uncommitted spend
 	// (premiumclock.go).
 	premiumSpend premiumSpendLedger
@@ -312,9 +330,62 @@ type Runtime struct {
 	// native, beta balance; owner 2026-10-13). The zero value is native.
 	ElixirDrops progression.ElixirDrops
 
+	// MaterialDrops keeps every alchemy material out of monster drops
+	// (port-only, not native, beta balance; owner 2026-10-14). The zero
+	// value is native.
+	MaterialDrops progression.MaterialDrops
+
+	// FastDenReturn halves the Bandit Den scroll's countdown (denreturn.go;
+	// port-only, not native; owner 2026-10-14). False is native.
+	FastDenReturn bool
+
+	// DenNoTransportSummon refuses a transport during the Bandit Den
+	// countdown (denreturn.go; port-only, not native). False is native.
+	DenNoTransportSummon bool
+
+	// Announce selects the port-only shard notices (announce.go); the zero
+	// value is native: none.
+	Announce  Announcements
+	announcer announcer
+
+	// ThiefPartyBonus raises a party's monster EXP and gold for each thief
+	// in it (thiefparty.go; port-only, not native). False is native.
+	ThiefPartyBonus bool
+
+	// TradeJobBonus pays a trader and its party's hunters more gold for
+	// travelling together (tradejobbonus.go; port-only, not native).
+	TradeJobBonus bool
+
 	// ShopOnly keeps degree-9 alchemy goods out of every drop (port-only,
 	// not native, beta balance; owner 2026-10-13). The zero value is off.
+	// MostWanted turns on the job-kill streak, its bonuses and bounty
+	// (mostwanted.go; port-only, not native). False is native.
+	MostWanted bool
+	// MostWantedTest is the rule's temporary test pacing (port-only,
+	// SRO_MOST_WANTED_TEST; false is the ordinary rule, mostwantedtest.go).
+	MostWantedTest bool
+	// MostWantedTestStreakStep is what a counted kill adds under the test
+	// pacing (MostWantedTestStreakStepFromEnv); set with MostWantedTest.
+	MostWantedTestStreakStep int64
+	mostWantedPairs          mostWantedPairs
+	// MostWantedBountyTransfer pays the bounty from the victim's gold, not
+	// new gold (mostwanted.go; port-only, not native). False mints it.
+	MostWantedBountyTransfer bool
+
+	// TraderCargoDrop keeps a loaded transport's goods in the world when
+	// its trader dies riding or disconnects in the field
+	// (tradercargodrop.go; port-only, not native). False is native.
+	TraderCargoDrop bool
+	// TradeTiers rates caravans by cargo gold and raises Jangan route profit
+	// (tradetiers.go; port-only, not native). False is native.
+	TradeTiers bool
+	// tradeOrigins is each trade good's home town, from the shops.
+	tradeOrigins map[uint32]tradeTown
+
 	ShopOnly progression.ShopOnlyDegree9
+	// SunEventOnly keeps degree-9 Seal of Sun gear out of drops and NPC
+	// shops (port-only, not native; action/sunevent.go).
+	SunEventOnly progression.SunEventOnly
 
 	// PetExpPace is the closed-beta growth multiplier for an attack pet's
 	// EXP gain, read at the owner's level (progression GrowthRates.ExpPace,
@@ -354,7 +425,11 @@ type Runtime struct {
 	ReleaseQuestCapturesOnDeath func(*enterworld.Character) ([]wire.Frame, bool)
 	QuestMonsterDrops           func(*enterworld.Character, string, uint8, func() (uint32, error)) []inventory.ItemAmount
 	QuestTravelBlocks           func(*enterworld.Character) uint32
-	UpdateQuestKill             func(
+	// WalkInZoneAt names the walk-in event zone a live point stands in, or
+	// "" (movement.WaterValidator.WalkInZoneAt; walkin.go). Nil disables
+	// walk-in gates.
+	WalkInZoneAt    func(simulation.Spawn) string
+	UpdateQuestKill func(
 		character *enterworld.Character,
 		monsterCodename string,
 		rarity uint8,
@@ -363,6 +438,11 @@ type Runtime struct {
 	// FortressGuildRole supplies the optional fortress membership role used
 	// by siege-weapon equip requirements. Nil means no member record.
 	FortressGuildRole FortressGuildRoleResolver
+
+	// InsideClosedObject reports a pose inside an object no walk can enter
+	// (movement.WaterValidator.InsideClosedObject); nil disables the
+	// placement guard (placementguard.go).
+	InsideClosedObject func(pose simulation.Spawn) (int, bool)
 
 	// ConstrainMovement applies the shared server-authoritative geometry
 	// policy to system-generated movement. A nil seam is supported only by
@@ -558,6 +638,9 @@ type Runtime struct {
 	// (stall_network.go, ConfigureStallNetwork).
 	Stalls          *stall.Registry
 	StallCategories map[[4]int64]uint32
+	// NameFilter is the native name filter (AbuseFilter.txt) player-chosen
+	// names pass (namefilter.go); ConfigureNameFilter loads it.
+	NameFilter *namefilter.Filter
 	// resurrections holds the unanswered resurrection proposals, one per
 	// dead player (resurrection.go).
 	resurrections resurrectionOffers

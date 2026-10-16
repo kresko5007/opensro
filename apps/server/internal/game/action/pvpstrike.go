@@ -104,7 +104,7 @@ and the job shares its party still earns.
 */
 type playerHitCommit struct {
 	actor, public []wire.Frame
-	shares        []jobKillShare
+	after         jobKillPayout
 }
 
 /*
@@ -228,10 +228,10 @@ func (rt *Runtime) commitPlayerHitInDoor(division string, caster *enterworld.Cha
 		return out
 	}
 	if h.struck.fatal {
-		actor, public, shares := rt.payPlayerKillInDoor(division, caster, victim, h.kill, now)
+		actor, public, after := rt.payPlayerKillInDoor(division, caster, victim, h.kill, now)
 		out.actor = append(out.actor, actor...)
 		out.public = append(out.public, public...)
-		out.shares = shares
+		out.after = after
 	}
 	// 4E27F4 books the kill before 4E280B registers the hostile target.
 	attack := rt.registerPlayerAttack(division, caster, &beforeDeath, now)
@@ -290,6 +290,23 @@ only; their rows target monsters and 58D7A0 refuses them here.
 func (rt *Runtime) acceptPlayerTargetStage(st offensiveStage) (OpResult, skillCastDecision) {
 	division, character, snapshot, skill, now := st.division, st.character, st.snapshot, st.skill, st.now
 	target, ok := rt.resolveCombatTarget(division, snapshot, st.cast.TargetGid, now)
+	if ok && target.cos == nil && target.player != nil && st.release == nil && skill.TargetRequired {
+		// CSkillManager_InitiateSkillCast (59B5F3..59B67D): a single-target
+		// hostile skill aimed at a player mounted on a vehicle, riding horse
+		// or attack COS strikes the ride (PC+0x1D18) instead, for every
+		// caster but the skill system's AutoMob, which no player is. The
+		// swap happens once, at admission: the cast carries the ride's gid
+		// from here on, so a prepared cast releases on it.
+		if ride := ridingCOS(target.snapshot); ride != 0 {
+			if mount, found := rt.resolveCOSTarget(division, snapshot, ride, now); found {
+				target, st.cast.TargetGid = mount, ride
+			}
+		}
+	}
+	if ok && target.cos != nil {
+		// A COS is judged through its owner and struck on its own body.
+		return rt.acceptCOSTargetStage(st, target)
+	}
 	if !ok || target.player == nil {
 		return OpResult{}, skillCastRefused
 	}
@@ -506,7 +523,7 @@ func (rt *Runtime) strikePlayerTarget(st offensiveStage, target combatTarget, ca
 	public = append(public, commit.public...)
 	actor = append(actor, battle...)
 	public = append(public, battle...)
-	recipients := append([]RecipientFrames{victimPrivate}, rt.payJobKillShares(commit.shares)...)
+	recipients := append([]RecipientFrames{victimPrivate}, rt.payJobKillShares(commit.after)...)
 	out := OpResult{Frames: actor, Broadcast: public, ActorPrivate: private, Recipients: recipients}
 	// 5A0C2D ran inside the hit outcome; the victim's dmgr returns its share
 	// to the attacker afterwards, as the victim's credited hit.
@@ -556,7 +573,7 @@ func (rt *Runtime) commitCreditedPlayerHit(division string, caster *enterworld.C
 	public, victim := rt.publishPlayerHit(division, hit, now)
 	out := OpResult{Broadcast: append(public, commit.public...),
 		ActorPrivate: commit.actor,
-		Recipients:   append([]RecipientFrames{victim}, rt.payJobKillShares(commit.shares)...)}
+		Recipients:   append([]RecipientFrames{victim}, rt.payJobKillShares(commit.after)...)}
 	return hit, out, true
 }
 

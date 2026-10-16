@@ -74,6 +74,8 @@ const particleQuery = runtime + "renderer/device/particle-query.ts";
 const portraitReadback = runtime + "renderer/device/portrait-readback.ts";
 const particles = runtime + "renderer/device/particles.ts";
 const geometryUploads = runtime + "renderer/device/geometry-uploads.ts";
+// Slabs of geometry's small buffers (uniforms, instances, vertex and index ranges).
+const bufferSlabs = runtime + "renderer/device/buffer-slabs.ts";
 const deviceInternals = [
 	waterReflection,
 	bloom,
@@ -83,6 +85,7 @@ const deviceInternals = [
 	images,
 	geometry,
 	geometryUploads,
+	bufferSlabs,
 	ui,
 	flares,
 	thunder,
@@ -176,6 +179,9 @@ export const rules = {
 	addEventListener: [
 		runtime + "assets/worker/loader.ts", // AbortSignal releases a pending download backoff.
 		runtime + "assets/worker/packs/persistent.ts", // Cancellation releases a cache waiter, retaining native admission.
+		// Cancellation releases a read waiting on a shared pack or manifest
+		// download (untilCancelled); the listener is removed on every exit.
+		runtime + "assets/worker/packs/packs.ts",
 		// AbortSignal cancels a stalled body read; the listener is removed on every exit.
 		"src/engine/foundation/assets/read-bytes.ts",
 		runtime + "platform/telemetry.ts",
@@ -234,6 +240,7 @@ rules.createSampler.push( geometry );
 for ( const name of [ "createBuffer", "writeBuffer", "createCommandEncoder", "finish", "submit" ] ) {
 	rules[name].push( geometryUploads );
 }
+rules.createBuffer.push( bufferSlabs );
 for (
 	const name of [
 		"createShaderModule",

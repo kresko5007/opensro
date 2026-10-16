@@ -73,11 +73,19 @@ func isVersionMismatch(err error) bool {
 // table. The offline upgrade adds the empty table and rewrites no record.
 // Version 23 adds publicGearHidden, the player's "hide my gear" choice for
 // the community site (port-only); the upgrade rewrites no record.
-// Version 24 adds a companion's training (port-only wolf skill tree and
-// gear, SRO_ATTACK_PET_EXPANSION); the upgrade rewrites no record.
-// Version 25 adds the optional companion training treeVersion for sequential
-// skill books; the preserving offline upgrade rewrites no record.
-const CurrentVersion = 25
+// Version 24 adds mostWanted, a suited player's job-kill streak (port-only,
+// SRO_MOST_WANTED); the upgrade rewrites no record.
+// Version 25 changes no record: layout 10 adds the economy_ledger table
+// (port-only, economy_ledger.go), and the schema stamp is what makes a release
+// run the offline upgrade that adds it (release_state.store_upgrade_required
+// compares schemas only). The upgrade rewrites no record.
+// Version 26 adds the optional guild founding time (foundedAtMs, native
+// _Guild.FoundationDate), stamped at creation. Guilds founded earlier keep
+// none and show as unknown; the upgrade rewrites no record.
+// Version 27 merges the lab companion training/treeVersion fields with
+// main schemas 24-26. Earlier lab 24/25 saves remain readable by the
+// preserving offline upgrade; no character record is rewritten.
+const CurrentVersion = 27
 
 // SkillSeedFunc resolves the current racial base-skill set while preserving
 // any already learned skill identifiers.

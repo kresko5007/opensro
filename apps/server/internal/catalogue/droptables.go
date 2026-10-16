@@ -96,7 +96,10 @@ type BetaRates struct {
 	ElixirDropsOff bool `json:"elixirDropsOff,omitempty" doc:"Port-only beta balance: no monster drops an elixir (type 3/3/10/1); the Jangan blacksmith sells them. Their chances in these tables then drop nothing."`
 	// ShopOnlyDegree9 removes degree-9 alchemy goods from every drop
 	// (progression.ShopOnlyDegree9).
-	ShopOnlyDegree9 bool `json:"shopOnlyDegree9,omitempty" doc:"Port-only beta balance: degree-9 Lucky Powder (type 3/3/10/2), stat magic stones (3/3/11/1), attribute stones (3/3/11/2) and Luck, Steady, Astral, Athanasia and Repair stones (3/3/11/7), degree being the item's ItemClass, no longer drop; every town's grocer sells the Lucky Powder and Jangan's smith and grocer sell the stones (SRO_SHOP_EXTRA_GOODS). Their chances in these tables then drop nothing."`
+	// MaterialDropsOff removes every alchemy material from every drop
+	// (progression.MaterialDrops).
+	MaterialDropsOff bool `json:"materialDropsOff,omitempty" doc:"Port-only beta balance: no monster drops an alchemy material (type 3/3/11/4, monster parts). Their chances in these tables then drop nothing."`
+	ShopOnlyDegree9  bool `json:"shopOnlyDegree9,omitempty" doc:"Port-only beta balance: degree-9 Lucky Powder (type 3/3/10/2), stat magic stones (3/3/11/1), attribute stones (3/3/11/2) and Luck, Steady, Astral, Athanasia and Repair stones (3/3/11/7), degree being the item's ItemClass, no longer drop; every town's grocer sells the Lucky Powder and Jangan's smith and grocer sell the stones (SRO_SHOP_EXTRA_GOODS). Their chances in these tables then drop nothing."`
 }
 
 /*
@@ -118,6 +121,9 @@ type DropTablesFile struct {
 	// Consumables is keyed "family/level".
 	Consumables map[string][]DropChance `json:"consumables"`
 	Beta        *BetaRates              `json:"beta,omitempty"`
+	// SunEventOnly says degree-9 Seal of Sun gear neither drops nor is sold
+	// (progression.SunEventOnly); its chances are already left out.
+	SunEventOnly bool `json:"sunEventOnly,omitempty" doc:"Port-only: degree-9 Seal of Sun gear (rarity 2, ItemClass 27) neither drops nor is sold; it comes only as an event reward. Its chances are left out of these tables, and a Sun pick drops nothing, so every other chance is unchanged."`
 }
 
 /*
@@ -130,7 +136,7 @@ level a monster has.
 */
 func BuildDropTables(monsters []Monster, itemID func(string) uint32, header Header) DropTablesFile {
 	file := DropTablesFile{Header: header, RareChance: action.RareEquipmentChance(0), Equipment: map[string]EquipmentTable{},
-		Special: map[string][]DropChance{}, Consumables: map[string][]DropChance{}}
+		Special: map[string][]DropChance{}, Consumables: map[string][]DropChance{}, SunEventOnly: progression.SunEventOnlyFromEnv().Enabled()}
 	for _, category := range loot.ConsumableFamilies() {
 		var shares []FamilyShare
 		for _, share := range category {
@@ -160,7 +166,8 @@ func BuildDropTables(monsters []Monster, itemID func(string) uint32, header Head
 	if beta := progression.BetaGrowthFromEnv(); beta.Enabled {
 		file.Beta = &BetaRates{DropRate: beta.DropRate, DropCap: beta.DropCap, GoldRate: beta.GoldRate, SkillExpRate: beta.SkillExpRate,
 			RareChance: action.RareEquipmentChance(beta.RareRate), Seals: progression.BetaSealRatesFromEnv().Table(),
-			ElixirDropsOff: progression.ElixirDropsFromEnv().Off(), ShopOnlyDegree9: progression.BetaShopOnlyDegree9FromEnv().Enabled()}
+			ElixirDropsOff: progression.ElixirDropsFromEnv().Off(), ShopOnlyDegree9: progression.BetaShopOnlyDegree9FromEnv().Enabled(),
+			MaterialDropsOff: progression.MaterialDropsFromEnv().Off()}
 		if progression.BetaSealRatesFromEnv().Enabled() {
 			for _, m := range monsters {
 				level := uint8(m.Level)

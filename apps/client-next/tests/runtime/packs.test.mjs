@@ -367,6 +367,38 @@ test("denied persistence and quota pressure do not turn valid downloads into loa
 	}
 });
 
+test("a quota refusal with nothing to evict stops writes for the session", async t => {
+	const d = disk( t );
+	let puts = 0;
+	const put = d.cache.put;
+	d.cache.put = async ( url, response ) => {
+		puts++;
+		throw new DOMException( "full", "QuotaExceededError" );
+	};
+	const { createPersistentAssets } = await load( "src/engine/runtime/assets/worker/packs/persistent.ts" ),
+		owner = createPersistentAssets();
+	await owner.write( "http://localhost", "a", Uint8Array.of( 1, 2, 3 ) );
+	assert.equal( puts, 1, "the refused put is not retried: there was nothing to evict" );
+	assert.equal( owner.stats().writesStopped, true );
+	for ( const key of [ "b", "c", "d" ] ) await owner.write( "http://localhost", key, Uint8Array.of( 4, 5, 6 ) );
+	assert.equal( puts, 1, "no further put is attempted this session" );
+	assert.equal( d.rows.size, 0 );
+	d.cache.put = put;
+});
+
+test("a quota refusal that eviction can relieve keeps the store writing", async t => {
+	const d = disk( t );
+	const { createPersistentAssets } = await load( "src/engine/runtime/assets/worker/packs/persistent.ts" ),
+		owner = createPersistentAssets();
+	await owner.write( "http://localhost", "a", Uint8Array.of( 1, 2, 3 ) );
+	d.quota();
+	await owner.write( "http://localhost", "b", Uint8Array.of( 4, 5, 6 ) );
+	assert.equal( owner.stats().writesStopped, false, "an evicted entry made room" );
+	assert.deepEqual( [ ...d.rows.keys() ].length, 1 );
+	await owner.write( "http://localhost", "c", Uint8Array.of( 7, 8, 9 ) );
+	assert.equal( d.rows.size, 2, "later writes still land" );
+});
+
 test("persistent payload eviction obeys the quota-derived budget without clearing unrelated caches", async t => {
 	const d = disk( t ), old = Object.getOwnPropertyDescriptor( globalThis, "navigator" );
 	Object.defineProperty( globalThis, "navigator", {
@@ -884,5 +916,78 @@ test("a stored member that inflates past its declared length is refused", async 
 		packs.read( new URL( "http://localhost/assets/stored.bin" ), 1 << 22, new AbortController().signal ),
 		/exceeds byte limit|wrong length|SHA-256/
 	);
+	packs.dispose();
+});
+
+/*
+================
+variantFixture
+
+A pack holding a native texture and its published ETC2 variant
+(foundation/assets/texture-variants.ts), with distinct bytes.
+================
+*/
+function variantFixture() {
+	const original = Uint8Array.of( 1, 2, 3 ), variant = Uint8Array.of( 7, 8, 9 );
+	const entries = [ {
+		path: "/assets/world/t.texture",
+		offset: 0,
+		length: 3,
+		mime: "application/octet-stream",
+		sha256: sha( original )
+	}, {
+		path: "/assets/texture-variants/etc2/world/t.texture",
+		offset: 3,
+		length: 3,
+		mime: "application/octet-stream",
+		sha256: sha( variant )
+	} ];
+	const header = Buffer.from( JSON.stringify( { format: "sro-asset-pack", version: 2, files: entries } ) );
+	const bytes = new Uint8Array( 12 + header.length + 6 );
+	bytes.set( Buffer.from( "SROPACK2" ) );
+	new DataView( bytes.buffer ).setUint32( 8, header.length, true );
+	bytes.set( header, 12 );
+	bytes.set( original, 12 + header.length );
+	bytes.set( variant, 15 + header.length );
+	const pack = { path: "/assets/packs/variant.bin", bytes: bytes.length, sha256: sha( bytes ), assetCount: 2 };
+	const manifest = {
+		version: 2,
+		groups: [ { name: "test", assetCount: 2, packs: [ pack ] } ],
+		assets: entries.map( e => ({ ...e, packPath: pack.path }) )
+	};
+	return createPacks( async url =>
+		url.endsWith( "manifest.json" ) ? new TextEncoder().encode( JSON.stringify( manifest ) ) : bytes
+	);
+}
+
+test("a device served a texture variant reads the variant's bytes, and the original otherwise", async () => {
+	const signal = new AbortController().signal, url = new URL( "http://localhost/assets/world/t.texture" );
+	for (
+		const [decision, want] of [ [ "etc2", [ 7, 8, 9 ] ], [ null, [ 1, 2, 3 ] ], [ "astc", [ 1, 2, 3 ] ] ]
+	) {
+		const packs = variantFixture();
+		packs.textureVariant( Promise.resolve( decision ) );
+		assert.deepEqual( [ ...await packs.read( url, 100, signal ) ], want, `decision ${decision}` );
+		packs.dispose();
+	}
+});
+
+test("native texture reads wait for the variant decision", async () => {
+	const signal = new AbortController().signal, packs = variantFixture();
+	let decide;
+	packs.textureVariant(
+		new Promise( resolve => {
+			decide = resolve;
+		} )
+	);
+	let done = false;
+	const texture = packs.read( new URL( "http://localhost/assets/world/t.texture" ), 100, signal ).then( bytes => {
+		done = true;
+		return bytes;
+	} );
+	await new Promise( resolve => setTimeout( resolve, 20 ) );
+	assert.equal( done, false, "no texture resolves before the decision" );
+	decide( "etc2" );
+	assert.deepEqual( [ ...await texture ], [ 7, 8, 9 ] );
 	packs.dispose();
 });

@@ -15,6 +15,8 @@ media; saving a new report drops the oldest ones first.
 */
 import type { BugReportField } from "@/engine/contracts/bug-report";
 import { zipStore, type ZipFile } from "@/engine/foundation/archive/zip";
+import { REFUSAL_OTHER, REFUSAL_REASONS, UI_CONTROL_PREFIX } from "./journal";
+import { GPU_TOKEN_PATTERN, reportedGpuFeatures } from "@/engine/foundation/rendering/gpu-facts";
 
 const DATABASE = "sro-bug-reports";
 const STORE = "reports";
@@ -46,6 +48,7 @@ const SHARED_GAMEPLAY_FIELDS = [
 	"vitals",
 	"inventory",
 	"inventoryPending",
+	"inventoryJournal",
 	"avatarInventory",
 	"equipmentSlotCount",
 	"inventorySlotCount",
@@ -58,7 +61,8 @@ const SHARED_GAMEPLAY_FIELDS = [
 	"navigationRequestId",
 	"navigationRegion",
 	"navigationBlock",
-	"activeCos"
+	"activeCos",
+	"storage"
 ] as const;
 const SHARED_ENVIRONMENT_FIELDS = [
 	"userAgent",
@@ -68,7 +72,8 @@ const SHARED_ENVIRONMENT_FIELDS = [
 	"window",
 	"canvas",
 	"network",
-	"replay"
+	"replay",
+	"gpu"
 ] as const;
 const SHARED_MOVEMENT_FIELDS = [
 	"version",
@@ -84,6 +89,19 @@ const TECHNICAL_FIELDS = new Set( [
 	...SHARED_ENVIRONMENT_FIELDS,
 	"events",
 	"kind",
+	"features",
+	"limits",
+	"maxBufferSize",
+	"maxStorageBufferBindingSize",
+	"maxTextureDimension2D",
+	"vendor",
+	"architecture",
+	"control",
+	"index",
+	"refusal",
+	"iconless",
+	"capacity",
+	"items",
 	"event",
 	"atMs",
 	"t",
@@ -235,6 +253,7 @@ const TECHNICAL_STRINGS: Readonly<Record<string, readonly string[]>> = {
 		"error",
 		"long-frame",
 		"sample",
+		"refusal",
 		"local-player",
 		"player",
 		"monster",
@@ -280,7 +299,18 @@ const TECHNICAL_STRINGS: Readonly<Record<string, readonly string[]>> = {
 		"F10",
 		"F11",
 		"F12"
-	]
+	],
+	// The refusal reasons journal.ts refusalReason names.
+	refusal: [ ...new Set( [ ...REFUSAL_REASONS.map( ( [, reason] ) => reason ), REFUSAL_OTHER ] ) ],
+	// The adapter features gpu-facts.ts names.
+	features: reportedGpuFeatures()
+};
+// Strings a field may carry by shape rather than by list: a UI control's
+// scheme prefix (journal.ts uiControl), never free text.
+const TECHNICAL_PATTERNS: Readonly<Record<string, RegExp>> = {
+	control: UI_CONTROL_PREFIX,
+	vendor: new RegExp( GPU_TOKEN_PATTERN ),
+	architecture: new RegExp( GPU_TOKEN_PATTERN )
 };
 const README = `OpenSRO bug report
 
@@ -290,7 +320,9 @@ replay.mp4        the last minute before the report, full quality, with sound.
 timeline.json     what happened during that minute, on replay.mp4's clock (t, seconds):
                   key        keys pressed/released (never text typed into a field)
                   click      presses on the game world (x, y from 0 to 1 across the canvas)
-                  ui         presses on game window controls (their ui id)
+                  ui         presses on game window controls (their ui id; the shared copy
+                             keeps only the control's kind and slot number)
+                  refusal    a command the game refused, by reason (inventory-busy, ...)
                   chat       chat lines seen or sent
                   error      JavaScript and runtime failures
                   long-frame main-thread hitches, with the scripts the browser blamed
@@ -301,8 +333,9 @@ network.json      every transport frame of that window, on the timeline's clock:
 movement.json     up to two minutes of movement commands, server receipts, corrections
                   and frame hitches; clock domains are explicit in the header/events.
 state.json        the game's state when the report was sent (large catalogs omitted).
-environment.json  browser, screen, CPU, memory, network, the player's options, and
-                  every resource loaded during the last minute (time, size, status).
+environment.json  browser, screen, CPU, memory, network, the WebGPU adapter's features,
+                  limits, vendor and architecture, the player's options, and every
+                  resource loaded during the last minute (time, size, status).
 screenshot.jpg    only when no replay was attached.
 `;
 
@@ -386,8 +419,17 @@ tokens and entity IDs remain intact because replay needs their correlations.
 ================
 */
 function sharedValue( value: unknown, field = "" ): unknown {
-	if ( typeof value === "string" ) return TECHNICAL_STRINGS[field]?.includes( value ) ? value : undefined;
-	if ( Array.isArray( value ) ) return value.map( item => sharedValue( item, field ) );
+	if ( typeof value === "string" ) {
+		return TECHNICAL_STRINGS[field]?.includes( value ) || TECHNICAL_PATTERNS[field]?.test( value ) ?
+			value :
+			undefined;
+	}
+	if ( Array.isArray( value ) ) {
+		// An enumerated list (an adapter's features) drops what it does not
+		// name; any other array keeps its positions.
+		const items = value.map( item => sharedValue( item, field ) );
+		return TECHNICAL_STRINGS[field] ? items.filter( item => item !== undefined ) : items;
+	}
 	if ( !value || typeof value !== "object" ) return value;
 	const out: Record<string, unknown> = {};
 	for ( const [key, item] of Object.entries( value ) ) {
@@ -396,6 +438,44 @@ function sharedValue( value: unknown, field = "" ): unknown {
 		if ( shared !== undefined ) out[key] = shared;
 	}
 	return out;
+}
+
+/*
+================
+iconlessRows
+
+A row drawn with no icon (it carries no icon path) is marked iconless: the
+shared copy drops every path, and threads reported items "going invisible"
+in the bag and in storage with nothing in the report to say which slot.
+================
+*/
+function iconlessRows( rows: unknown ): unknown {
+	if ( !Array.isArray( rows ) ) return rows;
+	return rows.map( row =>
+		row && typeof row === "object" && !(row as { icon?: unknown; }).icon ? { ...row, iconless: true } : row
+	);
+}
+
+/*
+================
+markIconless
+
+The gameplay snapshot with iconlessRows applied to the bag, the avatar
+sockets and the open storage.
+================
+*/
+function markIconless( value: unknown ): unknown {
+	if ( !value || typeof value !== "object" ) return value;
+	const gameplay = value as Record<string, unknown>;
+	const storage = gameplay.storage && typeof gameplay.storage === "object" ?
+		gameplay.storage as Record<string, unknown> :
+		undefined;
+	return {
+		...gameplay,
+		inventory: iconlessRows( gameplay.inventory ),
+		avatarInventory: iconlessRows( gameplay.avatarInventory ),
+		...(storage ? { storage: { capacity: storage.capacity, items: iconlessRows( storage.items ) } } : {})
+	};
 }
 
 /*
@@ -488,7 +568,7 @@ export async function createDiagnosticUpload(
 		events: events.filter( event => event.kind !== "chat" )
 	} ) as Record<string, unknown>;
 	const state = read( "state.json" );
-	const gameplay = selectedFields( state.gameplay, SHARED_GAMEPLAY_FIELDS );
+	const gameplay = selectedFields( markIconless( state.gameplay ), SHARED_GAMEPLAY_FIELDS );
 	const sourceEnvironment = read( "environment.json" );
 	const environment = selectedFields( sourceEnvironment, SHARED_ENVIRONMENT_FIELDS );
 	// Browser identification is an explicit environmental field, not game text.

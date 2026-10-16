@@ -19,6 +19,7 @@ import (
 	"opensro.online/server/internal/cluster/shard"
 	"opensro.online/server/internal/data/store"
 	"opensro.online/server/internal/domain"
+	"opensro.online/server/internal/game/action"
 	"opensro.online/server/internal/game/companion"
 	"opensro.online/server/internal/game/enterworld"
 	"opensro.online/server/internal/game/progression"
@@ -133,6 +134,37 @@ func openAuthorityPlane(
 	}
 	if len(stackSizes) > 0 {
 		log.Infof("items: %s=%s raised %d item cap(s) (port-only, not native)", enterworld.EnvStackSizes, stackSizes, raised)
+	}
+	// Port-only, not native: trade goods are worth TradeGoodsPriceFactor times
+	// their v1.150 price (SRO_TRADE_TIERS, enterworld/tradegoodsprice.go).
+	if action.TradeTiersFromEnv() {
+		scaled, err := textdata.Items.ApplyTradeGoodsPriceFactor(enterworld.TradeGoodsPriceFactor)
+		if err != nil {
+			return authorityPlane{}, err
+		}
+		log.Infof("trade: %s priced %d trade goods x%d (port-only, not native)", action.EnvTradeTiers, scaled, enterworld.TradeGoodsPriceFactor)
+	}
+	// Port-only, not native: the Item Mall transports move 1.5 times as fast.
+	if enterworld.MallTransportSpeedFromEnv() {
+		scaled, err := textdata.Items.ApplyMallTransportSpeed()
+		if err != nil {
+			return authorityPlane{}, err
+		}
+		log.Infof("cos: %s scaled %d mall transport(s) (port-only, not native)", enterworld.EnvMallTransportSpeed, scaled)
+	}
+	// Port-only, not native: the Item Mall vehicles and pets move faster
+	// (1.3 times by default, game/tunables).
+	rideFactor, rideOn, err := enterworld.MallRideSpeedFromEnv()
+	if err != nil {
+		return authorityPlane{}, err
+	}
+	if rideOn {
+		scaled, err := textdata.Items.ApplyMallRideSpeed(rideFactor)
+		if err != nil {
+			return authorityPlane{}, err
+		}
+		log.Infof("cos: %s=%v scaled %d mall vehicle and pet row(s) (port-only, not native)",
+			enterworld.EnvMallRideSpeed, rideFactor, scaled)
 	}
 	options := store.OptionsFromEnv()
 	options.DefaultSkills = enterworld.DefaultSkillSeeder(textdata.Skills)

@@ -14,7 +14,10 @@ package agentserver
 
 import (
 	"bytes"
+	"context"
+	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -25,6 +28,7 @@ import (
 	"strings"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"golang.org/x/crypto/bcrypt"
 	agentapi "opensro.online/server/internal/agent/api"
 	"opensro.online/server/internal/agent/bugreport"
@@ -103,8 +107,19 @@ type Server struct {
 	// incidentReports paces /client/incident per account; degradedReports
 	// paces its non-fatal "degraded" reports apart, so they never use up the
 	// allowance a session-ending failure needs.
-	incidentReports  *loginLimiter
-	degradedReports  *loginLimiter
+	incidentReports *loginLimiter
+	degradedReports *loginLimiter
+	// anonymousIncidents paces reports sent before login, per client
+	// address, apart from every account's allowance. refusalLines paces the
+	// refusal log lines one client can cause (refusal_log.go).
+	anonymousIncidents *loginLimiter
+	refusalLines       *loginLimiter
+	refusalCeiling     refusalCeiling
+	anonymousCeiling   refusalCeiling
+	// clientKey keys the client tags in refusal lines (clientTag). It is
+	// drawn at start and never stored, so a tag cannot be reversed from the
+	// log by hashing every address.
+	clientKey        []byte
 	passwordFailures passwordFailures
 	readiness        *readiness.Gate
 	bugReports       *bugreport.Service
@@ -144,9 +159,11 @@ func New(config Config) (*Server, error) {
 	if client == nil {
 		client = &http.Client{Timeout: 15 * time.Second}
 	}
+	// The refusal for an unknown account costs what a real check does, so
+	// the answer's timing does not tell the two apart.
 	dummyHash, err := bcrypt.GenerateFromPassword(
 		[]byte("agent-invalid-account"),
-		bcrypt.DefaultCost,
+		auth.AccountBcryptCost,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("agent: preparing login refusal: %w", err)
@@ -159,6 +176,10 @@ func New(config Config) (*Server, error) {
 			return nil, fmt.Errorf("agent: invalid allowed origin %q", origin)
 		}
 		origins[origin] = true
+	}
+	clientKey := make([]byte, clientKeyBytes)
+	if _, err := rand.Read(clientKey); err != nil {
+		return nil, fmt.Errorf("agent server: client tag key: %w", err)
 	}
 	return &Server{
 		history:                 config.History,
@@ -177,6 +198,9 @@ func New(config Config) (*Server, error) {
 		loginAttempts:           newLoginLimiter(now),
 		incidentReports:         newLoginLimiter(now),
 		degradedReports:         newLoginLimiter(now),
+		anonymousIncidents:      newLoginLimiter(now),
+		refusalLines:            newLoginLimiter(now),
+		clientKey:               clientKey,
 		readiness:               config.Readiness,
 		bugReports:              config.BugReports,
 		startedAt:               now(),
@@ -204,7 +228,7 @@ func (server *Server) Handler() http.Handler {
 		browser(server.requireRunning(http.HandlerFunc(server.handleServers))),
 	)
 	mux.Handle(
-		"/title/login",
+		loginPath,
 		browser(server.requireRunning(http.HandlerFunc(server.handleLogin))),
 	)
 	mux.HandleFunc("/marks/", server.handleMark)
@@ -391,7 +415,16 @@ func (server *Server) bearerClaims(r *http.Request) (auth.AgentSessionClaims, bo
 		return auth.AgentSessionClaims{}, false
 	}
 	claims, err := server.sessionSigner.Verify(token, server.now())
-	return claims, err == nil
+	if err != nil {
+		return auth.AgentSessionClaims{}, false
+	}
+	// A signed session stays valid until it expires; the account behind it
+	// is re-read on every use, so a disabled or removed account is refused
+	// at once (liveSession does the same for the browser cookie).
+	if _, active := server.accounts.PasswordHash(claims.AccountID); !active {
+		return auth.AgentSessionClaims{}, false
+	}
+	return claims, true
 }
 
 /*
@@ -424,4 +457,38 @@ func (server *Server) authorizedControlShard(
 		return "", false
 	}
 	return definition.ID, true
+}
+
+// passwordRehasher is the account store's compare-and-swap hash upgrade
+// (auth.Accounts); a fixed catalog has none.
+type passwordRehasher interface {
+	UpgradePasswordHash(ctx context.Context, accountID string, verified []byte, password string) (bool, error)
+}
+
+/*
+================
+upgradePasswordCost
+
+After a successful login, rewrites a hash made at a lower bcrypt cost at
+auth.AccountBcryptCost, so every stored hash, the seeded and provisioned
+ones included, costs the same as the unknown-account refusal. The swap is
+conditional on the hash this login verified, so a password change or staff
+reset that lands meanwhile is never overwritten by the old password. A
+failure only leaves the old hash; the login has already succeeded.
+================
+*/
+func (server *Server) upgradePasswordCost(ctx context.Context, accountID string, hash []byte, password string) {
+	cost, err := bcrypt.Cost(hash)
+	if err != nil || cost >= auth.AccountBcryptCost {
+		return
+	}
+	rehasher, ok := server.accounts.(passwordRehasher)
+	if !ok {
+		return
+	}
+	// A seeded password outside today's length bounds cannot be rehashed; it
+	// keeps its old hash rather than warning on every login.
+	if _, err := rehasher.UpgradePasswordHash(ctx, accountID, hash, password); err != nil && !errors.Is(err, auth.ErrPasswordInvalid) {
+		log.Warnf("agent: upgrading the password hash cost failed: %v", err)
+	}
 }

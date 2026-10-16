@@ -256,6 +256,18 @@ type BootstrapResult struct {
 	// StorageAutoStack tells the client's storage quick move to prefer a
 	// matching stack (port-only, not native; false is native).
 	StorageAutoStack bool
+	// FastDenReturn tells the client's delay bar that the Bandit Den scroll
+	// counts down half its Param1 (port-only, not native; false is native).
+	FastDenReturn bool
+	// TradeTiers tells the client's TRADESCALE combo to rate a purchase by
+	// gold against the shard's tiers (port-only, not native; false is native).
+	TradeTiers bool
+	// JobSuitHidesArmor tells the client that trader and hunter suits hide
+	// worn armour as thief suits do (port-only, not native; false is native).
+	JobSuitHidesArmor bool
+	// MoonlitThiefSuit tells the client to draw the level-20 thief suits as
+	// Moonlit Ash (port-only, not native; false is native).
+	MoonlitThiefSuit bool
 }
 
 /*
@@ -307,6 +319,10 @@ type bootstrapSuccessView struct {
 	UnlimitedItems            []uint32                 `json:"unlimitedItems,omitempty"`
 	MasteryTotalOverride      int64                    `json:"masteryTotalOverride,omitempty"`
 	StorageAutoStack          bool                     `json:"storageAutoStack,omitempty"`
+	FastDenReturn             bool                     `json:"fastDenReturn,omitempty"`
+	TradeTiers                bool                     `json:"tradeTiers,omitempty"`
+	JobSuitHidesArmor         bool                     `json:"jobSuitHidesArmor,omitempty"`
+	MoonlitThiefSuit          bool                     `json:"moonlitThiefSuit,omitempty"`
 }
 
 /*
@@ -383,6 +399,10 @@ func (r *BootstrapResult) MarshalJSON() ([]byte, error) {
 		UnlimitedItems:            r.UnlimitedItems,
 		MasteryTotalOverride:      r.MasteryTotalOverride,
 		StorageAutoStack:          r.StorageAutoStack,
+		FastDenReturn:             r.FastDenReturn,
+		TradeTiers:                r.TradeTiers,
+		JobSuitHidesArmor:         r.JobSuitHidesArmor,
+		MoonlitThiefSuit:          r.MoonlitThiefSuit,
 	})
 }
 

@@ -184,6 +184,9 @@ export interface ChatLine {
 	// A line from the server's replayed transcript (OpChatHistory): already
 	// said before this session, so never speech over a head.
 	readonly history?: boolean;
+	// Port-only: the player and item a drop/plus notice names
+	// (foundation/gameplay/notice-links.ts), linked in the chat log.
+	readonly notice?: { readonly name?: string; readonly item?: InventoryItem; };
 }
 /*
 ================
@@ -204,6 +207,14 @@ export type GameplayCommand =
 	| import("@/engine/foundation/gameplay/party-matching").PartyMatchCommand
 	| { readonly kind: "gm-command"; readonly line: string; }
 	| { readonly kind: "whisper-block"; readonly name: string; readonly blocked: boolean; }
+	| { readonly kind: "cos-name"; readonly gid: number; readonly name: string; }
+	| { readonly kind: "friend-request"; readonly name: string; }
+	| { readonly kind: "friend-answer"; readonly accept: boolean; }
+	| { readonly kind: "friend-delete"; readonly jid: number; }
+	| { readonly kind: "letter-send"; readonly receiver: string; readonly body: string; }
+	| { readonly kind: "letter-read"; readonly index: number; }
+	| { readonly kind: "letter-close"; }
+	| { readonly kind: "letter-delete"; readonly index: number; }
 	| { readonly kind: "stat-increase"; readonly stat: "str" | "int"; }
 	| { readonly kind: "beginner-mark"; readonly enabled: boolean; }
 	| { readonly kind: "helper-mark"; }
@@ -353,6 +364,7 @@ export type GameplayCommand =
 	// A click on another player: the worker decides whether it attacks
 	// (player-attack.ts). Sent before the click's select.
 	| { readonly kind: "player-interact"; readonly gid: number; readonly alt: boolean; }
+	| { readonly kind: "cos-interact"; readonly gid: number; readonly alt: boolean; }
 	| {
 		readonly kind: "release-target";
 	}
@@ -672,6 +684,8 @@ export interface GameplayState {
 	readonly environmentalDamage?: readonly import("./combat-feedback").EnvironmentalDamage[];
 	readonly gmReplies?:
 		readonly (import("@/engine/foundation/gameplay/gm-command").GmReply & { readonly sequence: number; })[];
+	// 0x352D: the transport bag's trade level (cos-trade-info.ts).
+	readonly tradeStars?: number;
 	readonly eventGroups?: Readonly<Record<number, number>>;
 	readonly eligibility?: { readonly gm: boolean; readonly pcRoomEvent: boolean; };
 	readonly autoPotion?: import("@/engine/foundation/gameplay/auto-potion").AutoPotionSettings;
@@ -682,6 +696,9 @@ export interface GameplayState {
 	readonly jobRanks?: import("@/engine/foundation/gameplay/job-guild").JobRanks;
 	// The week's outcome the guild NPC last told (0xB7BE).
 	readonly jobOutcome?: import("@/engine/foundation/gameplay/job-guild").JobOutcome | null;
+	// The last alias the server called free (0xB620 [1][0]), numbered so the
+	// alias window marks each answer once (CIFJobAlias_MarkNameChecked 646110).
+	readonly jobAliasChecked?: { readonly alias: string; readonly sequence: number; } | null;
 	readonly cosWindows?: readonly (import("@/engine/foundation/gameplay/cos-timer").CosItemWindow & {
 		readonly reference: import("@/engine/foundation/gameplay/cos-timer").CosItemWindowReference;
 	})[];
@@ -698,6 +715,15 @@ export interface GameplayState {
 	// The server's port-only SRO_STORAGE_AUTO_STACK rule, published at world
 	// entry: storage quick moves prefer a matching stack (storage-panel.ts).
 	readonly storageAutoStack?: boolean;
+	// The server's port-only SRO_TRADE_TIERS rule, published at world entry:
+	// the trade-scale combo rates a purchase by gold (specialty-deal.ts).
+	readonly tradeTiers?: boolean;
+	// The server's port-only SRO_JOB_SUIT_HIDES_ARMOR rule, published at world
+	// entry: trader and hunter suits hide worn armour (equipment-visuals.ts).
+	readonly jobSuitHidesArmor?: boolean;
+	// The server's port-only SRO_MOONLIT_THIEF_SUIT rule, published at world
+	// entry: level-20 thief suits draw the Moonlit Ash model (equipment-appearance.ts).
+	readonly moonlitThiefSuit?: boolean;
 	// The reverse return scroll's map table: empty unless the server's
 	// port-only SRO_REVERSE_RETURN_MAP option is on (reverse-return-map.ts).
 	readonly reverseMapPoints?: readonly import("@/engine/foundation/gameplay/reverse-return-map").ReverseMapPoint[];
@@ -706,6 +732,8 @@ export interface GameplayState {
 	readonly notices?: readonly import("@/engine/foundation/gameplay/system-notices").SystemNotice[];
 	readonly partyMatching?: import("@/engine/foundation/gameplay/party-matching").PartyMatching;
 	readonly academy?: import("@/engine/foundation/gameplay/academy").AcademyState;
+	readonly friends?: import("@/engine/foundation/gameplay/friends").FriendsState;
+	readonly letters?: import("@/engine/foundation/gameplay/letters").LettersState;
 	readonly pkStatus?: import("@/engine/foundation/gameplay/pk-status").PkStatus;
 	readonly guide?: import("@/engine/foundation/gameplay/guide").GuideState;
 	readonly weather?: import("@/engine/foundation/gameplay/weather").WeatherOptions;
@@ -814,6 +842,9 @@ export interface GameplayState {
 	readonly avatarInventory?: readonly InventoryItem[];
 	readonly inventory: readonly InventoryItem[];
 	readonly inventoryPending: boolean;
+	// Port-only diagnostics: the bag slots each inventory answer changed,
+	// flattened rows (foundation/gameplay/inventory-journal.ts).
+	readonly inventoryJournal?: readonly number[];
 	// Slot flashes raised by the 0x3645 item-state and 0x31E8 durability updates
 	// (item-slot-effects.ts).
 	readonly itemFlashes?: readonly {

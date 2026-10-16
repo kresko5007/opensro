@@ -49,11 +49,14 @@ import {
 import { createAlchemy } from "./alchemy/alchemy";
 import { REPAIR_ONE_SLOT, REPAIR_RESPONSE_OPCODE, repairRequest } from "@/engine/foundation/gameplay/repair";
 import { createGacha } from "./gacha/gacha";
+import { gachaPrizes } from "@/engine/foundation/gameplay/gacha-catalog";
+import { isGachaVoucher } from "@/engine/foundation/ui/gacha-window";
+import type { SystemNotice } from "@/engine/foundation/gameplay/system-notices";
 import { createMagicOptionGrant } from "./magic-option/magic-option";
 import { itemStateDelta } from "@/engine/foundation/gameplay/item-state-delta";
 import { itemSlotFlashKinds } from "@/engine/foundation/ui/item-slot-effects";
 import { itemMagicDefinitions } from "@/engine/foundation/ui/item-tooltip-magic";
-import type { ItemProcessCommand } from "@/engine/contracts/item-process";
+import type { GachaPrizeRow, ItemProcessCommand } from "@/engine/contracts/item-process";
 import {
 	saleResult,
 	soldInventory,
@@ -190,6 +193,8 @@ presentShop
 		}
 		return shopPresentation;
 	}
+	// The presented bag (bag()). Every writer of slots clears it: the next
+	// read builds a new array, which is how gameplay's journal sees a change.
 	let published: readonly InventoryItem[] | null = null;
 	// One-shot slot flashes the 0x3645 item-state (7654B0) and 0x31E8 durability
 	// (77C300) updates raised; each lasts under 1.3 s, so older entries are
@@ -205,6 +210,10 @@ presentShop
 	const refs = new Map<number, number>(), names = new Map<number, string>();
 	const icons = new Map<number, string>();
 	const tooltipRefs = new Map<number, ItemTooltipReference>();
+	// The Magic Pang window's twelve prizes with the reference icons, rebuilt when icons arrive.
+	let gachaRows: { iconCount: number; rows: readonly GachaPrizeRow[]; } | null = null;
+	// The chat line a voucher update raises, taken by the gameplay owner after each packet.
+	let exchangeNotice: SystemNotice | null = null;
 	let magicRefs = itemMagicReferences( undefined );
 	let presentations = new WeakMap<InventoryItem, InventoryItem>();
 	/*
@@ -225,6 +234,37 @@ present
 		};
 		presentations.set( item, result );
 		return result;
+	}
+	/*
+	================
+	gachaPrizeRows
+
+	The Magic Pang prizes with reference icons. Icons arrive after the first frame, so
+	the cached rows are rebuilt when the icon table has grown.
+	================
+	*/
+	function gachaPrizeRows(): readonly GachaPrizeRow[] {
+		if ( gachaRows?.iconCount === icons.size ) return gachaRows.rows;
+		const rows = gachaPrizes().map( prize => ({
+			entry: prize.entry,
+			refObjId: prize.refObjId,
+			quantity: prize.quantity,
+			nameSymbol: prize.nameSymbol,
+			icon: icons.get( prize.refObjId )
+		}) );
+		gachaRows = { iconCount: icons.size, rows };
+		return rows;
+	}
+	/*
+================
+bag
+
+The presented bag rows, rebuilt only after a writer cleared them: every
+change to the bag yields a new array (gameplay's journal compares it).
+================
+	*/
+	function bag(): readonly InventoryItem[] {
+		return published ?? (published = [ ...slots.values() ].map( present ));
 	}
 	let inventorySlotCount: number | undefined, equipmentSlotCount: number | undefined;
 	/*
@@ -345,8 +385,8 @@ timeoutMessage
 ================
 busy
 
-A Magic Pop roll does not hold the bag: native reads its busy byte only
-for the Magic Pop window's own slot (CIFItemSlot_DispatchActivation
+A Magic Pang roll does not hold the bag: native reads its busy byte only
+for the Magic Pang window's own slot (CIFItemSlot_DispatchActivation
 567520..567535, message 0x8C), never for CIFInventory.
 ================
 	*/
@@ -390,6 +430,24 @@ transfer
 		else next.delete( source );
 	}
 	return {
+		/*
+================
+noticeItem
+
+Port-only: the item a drop/plus notice names (notice-links.ts), decoded
+from its body with the bag's own references and presented like a bag row.
+Undefined for anything this client cannot decode; a notice is player-adjacent
+data and never fails the session.
+================
+		*/
+		noticeItem( body: Uint8Array ): InventoryItem | undefined {
+			try {
+				const decoded = decodeInventoryItem( body, 0, refs, objRefs );
+				return decoded.item && decoded.next === body.length ? present( decoded.item ) : undefined;
+			} catch {
+				return undefined;
+			}
+		},
 		/*
 ================
 bindCompanion
@@ -487,6 +545,18 @@ pet record names, for decoders of rows held elsewhere (the storage room).
 		*/
 		objectRefs(): ReadonlyMap<number, number> {
 			return objRefs;
+		},
+		/*
+================
+takeExchangeNotice
+
+The exchange line the last 0x3645 raised, once.
+================
+		*/
+		takeExchangeNotice(): SystemNotice | null {
+			const notice = exchangeNotice;
+			exchangeNotice = null;
+			return notice;
 		},
 		/*
 ================
@@ -792,6 +862,11 @@ exchangeCommand
 					play( cue );
 				}
 				return null;
+			}
+			if ( command.kind === "gacha-exchange" ) {
+				const exchange = gacha.exchange( command.gid );
+				send( exchange );
+				return exchange;
 			}
 			const frame = command.kind === "gacha-open" ?
 				gacha.open( command.gid ) :
@@ -1526,6 +1601,17 @@ receive
 			}
 			if ( op === 0x3645 ) {
 				const before = slots.get( p[0]! ), next = itemStateDelta( p, slots, refs, names );
+				// 7654B0 words UIIT_MSG_GACHA_EXCHANGE from the voucher the update hits: its recorded
+				// reference and quantity.
+				if ( before && isGachaVoucher( before.typeFlags ) && before.magic.length === 2 ) {
+					const reward = Number( BigInt( before.magic[0]! ) & 0xffffffffn );
+					exchangeNotice = {
+						key: "UIIT_MSG_GACHA_EXCHANGE",
+						value: Number( BigInt( before.magic[1]! ) & 0xffffffffn ),
+						arguments: [ names.get( reward ) ?? "" ],
+						formatKinds: [ "s", "d" ]
+					};
+				}
 				const kinds = itemSlotFlashKinds( p[1]!, before?.summon?.state, next.item?.summon?.state );
 				if ( kinds.length ) {
 					itemFlashes = [
@@ -1557,13 +1643,26 @@ receive
 			if ( op === 0xb373 || op === 0xb651 ) {
 				if ( p[0] !== 1 ) {
 					if ( p.length !== (p[0] === 2 ? 2 : 1) ) throw Error( "Invalid alchemy rejection" );
+					// A stone whose roll failed (0xB651 [2, 0x23]; native 50338F/
+					// 50376F spend the stone) is a finished attempt: 62B0B0's 0x80
+					// arm plays the failure effect and writes the failure line, so
+					// it records an outcome. Every other code is a refusal and
+					// finishes nothing.
+					const stoneFailed = op === 0xb651 && p[0] === 2 && p[1] === 0x23;
+					const target = stoneFailed ? slots.get( alchemy.state().slot ?? -1 ) : undefined;
+					const detail = stoneFailed ?
+						{
+							plus: target?.plus ?? 0,
+							previousPlus: target?.plus ?? 0,
+							durability: target?.durability ?? 0,
+							previousDurability: target?.durability ?? 0
+						} :
+						undefined;
 					for (
-						const cue of alchemy.result(
-							0,
-							op === 0xb651 && p[0] === 2 && p[1] === 0x23 ? 0x80 : 0,
-							p[0] === 2 ? p[1]! : null
-						)
-					) play( cue );
+						const cue of alchemy.result( 0, stoneFailed ? 0x80 : 0, p[0] === 2 ? p[1]! : null, detail )
+					) {
+						play( cue );
+					}
 					return true;
 				}
 				if ( p.length < 3 || p[2]! < 13 ) throw Error( "Invalid alchemy slot" );
@@ -2032,6 +2131,7 @@ step
 			}
 			return unlocked || expired || rentalUpdates.length > 0;
 		},
+		bag,
 		/*
 ================
 state
@@ -2043,7 +2143,7 @@ state
 				itemCooldowns,
 				avatarInventory: [ ...avatars.values() ].map( present ),
 				alchemy: alchemy.state(),
-				gacha: gacha.state(),
+				gacha: { ...gacha.state(), prizes: gachaPrizeRows() },
 				exchange: exchange.open || exchange.requesting ?
 					{
 						...exchange,
@@ -2066,7 +2166,7 @@ state
 				shopCompletionRevision,
 				inventorySlotCount,
 				equipmentSlotCount,
-				inventory: published ?? (published = [ ...slots.values() ].map( present )),
+				inventory: bag(),
 				itemFlashes,
 				inventoryPending: busy(),
 				error

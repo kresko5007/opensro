@@ -137,6 +137,13 @@
 			]
 		},
 		{
+			"consumer": "src/engine/runtime/renderer/world/settle.ts",
+			"provider": "src/engine/runtime/renderer/device/geometry.ts",
+			"functions": [
+				"dropMirror"
+			]
+		},
+		{
 			"consumer": "src/engine/runtime/renderer/world/terrain-layers.ts",
 			"provider": "src/engine/runtime/renderer/device/geometry.ts",
 			"functions": [
@@ -938,7 +945,8 @@
 				"cancelWorldUpdate",
 				"neededWorldTextures",
 				"worldStats",
-				"adoptWorld"
+				"adoptWorld",
+				"settleWorld"
 			]
 		},
 		{
@@ -1036,6 +1044,20 @@
 		},
 		{
 			"consumer": "src/engine/runtime/simulation/worker/session/world/gameplay/chat/chat.ts",
+			"provider": "src/engine/runtime/simulation/worker/network/network.ts",
+			"functions": [
+				"send"
+			]
+		},
+		{
+			"consumer": "src/engine/runtime/simulation/worker/session/world/gameplay/friends/friends.ts",
+			"provider": "src/engine/runtime/simulation/worker/network/network.ts",
+			"functions": [
+				"send"
+			]
+		},
+		{
+			"consumer": "src/engine/runtime/simulation/worker/session/world/gameplay/letters/letters.ts",
 			"provider": "src/engine/runtime/simulation/worker/network/network.ts",
 			"functions": [
 				"send"
@@ -1169,6 +1191,13 @@
 			"functions": [
 				"callback:createInventory:1",
 				"callback:createInventory:2"
+			]
+		},
+		{
+			"consumer": "src/engine/runtime/simulation/worker/session/world/gameplay/chat/chat.ts",
+			"provider": "src/engine/runtime/simulation/worker/session/world/gameplay/gameplay.ts",
+			"functions": [
+				"callback:createChat:1"
 			]
 		},
 		{
@@ -1501,6 +1530,7 @@
 			"functions": [
 				"callback:tooltipBubble:3",
 				"callback:textLines:2",
+				"callback:captionWords:2",
 				"callback:textBoxLines:2",
 				"callback:textBoardLines:2",
 				"callback:textBoxLines:2",
@@ -2028,6 +2058,7 @@
 			"provider": "src/engine/runtime/runtime.ts",
 			"functions": [
 				"context",
+				"gpu",
 				"network",
 				"state"
 			]
@@ -2298,6 +2329,14 @@
 			"functions": [
 				"callback:setAssetDump:0"
 			]
+		},
+		{
+			"consumer": "src/engine/foundation/animation/character-selection.ts",
+			"provider": "src/engine/runtime/characters/presentation-auxiliary.ts",
+			"functions": [
+				"effectDistances"
+			],
+			"reason": "The Experimental shared actor room: the selection reads the previous frame's effect distances, which the auxiliary presentation records in presentStages, through a getter injected at construction."
 		}
 	],
 	"boundaries": [
@@ -2828,6 +2867,13 @@
 		},
 		{
 			"file": "src/engine/runtime/characters/presentation-finalize.ts",
+			"expression": "renderer.vHidesCompanions",
+			"function": "publishCharacters",
+			"kind": "callback",
+			"reason": "The parent renderer reports whether the Experimental V row also hides companions; it changes nothing."
+		},
+		{
+			"file": "src/engine/runtime/characters/presentation-finalize.ts",
 			"expression": "resources.duration",
 			"function": "callback:step:2",
 			"kind": "callback",
@@ -3133,6 +3179,27 @@
 			"function": "presentStages",
 			"kind": "callback",
 			"reason": "The parent effect owner supplies admitted stage animation metadata."
+		},
+		{
+			"file": "src/engine/runtime/characters/presentation-auxiliary.ts",
+			"expression": "effects.takeBudget",
+			"function": "presentStages",
+			"kind": "callback",
+			"reason": "The parent effect owner reports the actors it drew and the effects its budget turned away, for the frame probe; it changes nothing."
+		},
+		{
+			"file": "src/engine/runtime/characters/presentation-auxiliary.ts",
+			"expression": "probe?.characterCount",
+			"function": "presentStages",
+			"kind": "callback",
+			"reason": "Optional runtime-owned frame observer, passed with the frame; counts effects that gave way to either bound. Production supplies none."
+		},
+		{
+			"file": "src/engine/runtime/characters/presentation-auxiliary.ts",
+			"expression": "renderer.sharedActorRoom",
+			"function": "presentStages",
+			"kind": "callback",
+			"reason": "The parent renderer reports whether the Experimental shared actor room is on; it changes nothing."
 		},
 		{
 			"file": "src/engine/runtime/characters/presentation-auxiliary.ts",
@@ -3800,8 +3867,8 @@
 		{
 			"file": "src/engine/runtime/runtime.ts",
 			"function": "frame",
-			"sourceSha256": "98291008053e8225b8ca2ece5e7a17f893fdb2275124d8fd6789ebaee4ee1819",
-			"reason": "AEBD90 synchronously waits for visibility before AEC180 advances EFP ticks. The browser yields at the GPU readback barrier; the runtime retains the current frame and schedules the next RAF only after completion. Ordinary frames do not await a readback. Device disposal cancels pending mapping.",
+			"sourceSha256": "ec7d3efe4d0ea1764d99fcb54b084326e5f2c5728494aac934d3b15eb298bf4c",
+			"reason": "AEBD90 synchronously waits for visibility before AEC180 advances EFP ticks. The browser yields at the GPU readback barrier; the runtime retains the current frame and schedules the next RAF only after completion. Ordinary frames do not await a readback. A hidden frame renders only while a world entry awaits game-ready, under the same barrier: native keeps updating while inactive (A0F430 OnUpdate; A11650 skips drawing) and finishes loading in CPSMission_OnUpdate (728E10). A visible window that gets no RAF for STARVED_FRAME_MS runs the same delivery-paced maintenance frames. Device disposal cancels pending mapping. Startup also hands the asset owner the device texture features once (port-only texture variants), outside the frame.",
 			"evidence": "tests/fixtures/native/bsr-query-native.json",
 			"nativeFunction": 11451792,
 			"tests": [

@@ -57,6 +57,11 @@ const TELEMETRY_SAMPLES = 120, TELEMETRY_INTERVAL_MS = 500;
 // while minimized; this port keeps consuming the world journal (which fails
 // the session when unacknowledged) at this pace, driven by worker messages.
 const HIDDEN_FRAME_MS = 100;
+// A visible window the compositor stopped drawing (occluded, off-screen)
+// gets no animation frames either, without being reported hidden. A frame
+// this long overdue after the last one finished is starved, not slow: even a
+// throttled display callback arrives several times a second.
+const STARVED_FRAME_MS = 250;
 const MOVEMENT_FRAME_SPIKE_MS = 25;
 /*
 ================
@@ -133,6 +138,9 @@ export function startRuntime(
 		const renderer = own(
 			createRenderer( canvas, random, audio.enqueue, diagnostics )
 		);
+		// Port-only: the asset owner learns the device's texture features once,
+		// to serve re-encoded textures where BC is missing (texture-variants.ts).
+		void renderer.textureFeatures().then( features => assets.textureFeatures( features ) );
 		const frontend = own(
 			createFrontend(
 				assets,
@@ -268,6 +276,7 @@ export function startRuntime(
 			createBugReport( {
 				canvas,
 				apiBase,
+				gpu: () => renderer.adapterFacts(),
 				network: () => simulation.netJournal(),
 				context: (): readonly BugReportField[] => {
 					const game = presentation.gameplay();
@@ -412,6 +421,14 @@ export function startRuntime(
 				if ( entity.kind !== "ground-item" && !game.targetPending ) {
 					simulation.session( { kind: "gameplay", command: { kind: "select", gid: entity.gid } } );
 				}
+				// 67CCA0 -> 6935F0: a double click on another player's pet may
+				// attack it; the worker applies the pet's admission (player-attack.ts).
+				if ( doubleClick && entity.kind === "cos" && entity.appearanceState?.[0] !== 2 ) {
+					simulation.session( {
+						kind: "gameplay",
+						command: { kind: "cos-interact", gid: entity.gid, alt: click.alt ?? false }
+					} );
+				}
 				if ( doubleClick || attack ) {
 					if ( attackable && attack ) {
 						simulation.session( {
@@ -432,6 +449,8 @@ export function startRuntime(
 		}
 		let worldPointer: readonly [number, number] | null = null, hoveredEntity: number | null = null;
 		let readySent = false;
+		// The display stopped asking for frames while the document stays visible.
+		let starved = false;
 		const world = own( createWorldStream( assets, renderer, new URL( "/", import.meta.url ).href, random ) );
 		const navigation = own(
 			createNavigationStream(
@@ -527,13 +546,17 @@ export function startRuntime(
 		displayFrame
 
 		Deliver input on each display opportunity, then admit presentation work.
+		A maintenance frame (hiddenFrame's, run by a worker delivery instead of
+		RAF) is paced and budgeted as hidden whatever the document reports: no
+		display asked for it.
 		================
 		*/
-		function displayFrame( now: number ): void {
+		function displayFrame( now: number, maintenance = false ): void {
 			if ( disposed ) {
 				return;
 			}
-			const visible = globalThis.document?.visibilityState !== "hidden";
+			if ( !maintenance ) starved = false;
+			const visible = !maintenance && globalThis.document?.visibilityState !== "hidden";
 			try {
 				// Input is delivered even when this display refresh needs no new draw.
 				const commands = input.drain();
@@ -547,20 +570,19 @@ export function startRuntime(
 				dispose();
 				return;
 			}
-			void frame( now );
+			void frame( now, visible );
 		}
 		/*
 		================
 		frame
 		================
 		*/
-		async function frame( now: number ): Promise<void> {
+		async function frame( now: number, visible: boolean ): Promise<void> {
 			if ( disposed ) return;
-			const visible = globalThis.document?.visibilityState !== "hidden";
 			// Whichever of RAF and a hidden delivery ran this frame, retire the other.
 			frameToken++;
 			const cpuStart = performance.now();
-			frameWork.begin( now, globalThis.document?.visibilityState !== "hidden" );
+			frameWork.begin( now, visible );
 			renderer.setFrameWork?.( frameWork );
 			characters.frameWork( frameWork );
 			let waitMs = 0;
@@ -902,14 +924,22 @@ export function startRuntime(
 				markStage( "ui" );
 				renderer.setDamageText( characters.damageText() );
 				// Hidden maintenance still acknowledges every ordered publication, but
-				// cannot display a frame. Avoid GPU preparation and visibility queries.
-				const rendered = visible ?
+				// cannot display a frame, so it skips GPU preparation. A pending world
+				// entry is the exception: scene admission happens only inside the
+				// renderer frame, and 0x3012 game-ready waits on it. The native client
+				// keeps updating while inactive and only stops drawing: Application_PumpIdleFrame
+				// (A0F430) runs OnUpdate every idle frame, CGFXMainFrame_RenderFrame (A11650)
+				// sleeps 20 ms instead of drawing while g_bIsWindowActive is 0, and the loading
+				// screen finishes in CPSMission_OnUpdate (728E10, sends 0x324C). A background
+				// tab must finish its entry too.
+				const admitting = !readySent && sessionState?.phase === "world";
+				const rendered = visible || admitting ?
 					renderer.frame( platform.readViewport(), now / 1000, frameId, frameProbe() ) :
 					undefined;
 				if ( rendered ) {
 					await rendered;
 				}
-				waitMs = visible ? renderer.readbackWaitMs?.() ?? 0 : 0;
+				waitMs = visible || admitting ? renderer.readbackWaitMs?.() ?? 0 : 0;
 				if ( disposed ) return;
 				markStage( "render-preparation-submit" );
 				renderer.setTeleportGates( worldPresented ? presentation.entities() : [] );
@@ -1030,20 +1060,29 @@ World admission: ${renderer.worldStats().sceneId ?? "none"}; ${renderer.worldSta
 
 		A hidden document gets no animation frames. While hidden, a worker
 		delivery at least HIDDEN_FRAME_MS after the last frame runs the next
-		one instead; a visible document keeps waiting for its RAF. The frame
+		one instead. A visible document waits for its RAF unless none came
+		STARVED_FRAME_MS after the last frame finished: a window the browser
+		stopped drawing without hiding it, which then runs at the hidden pace
+		until a RAF arrives again. The native client keeps updating while it
+		draws nothing (A0F430), so loading finishes either way. The frame
 		token retires this waiter once either path has run a frame.
 		================
 		*/
-		function hiddenFrame( token: number, lastFrameAt: number ): void {
+		function hiddenFrame( token: number, lastFrameAt: number, finishedAt = performance.now() ): void {
 			simulation.delivery().then( () => {
 				if ( disposed || token !== frameToken ) return;
 				const now = performance.now();
-				if ( globalThis.document?.visibilityState !== "hidden" || now - lastFrameAt < HIDDEN_FRAME_MS ) {
-					hiddenFrame( token, lastFrameAt );
+				const hidden = globalThis.document?.visibilityState === "hidden";
+				const due = hidden || starved ?
+					now - lastFrameAt >= HIDDEN_FRAME_MS :
+					now - finishedAt >= STARVED_FRAME_MS;
+				if ( !due ) {
+					hiddenFrame( token, lastFrameAt, finishedAt );
 					return;
 				}
+				if ( !hidden ) starved = true;
 				cancelAnimationFrame( raf );
-				displayFrame( now );
+				displayFrame( now, true );
 			} );
 		}
 		raf = requestAnimationFrame( displayFrame );

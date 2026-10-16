@@ -241,10 +241,18 @@ export interface Renderer extends Disposable {
 	readbackWaitMs?(): number;
 	scenery(): import("./scenery").SceneryPresentation | null;
 	gpuTiming(): GpuTimingStats & { readonly enabled: boolean; };
+	/** The current device's adapter facts for bug reports, null before one. */
+	adapterFacts(): import("@/engine/foundation/rendering/gpu-facts").GpuFacts | null;
 	videoOptions( value: import("@/engine/foundation/rendering/video-options").VideoOptions ): void;
 	experimentalVideo( value: import("@/engine/foundation/ui/experimental-options").ExperimentalVideo ): void;
 	// Port-only, not native: whether the Experimental enchant sparks are on.
 	enchantSparks?(): boolean;
+	// Port-only, not native: whether characters and effects share one
+	// nearest-first actor room (Experimental; the original has no cap).
+	sharedActorRoom?(): boolean;
+	// Port-only, not native: whether holding V also hides other players'
+	// companions (Experimental, off by default).
+	vHidesCompanions?(): boolean;
 	setSelectionDecal(
 		value: { readonly pose: import("./gameplay").Pose; readonly slot: 0 | 1 | 2 | 3; } | null
 	): void;
@@ -313,6 +321,13 @@ export interface Renderer extends Disposable {
 		terrain?: readonly import("./world-admission").WorldTerrainPart[]
 	): void;
 	cancelWorldUpdate(): void;
+	// Port-only: the texture compression features of the GPU device once it
+	// exists, empty when it never does (foundation/assets/texture-variants.ts).
+	textureFeatures(): Promise<readonly string[]>;
+	// The drawn frontend scene sceneId gives up its CPU geometry; after a
+	// device loss it is reported in worldStats().lostSceneId. False when it
+	// is not the drawn scene or not at full terrain detail.
+	settleWorld( sceneId: string ): boolean;
 	setWorldCamera( camera: import("./scene").WorldCamera ): void;
 	setWorldTexture(
 		path: string,

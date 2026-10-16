@@ -75,6 +75,18 @@ const { startRuntime } = await import(
 );
 /*
 ================
+noTextureFeatures
+
+Every fake owner's texture-features hook: the renderer's resolves empty
+(no variant), the asset owner's ignores what it is given.
+================
+*/
+function noTextureFeatures() {
+	return Promise.resolve( [] );
+}
+
+/*
+================
 frameOwners
 
 Owners whose first frame reaches characters.step; failure selects which
@@ -84,6 +96,7 @@ owner fails it ("assets" dies idle, "characters" throws from its step).
 function frameOwners( failure, closed, reports, sounds ) {
 	const owners = Object.fromEntries(
 		Object.keys( factories ).map( key => [ key, {
+			textureFeatures: noTextureFeatures,
 			/*
 ================
 step
@@ -217,7 +230,7 @@ test("runtime reports idle asset death and frame exceptions, then disposes every
 	}
 });
 
-test("a hidden tab runs frames from worker deliveries; a visible one waits for its RAF", async t => {
+test("a hidden tab runs frames from worker deliveries; a visible one waits for its RAF until starved", async t => {
 	const keys = [ "__runtimeOwners", "requestAnimationFrame", "cancelAnimationFrame", "location", "document" ];
 	const previous = new Map( keys.map( key => [ key, Object.getOwnPropertyDescriptor( globalThis, key ) ] ) );
 	t.after( () => {
@@ -238,14 +251,23 @@ test("a hidden tab runs frames from worker deliveries; a visible one waits for i
 		globalThis.requestAnimationFrame = () => ++rafs;
 		globalThis.cancelAnimationFrame = () => cancelled++;
 		const runtime = startRuntime( {}, {} );
-		await new Promise( resolve => setTimeout( resolve, 400 ) );
-		if ( visibilityState === "hidden" ) {
+		// A failed assertion must not leak a running runtime: it keeps node alive.
+		try {
+			// Past the hidden pace (100 ms), short of starvation (250 ms).
+			await new Promise( resolve => setTimeout( resolve, 150 ) );
+			if ( visibilityState === "visible" ) {
+				assert.equal( reports.length, 0, "a visible tab waits for its RAF" );
+			}
+			// A visible window that never gets its RAF is starved: it frames off a
+			// delivery too, as a window the browser stopped drawing must.
+			await new Promise( resolve => setTimeout( resolve, 250 ) );
 			// The frame ran (and hit the injected failure) with no RAF callback.
-			assert.equal( reports.length, 1 );
+			assert.equal( reports.length, 1, `${visibilityState} frames off a delivery` );
 			assert.match( reports[0], /injected presentation failure/ );
 			assert.equal( cancelled >= 1, true, "the pending RAF is retired" );
-		} else assert.equal( reports.length, 0, "a visible tab never frames off a delivery" );
-		runtime.dispose();
+		} finally {
+			runtime.dispose();
+		}
 	}
 });
 
@@ -265,6 +287,7 @@ test("startup rolls back every acquired owner in reverse order at every construc
 	let failure = null;
 	globalThis.__runtimeOwners = Object.fromEntries(
 		Object.keys( factories ).map( name => [ name, {
+			textureFeatures: noTextureFeatures,
 			/*
 ================
 dispose
@@ -330,6 +353,7 @@ test("cleanup drains remaining owners when a disposer throws and never runs twic
 	const closed = [],
 		owners = Object.fromEntries(
 			Object.keys( factories ).map( name => [ name, {
+				textureFeatures: noTextureFeatures,
 				/*
 ================
 dispose

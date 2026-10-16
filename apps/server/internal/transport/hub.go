@@ -93,6 +93,15 @@ type Hub struct {
 	// navigationMetrics reads the world's monster navigation counters
 	// (SetNavigationMetrics); nil publishes no block.
 	navigationMetrics atomic.Pointer[func() map[string]uint64]
+	// economyMetrics reads the store's committed gold per reason
+	// (SetEconomyMetrics); nil publishes no block.
+	economyMetrics atomic.Pointer[func() map[string]uint64]
+	// petCombatMetrics reads the attack pets' ended-target counters
+	// (SetPetCombatMetrics); nil publishes no block.
+	petCombatMetrics atomic.Pointer[func() map[string]uint64]
+	// placementMetrics reads the placement guard's counters
+	// (SetPlacementMetrics); nil publishes no block.
+	placementMetrics atomic.Pointer[func() map[string]uint64]
 }
 
 // AdmissionIdentity is the authenticated account/shard identity carried by a

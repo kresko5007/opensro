@@ -157,8 +157,10 @@ import {
 	type AutoPotionFacts
 } from "@/engine/foundation/gameplay/auto-potion";
 import { playerStats } from "@/engine/foundation/gameplay/player-stats";
+import { petNameRefusal, petNameRequest, petNameUpdate } from "@/engine/foundation/gameplay/pet-name";
 import {
 	fortressNotice,
+	isServerNoticeChannel,
 	serverNotification,
 	restrictionNotice,
 	type SystemNotice
@@ -232,6 +234,8 @@ import { decodeWorldClock } from "@/engine/foundation/gameplay/world-clock";
 import { createQuests } from "./quests/quests";
 import { createNpcConversation } from "./npc/npc";
 import { createChat } from "./chat/chat";
+import { createFriends } from "./friends/friends";
+import { createLetters } from "./letters/letters";
 import { createMovement } from "./movement/movement";
 import { logoutCancelRequest, worldPointAction } from "@/engine/foundation/gameplay/direction-movement";
 import { createInventory } from "./inventory/inventory";
@@ -243,6 +247,14 @@ import { createPetTraining } from "./pet-training/pet-training";
 import type { GameplayCommand, GameplayState } from "@/engine/contracts/gameplay";
 import type { EntityState } from "@/engine/contracts/world";
 import { nearestPickable } from "@/engine/foundation/gameplay/pickup-nearest";
+import {
+	INVENTORY_JOURNAL_ENTRY,
+	INVENTORY_JOURNAL_LOCAL,
+	inventoryChanged,
+	inventoryJournaled,
+	inventorySignatures,
+	journalInventoryFrame
+} from "@/engine/foundation/gameplay/inventory-journal";
 import type { WireFrame } from "@/engine/contracts/network";
 /*
 ================
@@ -285,6 +297,8 @@ const JOB_DRESS_ANSWER_GRACE_MS = 5000;
 // grounditem.ExecuteRange: a pickup closer than this is granted in place;
 // farther away the server walks the player to the item first.
 const PICKUP_EXECUTE_RANGE = 10;
+// The payload of a journal row no frame carried (a world entry, the tick).
+const NO_PAYLOAD = new Uint8Array( 0 );
 // How long past two round trips a sent skill press's cooldown stand-in waits
 // for its answer.
 const SKILL_ANSWER_SLACK_MS = 500;
@@ -304,6 +318,8 @@ const SKILL_NOTICE_CATEGORY = 4;
 const SKILL_RIDING_REFUSAL = 0x21;
 // Server 0x3011 (529D6D), the victim's death kind; CPSMission 74FE50 here.
 const DEATH_NOTICE = 0x37ce;
+// 75B8D0: the transport bag's trade level [u8].
+const OP_TRADE_STAR_COUNT = 0x352d;
 
 /*
 ================
@@ -356,6 +372,14 @@ export function createGameplay(
 	let gmItems = gmItemReferences( {} );
 	// The server's port-only storage auto-stack rule (storageAutoStack).
 	let storageAutoStack = false;
+	// The server's port-only Bandit Den countdown rule (fastDenReturn).
+	let fastDenReturn = false;
+	// The server's port-only trade-scale rule (tradeTiers).
+	let tradeTiers = false;
+	// The server's port-only job-suit armour rule (jobSuitHidesArmor).
+	let jobSuitHidesArmor = false;
+	// The server's port-only Moonlit Ash thief suit rule (moonlitThiefSuit).
+	let moonlitThiefSuit = false;
 	// The port-only reverse return map table (reverse-return-map.ts).
 	let reverseMapPoints: readonly ReverseMapPoint[] = [];
 	let warnings = [ false, false ];
@@ -376,6 +400,13 @@ export function createGameplay(
 	let selectionDecal: GameplayState["selectionDecal"] = null;
 	// The bootstrap's unlimited-item ids (beta starter kit); empty without one.
 	let unlimitedItems: readonly number[] = [];
+	// Port-only diagnostics: the bag slots each inventory answer changed.
+	let inventoryJournal: readonly number[] = [];
+	// The bag the journal last saw: its rows (inventory.bag(), a new array
+	// after every change) and their signatures; null rows before an entry.
+	let journalRows: readonly import("@/engine/contracts/gameplay").InventoryItem[] | null = null,
+		journalBag: ReadonlyMap<number, string> = new Map(),
+		journalClock = 0;
 	let soundClock = 0;
 	const feedback = createFeedback();
 	const pickup = createPickup();
@@ -666,6 +697,9 @@ attack can arrive in the same batch as the previous close and starve the walk.
 	let uniqueRefs = uniqueReferences( {} );
 	let gmReplies: readonly (GmReply & { sequence: number; })[] = [];
 	let gmSequence = 0;
+	// CICPlayer +0x4F6: the transport bag's trade level, set only by 0x352D
+	// (75B8D0, cos-trade-info.ts).
+	let tradeStars = 0;
 	let noticeSequence = 0;
 	let notices: readonly SystemNotice[] = [];
 	let progression: Progression = { masteries: [] };
@@ -696,6 +730,9 @@ attack can arrive in the same batch as the previous close and starve the walk.
 	let jobRanks: JobRanks = { lists: [], opened: null };
 	// The week's outcome the guild NPC told this session (job-guild.ts).
 	let jobOutcome: JobOutcome | null = null;
+	// The last alias the server called free (job-guild.ts aliasChecked). Its
+	// count never resets, so the UI's high-water mark survives a relog.
+	let jobAliasChecked: { readonly alias: string; readonly sequence: number; } | null = null, jobAliasChecks = 0;
 	/*
 	================
 	localPlayerModels
@@ -741,6 +778,11 @@ fails; retry persistence without restoring stale slot occupancy.
 	// The skill a predicted run-up was pressed for (skillRunUpGoal), and
 	// whether the Experimental row predicts run-ups at all.
 	let runUpSkill = 0, predictedRunUp = false;
+	// The Experimental "Job kill notices" row: on unless the window turns it
+	// off (experimentalGameplay).
+	let jobKillNotices = true;
+	// The Experimental "Drop & plus notices" row, on the same terms.
+	let dropPlusNotices = true;
 	let approach: InteractionApproachState = { phase: "idle" };
 	let returnScroll: ReturnScrollCast | undefined, teleportMode = 0;
 	const cosSelection = createCosSelection();
@@ -753,7 +795,10 @@ fails; retry persistence without restoring stale slot occupancy.
 	const countJobs = createCountJobs();
 	let abnormalRecords: readonly AbnormalRecord[] = [];
 	let abnormalMask = 0;
-	const chat = createChat( send ), quests = createQuests( send );
+	const chat = createChat( send, body => inventory.noticeItem( body ) ),
+		quests = createQuests( send ),
+		friends = createFriends( send ),
+		letters = createLetters( send );
 	const npcConversation = createNpcConversation( send );
 	// The NPC warehouse (storage-room.ts).
 	const storage = createStorageRoom( send );
@@ -946,6 +991,29 @@ stands at one (the server would refuse it).
 	}
 	/*
 ================
+journalBagChange
+
+The diagnostics journal's one entry point (inventory-journal.ts): the bag
+against the last bag it saw, after a frame, a world entry, the tick or a
+publication. Every bag writer clears inventory.bag(), so an unchanged array
+is an unchanged bag and costs nothing. The 0xB06D, 0xB5BD and 0x3645
+answers are journaled even unchanged (a refusal); a world entry before any
+bag keeps one marker row, not the whole bag.
+================
+	*/
+	function journalBagChange( atMs: number, opcode: number, payload: Uint8Array ) {
+		const rows = inventory.bag(), answer = inventoryJournaled( opcode );
+		if ( rows === journalRows && !answer ) return;
+		const after = rows === journalRows ? journalBag : inventorySignatures( rows ),
+			before = journalRows === null ? after : journalBag;
+		journalRows = rows;
+		if ( !answer && opcode !== INVENTORY_JOURNAL_ENTRY && !inventoryChanged( before, after ) ) return;
+		inventoryJournal = journalInventoryFrame( inventoryJournal, { atMs, opcode, payload }, before, after );
+		journalBag = after;
+		dirty = true;
+	}
+	/*
+================
 clearState
 
 Retire session facts together so a later character cannot inherit bindings,
@@ -954,6 +1022,10 @@ selected entities, cooldowns or world-entry state.
 	*/
 	function clearState() {
 		actionSession.clear();
+		// The next character's report must not carry this one's bag rows.
+		inventoryJournal = [];
+		journalRows = null;
+		journalBag = new Map();
 		moveReservation.clear();
 		betaMap.clear();
 		petTraining.clear();
@@ -970,11 +1042,14 @@ selected entities, cooldowns or world-entry state.
 		uniqueRefs = uniqueReferences( {} );
 		gmItems.clear();
 		gmReplies = [];
+		tradeStars = 0;
 		notices = [];
 		guide = undefined;
 		guideSummons.clear();
 		academy = undefined;
 		pkStatus = undefined;
+		friends.reset();
+		letters.reset();
 		feedback.reset();
 		training.reset();
 		social = emptySocial();
@@ -1009,6 +1084,7 @@ selected entities, cooldowns or world-entry state.
 		job = noJob();
 		jobRanks = { lists: [], opened: null };
 		jobOutcome = null;
+		jobAliasChecked = null;
 		cosRecords.clear();
 		petAssists = new Map();
 		cosSelection.reset();
@@ -1074,6 +1150,8 @@ The Experimental window's gameplay rows (experimentalGameplay).
 		*/
 		experimental( value: import("@/engine/foundation/ui/experimental-options").ExperimentalGameplay ) {
 			predictedRunUp = value.predictedRunUp === true;
+			jobKillNotices = value.jobKillNotices !== false;
+			dropPlusNotices = value.dropPlusNotices !== false;
 		},
 		/*
 ================
@@ -1107,6 +1185,10 @@ resends nothing. Wiping them here made the next 0x3E58 type-6 row throw
 			inventory.takeBindingMoves();
 			gmItems = gmItemReferences( value );
 			storageAutoStack = (value as { storageAutoStack?: unknown; } | null)?.storageAutoStack === true;
+			fastDenReturn = (value as { fastDenReturn?: unknown; } | null)?.fastDenReturn === true;
+			tradeTiers = (value as { tradeTiers?: unknown; } | null)?.tradeTiers === true;
+			jobSuitHidesArmor = (value as { jobSuitHidesArmor?: unknown; } | null)?.jobSuitHidesArmor === true;
+			moonlitThiefSuit = (value as { moonlitThiefSuit?: unknown; } | null)?.moonlitThiefSuit === true;
 			reverseMapPoints = decodeReverseMapPoints(
 				(value as { reverseMapPoints?: unknown; } | null)?.reverseMapPoints
 			);
@@ -1139,6 +1221,7 @@ resends nothing. Wiping them here made the next 0x3E58 type-6 row throw
 				abnormal: 0
 			};
 			gmReplies = [];
+			tradeStars = 0;
 			notices = entryEvents.notices.map( key => ({ key, value: 0, sequence: ++noticeSequence }) );
 			feedback.bootstrap( value );
 			const b = value as {
@@ -1266,6 +1349,7 @@ resends nothing. Wiping them here made the next 0x3E58 type-6 row throw
 			combat.restoreCooldowns( value, nextCatalog, receivedAtMs );
 			combat.references( b.refSkillSnapshot ?? [] );
 			inventory.bootstrap( value );
+			journalBagChange( receivedAtMs, INVENTORY_JOURNAL_ENTRY, NO_PAYLOAD );
 			guide = queueGuide( guide, [
 				...guideInventoryEvents(
 					inventory.state().inventory,
@@ -1791,6 +1875,13 @@ state here before a command can claim a native wire conversation.
 				academy = next.state;
 				return next.frame;
 			}
+			// 6A5570: an unnamed pet's one name (pet-name.ts); the client's own
+			// checks ran in the name box.
+			if ( command.kind === "cos-name" ) {
+				const record = cosRecords.get( command.gid );
+				if ( !record || record.dead || (record.band !== 3 && record.band !== 4) || record.name ) return null;
+				return sendFrame( petNameRequest( command.gid, command.name ) );
+			}
 			if ( command.kind === "stat-increase" ) {
 				if ( command.stat !== "str" && command.stat !== "int" ) throw Error( "Invalid stat allocation" );
 				if ( !localGid || !local || (progression.statPoints ?? 0) < 1 ) return null;
@@ -1840,10 +1931,15 @@ state here before a command can claim a native wire conversation.
 			) {
 				if ( !localGid ) throw Error( "Local player is not initialized" );
 				if (
+					command.kind === "gacha-exchange" &&
+					(!entity || entity.kind !== "npc" || entity.refObjId !== 9252 ||
+						targeting.state().target !== command.gid || targeting.state().targetPending)
+				) throw Error( "Select the exchange operator" );
+				if (
 					command.kind === "gacha-open" &&
 					(!entity || entity.kind !== "npc" || entity.refObjId !== 9251 ||
 						targeting.state().target !== command.gid || targeting.state().targetPending)
-				) throw Error( "Select the Magic Pop NPC" );
+				) throw Error( "Select the Magic Pang NPC" );
 				// Row 0x2F exists only on a selected smith (0x80000000).
 				if (
 					command.kind === "magic-option-open" &&
@@ -2142,6 +2238,41 @@ state here before a command can claim a native wire conversation.
 			}
 			if ( command.kind === "whisper-block" ) {
 				chat.block( command.name, command.blocked, now );
+				return null;
+			}
+			if ( command.kind === "friend-request" ) {
+				friends.request( command.name, social.localName );
+				dirty = true;
+				return null;
+			}
+			if ( command.kind === "friend-answer" ) {
+				friends.answer( command.accept );
+				dirty = true;
+				return null;
+			}
+			if ( command.kind === "friend-delete" ) {
+				friends.remove( command.jid );
+				return null;
+			}
+			if ( command.kind === "letter-send" ) {
+				for ( const notice of letters.send( command.receiver, command.body ) ) {
+					notices = [ ...notices.slice( -99 ), { ...notice, sequence: ++noticeSequence } ];
+					dirty = true;
+				}
+				return null;
+			}
+			if ( command.kind === "letter-read" ) {
+				letters.read( command.index );
+				dirty = true;
+				return null;
+			}
+			if ( command.kind === "letter-close" ) {
+				letters.close();
+				dirty = true;
+				return null;
+			}
+			if ( command.kind === "letter-delete" ) {
+				letters.remove( command.index );
 				return null;
 			}
 			if ( command.kind === "chat" ) {
@@ -2521,7 +2652,11 @@ state here before a command can claim a native wire conversation.
 				return sendFrame( { opcode: 0x769e, payload } );
 			}
 			if ( command.kind === "cos-attack" ) {
-				if ( !activeCos || activeCos.dead || entity.kind !== "monster" || local?.mountedOn !== activeCos.gid ) {
+				// 692CB0: a ride attacks a monster or another player's pet alike.
+				if (
+					!activeCos || activeCos.dead || (entity.kind !== "monster" && entity.kind !== "cos") ||
+					local?.mountedOn !== activeCos.gid
+				) {
 					throw Error( "No living active COS or attackable target" );
 				}
 				const payload = new Uint8Array( 9 ), v = new DataView( payload.buffer );
@@ -2571,7 +2706,11 @@ state here before a command can claim a native wire conversation.
 				return selectEntity( entity, now );
 			}
 			// A player arrives here only through player-attack.ts's admission.
-			if ( command.kind === "attack" && entity.kind !== "monster" && entity.kind !== "player" ) {
+			// 692CB0 sends the same 0x72CD attack at a monster, a player or a pet.
+			if (
+				command.kind === "attack" && entity.kind !== "monster" && entity.kind !== "player" &&
+				entity.kind !== "cos"
+			) {
 				throw new Error( "Target is not attackable" );
 			}
 			// A targeted command settles the server's walk where it finds it: stop the
@@ -2712,6 +2851,15 @@ Packet handling must not depend on which HUD panel is currently open.
 					dirty = true;
 					return true;
 				}
+				const friendReceipt = friends.receive( frame, social.localName );
+				const socialReceipt = friendReceipt.handled ? friendReceipt : letters.receive( frame );
+				if ( socialReceipt.handled ) {
+					for ( const notice of socialReceipt.notices ) {
+						notices = [ ...notices.slice( -99 ), { ...notice, sequence: ++noticeSequence } ];
+					}
+					dirty = true;
+					return true;
+				}
 				const academyAck = academyAcknowledgment( frame );
 				if ( academyAck ) {
 					if ( academyAck.notice ) {
@@ -2757,6 +2905,12 @@ Packet handling must not depend on which HUD panel is currently open.
 						constantNativeNotice( AVATAR_MAGIC_OPTION_NOTICE_CATEGORY, frame.payload[1] ?? 0 );
 					if ( notice ) notices = [ ...notices.slice( -99 ), { ...notice, sequence: ++noticeSequence } ];
 					dirty = true;
+				}
+				if ( frame.opcode === OP_TRADE_STAR_COUNT ) {
+					if ( frame.payload.length !== 1 ) throw Error( "Invalid trade level" );
+					tradeStars = frame.payload[0]!;
+					dirty = true;
+					return true;
 				}
 				if ( frame.opcode === 0xb5b6 ) {
 					const reply = gmReply( frame.payload );
@@ -2955,9 +3109,13 @@ Packet handling must not depend on which HUD panel is currently open.
 						readEntity( fortressStructureState( frame )?.gid ?? 0 )?.name
 					) ??
 					serverNotification( frame.opcode, frame.payload );
+				if ( notice?.jobKill && !jobKillNotices ) return false;
+				if ( notice?.dropPlus && !dropPlusNotices ) return false;
 				if ( notice ) {
 					notices = [ ...notices.slice( -99 ), { ...notice, sequence: ++noticeSequence } ];
-					if ( frame.opcode === 0x3667 && frame.payload[0] === 7 ) chat.receive( frame, localGid );
+					if ( frame.opcode === 0x3667 && isServerNoticeChannel( frame.payload[0] ) ) {
+						chat.receive( frame, localGid );
+					}
 					dirty = true;
 					return false;
 				}
@@ -2978,6 +3136,23 @@ Packet handling must not depend on which HUD panel is currently open.
 							refObjId,
 							...(record.band === 3 ? { satiety: 10000 } : {})
 						} );
+						dirty = true;
+					}
+					return false;
+				}
+				// 0xB571: the server refused a pet name (a notice); 0x3508 case 5:
+				// the pet's new name, also for the entities lane's nameplate.
+				const nameRefusal = petNameRefusal( frame );
+				if ( nameRefusal ) {
+					notices = [ ...notices.slice( -99 ), { key: nameRefusal, value: 0, sequence: ++noticeSequence } ];
+					dirty = true;
+					return true;
+				}
+				const named = petNameUpdate( frame );
+				if ( named ) {
+					const record = cosRecords.get( named.gid );
+					if ( record ) {
+						cosRecords.set( named.gid, { ...record, name: named.name } );
 						dirty = true;
 					}
 					return false;
@@ -3582,7 +3757,7 @@ Packet handling must not depend on which HUD panel is currently open.
 						i.slot === frame.payload[1] && i.typeFlags === (frame.payload[4]! | frame.payload[5]! << 8)
 					) :
 					undefined;
-				const cast = used ? returnScrollCast( used, now ) : undefined;
+				const cast = used ? returnScrollCast( used, now, fastDenReturn ) : undefined;
 				// 756CF0 compares the bag slot before and after a 0xB06D pickup.
 				const pickupSlot = frame.opcode === 0xb06d && frame.payload[0] === 1 && frame.payload[1] === 6 &&
 						frame.payload.length > 3 && frame.payload[2] !== 254 ?
@@ -3634,7 +3809,8 @@ Packet handling must not depend on which HUD panel is currently open.
 					// 77A080 processes HP, MP, then abnormal state. Inactive
 					// channels can attempt use here; armed channels wait for Tick.
 					if ( frame.payload[6]! & 1 ) {
-						potionFacts = { ...potionFacts, hp: vital.hp ?? potionFacts.hp };
+						// 70C550 compares the wire HP (+0x440), never a hit-predicted one.
+						potionFacts = { ...potionFacts, hp: combat.wireHp( localGid ) ?? vital.hp ?? potionFacts.hp };
 						checkAutomaticPotion( 0, now, "vitals" );
 					}
 					if ( frame.payload[6]! & 2 ) {
@@ -3705,6 +3881,9 @@ Packet handling must not depend on which HUD panel is currently open.
 				const answer = jobGuildAnswer( frame, job );
 				if ( answer ) {
 					job = answer.job;
+					if ( answer.aliasChecked !== undefined ) {
+						jobAliasChecked = { alias: answer.aliasChecked, sequence: ++jobAliasChecks };
+					}
 					if ( answer.notice ) {
 						notices = [ ...notices.slice( -99 ), { ...answer.notice, sequence: ++noticeSequence } ];
 					}
@@ -3765,6 +3944,8 @@ Packet handling must not depend on which HUD panel is currently open.
 					alchemyNotice( frame.opcode, frame.payload ) ??
 					skillNotice( frame.opcode, frame.payload, localCountry, fortressActive( fortress ) );
 				if ( refusal ) notices = [ ...notices.slice( -99 ), { ...refusal, sequence: ++noticeSequence } ];
+				const exchanged = inventory.takeExchangeNotice();
+				if ( exchanged ) notices = [ ...notices.slice( -99 ), { ...exchanged, sequence: ++noticeSequence } ];
 				if ( target ) {
 					const selection = targeting.state();
 					if (
@@ -3952,7 +4133,9 @@ before take assembles the presentation snapshot.
 			potionFacts = {
 				...potionFacts,
 				alive: !!local && ((local.appearanceState?.[0] ?? 1) & 1) !== 0,
-				hp: vital?.hp ?? potionFacts.hp,
+				// The wire HP, as 70C550: a hit result predicted after an absolute
+				// that already held it would otherwise drink early (BR-261014-1051-49A0).
+				hp: combat.wireHp( localGid ) ?? vital?.hp ?? potionFacts.hp,
 				mp: vital?.mp ?? potionFacts.mp,
 				abnormal: vital?.abnormal ?? potionFacts.abnormal
 			};
@@ -3988,9 +4171,11 @@ before take assembles the presentation snapshot.
 					c.receivedAtMs >= runUpSince && c.cancelledAtMs === undefined
 				) || now - runUpSince > 4 * skillPress.oneWayMs() + SKILL_ANSWER_SLACK_MS)
 			) movement.endPrediction( now );
-			const combatChanged = combat.step( now ), inventoryChanged = inventory.step( now );
+			const combatChanged = combat.step( now ), inventoryStepped = inventory.step( now );
+			journalClock = now;
+			journalBagChange( now, INVENTORY_JOURNAL_LOCAL, NO_PAYLOAD );
 			const trained = training.step( now ), moved = movement.step( now ), targeted = targeting.step( now );
-			dirty = combatChanged || inventoryChanged || trained || chat.step( now ) || moved || targeted || dirty;
+			dirty = combatChanged || inventoryStepped || trained || chat.step( now ) || moved || targeted || dirty;
 		},
 		/*
 ================
@@ -4073,6 +4258,8 @@ The published plane when something changed since the last take, else null.
 ================
 		*/
 		take(): GameplayState | null {
+			// A bag change no frame or tick made (a local command) is still a change.
+			journalBagChange( journalClock, INVENTORY_JOURNAL_LOCAL, NO_PAYLOAD );
 			if ( !dirty ) {
 				return null;
 			}
@@ -4097,6 +4284,7 @@ The published plane when something changed since the last take, else null.
 				returnScroll,
 				musicMode,
 				gmReplies,
+				tradeStars,
 				eligibility,
 				autoPotion,
 				selectionDecal,
@@ -4109,12 +4297,16 @@ The published plane when something changed since the last take, else null.
 				countJobs: countJobs.state(),
 				reverseReturnChoice: countJobs.choosing() !== null,
 				...(storageAutoStack ? { storageAutoStack } : {}),
+				...(tradeTiers ? { tradeTiers } : {}),
+				...(jobSuitHidesArmor ? { jobSuitHidesArmor } : {}),
+				...(moonlitThiefSuit ? { moonlitThiefSuit } : {}),
 				...(reverseMapPoints.length ? { reverseMapPoints } : {}),
 				storage: presentedStorage(),
 				playerModels: localPlayerModels(),
 				job,
 				jobRanks,
 				jobOutcome,
+				jobAliasChecked,
 				cosWindows: cosWindows.filter( row => cosItemRefs2.has( row.itemRefObjId ) ).map( row => ({
 					...row,
 					reference: cosItemRefs2.get( row.itemRefObjId )!
@@ -4146,12 +4338,15 @@ The published plane when something changed since the last take, else null.
 				eventGroups: environment.groups,
 				...quests.state(),
 				chat: chat.state(),
+				friends: friends.state(),
+				letters: letters.state(),
 				activeCos: cos,
 				cosResult,
 				revision: ++revision,
 				localGid,
 				...m,
 				...i,
+				inventoryJournal,
 				...c,
 				...targeting.state(),
 				...skillPress.state(),
@@ -4257,6 +4452,15 @@ dispose
 			cosRefs.clear();
 			dirty = false;
 		}
+	};
+	// Every frame, whichever owner answers it, leaves the bag it changed in
+	// the journal: the receive path has many exits, so the check follows it.
+	const receiveFrame = api.receive;
+	api.receive = ( frame, now, chatSender, stallReceipt ) => {
+		const handled = receiveFrame( frame, now, chatSender, stallReceipt );
+		journalClock = now;
+		journalBagChange( now, frame.opcode, frame.payload );
+		return handled;
 	};
 	return api;
 }

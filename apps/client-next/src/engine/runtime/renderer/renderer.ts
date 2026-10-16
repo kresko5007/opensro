@@ -102,6 +102,17 @@ export function createRenderer(
 	const world = createWorldRenderer( undefined, readPickAlpha, random, sound ),
 		characters = createCharacters( random );
 	let device = createDevice( diagnostics.gpuTiming, diagnostics.gpuAnimation !== false ), recoveries = 0;
+	// The texture features of the first device that learns them; the variant
+	// is chosen once per page. A device lost before it learned them hands over
+	// to its replacement (followFeatures); once no device will, they are empty,
+	// so native texture reads never wait on a renderer that gave up.
+	let settleFeatures: ( features: readonly string[] ) => void = () => {};
+	const textureFeatures = new Promise<readonly string[]>( resolve => {
+		settleFeatures = resolve;
+	} );
+	const followFeatures = ( owner: ReturnType<typeof createDevice> ) =>
+		void owner.textureFeatures().then( settleFeatures );
+	followFeatures( device );
 	let surface: SurfaceOwner | null = null, frame: FrameOwner | null = null;
 	let transformDirty = false, instancesDirty = false;
 	let mesh: Geometry | null = null, meshDraw: GeometryDraw | null = null;
@@ -183,6 +194,26 @@ export function createRenderer(
 		*/
 		enchantSparks() {
 			return experimental.enchantSparks;
+		},
+		/*
+		================
+		sharedActorRoom
+
+		Read by the character presenter each frame.
+		================
+		*/
+		sharedActorRoom() {
+			return experimental.sharedActorRoom;
+		},
+		/*
+		================
+		vHidesCompanions
+
+		Read by the character presenter when V is held.
+		================
+		*/
+		vHidesCompanions() {
+			return experimental.vHidesCompanions;
 		},
 		/*
 		================
@@ -403,6 +434,8 @@ export function createRenderer(
 		setCharacterActors: characters.actors,
 		characterActors: characters.currentActors,
 		cancelWorldUpdate: () => world.cancelPending(),
+		textureFeatures: () => textureFeatures,
+		settleWorld: sceneId => world.settle( sceneId ),
 		setWorld: scene => world.scene( scene ),
 		adoptWorld: ( lease, detail, terrain ) => world.adopt( lease, detail, terrain ),
 		setWorldCamera: camera => world.camera( camera ),
@@ -475,6 +508,7 @@ export function createRenderer(
 			source?.close();
 			source = image;
 		},
+		adapterFacts: () => device.adapterFacts(),
 		gpuTiming: () => ({
 			enabled: diagnostics.gpuTiming === true,
 			...(device.gpuTiming() ??
@@ -524,10 +558,12 @@ export function createRenderer(
 					residentUi.clear();
 					residentUiProduct = null;
 					device = createDevice( diagnostics.gpuTiming, diagnostics.gpuAnimation !== false );
+					followFeatures( device );
 					device.textureOptions( video.records[video.active][8] === 1, video.records[video.active][9]! );
 					device.experimentalVideo( experimental );
 					for ( const id of uiTextures.keys() ) dirtyUi.add( id );
 				}
+				if ( device.phase() === "failed" ) settleFeatures( [] );
 				if ( device.phase() !== "running" ) {
 					return;
 				}
@@ -687,6 +723,7 @@ export function createRenderer(
 				const dollInput = uiProduct?.doll;
 				// A hidden doll stays borrowed and warm for the local character, so
 				// the inventory's first open does not prepare a model (portrait.warm).
+				if ( !dollInput ) doll.pause();
 				if ( !dollInput && portraitGid !== undefined ) {
 					doll.warm( characters.portraitSource( portraitGid ), device.geometry()!, device.images()! );
 				}

@@ -15,6 +15,7 @@ lifecycles that belong in separate owners (see the size ledger).
 
 ===========================================================================
 */
+import { trimToEffectBudget } from "@/engine/foundation/animation/effect-room";
 import { castResultAt } from "@/engine/foundation/gameplay/cast-results";
 import { questMarkerEffect } from "@/engine/foundation/gameplay/quest";
 import { createPresentationIds } from "@/engine/foundation/animation/presentation-ids";
@@ -81,6 +82,14 @@ type EffectGameplay = Pick<
 >;
 // TID4 6 in the COS type word: the captured quest monster.
 const CAPTURED_MONSTER_TYPE = 6 << 11;
+// The effect actors drawn at once: cast visuals, state and attached
+// effects together. The original keeps each character's decorations in an
+// unbounded list (CICharactor_AppendOwnedDecoration 85C020), so this is a
+// port budget, sized above a crowd's real load. Reaching it never empties
+// the frame: the farthest attached effects give way first
+// (trimToEffectBudget); only a cast arriving with every slot taken by
+// other casts skips its visuals.
+const EFFECT_ACTOR_BUDGET = 2048;
 // 8DE74C loads [0xC14E6C], -pi/2 as a float, as the fYaw of every AT_TARGET
 // mover it hands to CIDecoSkillEffectEntity_Initialize (8D8E30). 8DE6C0 first
 // sets the mover's rotation axis byte +0xD4 to 0 (CIDecoStopObj's default,
@@ -211,6 +220,13 @@ function stageAttachment(
 		...(binding.keepRotation ? {} : { keepRotation: false })
 	};
 }
+// A trade bandit's type word without the service bit (861B00, as
+// appearance-lookup.ts); 861720 attaches its skill's imbue as a lasting deco.
+const TRADE_THIEF_WORD = 0x10c6, TRADE_HUNTER_WORD = 0x18c6;
+// The client-side token that keys a bandit's imbue deco (server tokens are
+// positive; -1 marks the status and hwan rows).
+const TRADE_IMBUE_TOKEN = -3;
+
 /*
 ================
 createCharacterEffects
@@ -302,6 +318,10 @@ export function createCharacterEffects(
 	const impactIndexes = new Map<number, ReadonlyMap<string, number>>();
 	const seen = new Set<string>(), active = new Map<number, EffectVisual>(), unsupported = new Set<string>();
 	const pendingTriggers = new Map<string, EffectTrigger>();
+	// Effects the budget turned away since the last takeBudget, and the
+	// actors the last step drew: the frame probe's evidence that a crowd
+	// stays under EFFECT_ACTOR_BUDGET.
+	let budgetGaveWay = 0, budgetActors = 0;
 	/*
 	================
 	adoptCast
@@ -871,7 +891,11 @@ export function createCharacterEffects(
 		================
 		*/
 		item( event: import("@/engine/contracts/orb").ItemEffectFeedback ) {
-			if ( external.size >= 128 ) throw Error( "External item effect backlog" );
+			// A full queue skips the newest visual; it never fails the frame.
+			if ( external.size >= EFFECT_ACTOR_BUDGET ) {
+				budgetGaveWay++;
+				return;
+			}
 			external.set( ++externalSerial, { event, clock: { phase: "pending" }, hostGid: allocate(), children: [] } );
 		},
 		/*
@@ -881,7 +905,10 @@ export function createCharacterEffects(
 		================
 		*/
 		system( gid: number, skill: number ) {
-			if ( system.size >= 128 ) throw Error( "System effect backlog" );
+			if ( system.size >= EFFECT_ACTOR_BUDGET ) {
+				budgetGaveWay++;
+				return;
+			}
 			system.set( ++systemSerial, { gid, skill, actors: null, started: null } );
 		},
 		/*
@@ -914,7 +941,9 @@ export function createCharacterEffects(
 			) => EffectVisual["actor"]["pose"] | null,
 			presented: readonly CharacterActor[] = [],
 			effectDetail = 2,
-			bloodEnabled = true
+			bloodEnabled = true,
+			// The trade bandits' published dress by RefObjID (861720).
+			banditTable: ReadonlyMap<number, { readonly imbue: number; }> = new Map()
 		) {
 			/*
 			================
@@ -1218,8 +1247,12 @@ export function createCharacterEffects(
 											[ ...persistent.values() ].reduce(
 												( n, row ) => n + row.actors.length,
 												0
-											) > 128
-								) throw Error( "Effect population exceeds budget" );
+											) > EFFECT_ACTOR_BUDGET
+								) {
+									// A full budget skips this state effect; the frame draws.
+									budgetGaveWay += actors.length;
+									continue;
+								}
 								// Begin the visual clock only once the entire attachment
 								// family is admitted; partial families never flash at origin.
 								let admitted = true;
@@ -1239,7 +1272,12 @@ export function createCharacterEffects(
 				for ( const trigger of triggers ) {
 					const key = `${trigger.cast.token}:${trigger.phase}:${trigger.event}`;
 					if ( !seen.has( key ) && !pendingTriggers.has( key ) ) {
-						if ( pendingTriggers.size >= 128 ) throw Error( "Effect callback population exceeds budget" );
+						// A crowd's casts can arrive together; past the budget the
+						// newest trigger waits out, the frame still draws.
+						if ( pendingTriggers.size >= EFFECT_ACTOR_BUDGET ) {
+							budgetGaveWay++;
+							continue;
+						}
 						pendingTriggers.set( key, trigger );
 					}
 				}
@@ -1480,8 +1518,8 @@ export function createCharacterEffects(
 									continue;
 								}
 								const instances = distributed || radial || targetFollow ? 1 : stage.count;
-								if ( active.size + instances > 128 ) {
-									failure = "Effect population exceeds budget";
+								if ( active.size + instances > EFFECT_ACTOR_BUDGET ) {
+									budgetGaveWay += instances;
 									break;
 								}
 								for ( let instance = 0; instance < instances; instance++ ) {
@@ -2111,6 +2149,15 @@ export function createCharacterEffects(
 							} );
 						}
 					}
+					for ( const entity of entities ) {
+						const word = (entity.tidWord ?? 0) & 0xfffe;
+						if ( entity.kind !== "monster" || entity.tradeVariant === undefined ) continue;
+						if ( word !== TRADE_THIEF_WORD && word !== TRADE_HUNTER_WORD ) continue;
+						const skill = banditTable.get( entity.refObjId )?.imbue ?? 0;
+						if ( skill > 0 ) {
+							stateEffects.push( { gid: entity.gid, skill, token: TRADE_IMBUE_TOKEN, phase: 0 } );
+						}
+					}
 					const registrations: Attachment[] = [ ...(gameplay?.attachedEffects ?? []), ...stateEffects ];
 					for ( const effect of registrations ) {
 						try {
@@ -2399,9 +2446,13 @@ export function createCharacterEffects(
 							if ( !wanted.has( key ) && now - (row.stoppedAt ?? now) >= .2 ) attached.delete( key );
 						}
 					}
-					if ( result.length + active.size > 2048 ) {
-						throw Error( "Attached effect population exceeds budget" );
-					}
+					// Past the budget the farthest attached effects give way; the
+					// frame and every other effect still draw.
+					budgetGaveWay += trimToEffectBudget(
+						result,
+						EFFECT_ACTOR_BUDGET - active.size,
+						gameplay?.pose ?? undefined
+					);
 				}
 				for ( const [gid, original] of active ) {
 					let visual = original;
@@ -2859,6 +2910,7 @@ export function createCharacterEffects(
 				}
 				hiddenWeapons.clear();
 				for ( const gid of weaponOwners.values() ) hiddenWeapons.add( gid );
+				budgetActors = result.length;
 				return result;
 			} catch ( error ) {
 				failure = String( error );
@@ -3076,6 +3128,18 @@ export function createCharacterEffects(
 		phases( skill: number ) {
 			const record = catalog?.[String( skill )];
 			return record ? (record.phaseClips?.slice( 0, 3 ) ?? [ [], [], record.clips ]) : undefined;
+		},
+		/*
+		================
+		takeBudget
+		The actors the last step drew and the effects the budget turned away
+		since the last call (each call consumes them), for the frame probe.
+		================
+		*/
+		takeBudget() {
+			const taken = { actors: budgetActors, gaveWay: budgetGaveWay };
+			budgetGaveWay = 0;
+			return taken;
 		},
 		error: () =>
 			loadFailure ?? failure ??

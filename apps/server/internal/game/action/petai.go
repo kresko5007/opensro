@@ -286,7 +286,7 @@ func (rt *Runtime) advancePet(key petOwnerKey, nowMs int64) (output []simulation
 		return frames
 	}
 	ref, found := refs.CharacterRefByCodename(cos.Codename)
-	if !found || ref == nil || ref.RefObjID != cos.RefObjID || ref.TidWord&0x7fe != 0x1c6 || !followingCOSBand(ref.TidWord>>11) {
+	if !found || ref == nil || ref.RefObjID != cos.RefObjID || ref.TidWord&0x7fe != 0x1c6 || !rt.companionFollows(ref.TidWord) {
 		state.follower = nil
 		if found && ref != nil && ref.RefObjID == cos.RefObjID && isVehicleCOS(ref.TidWord) {
 			// 4FD720: the first primary actor is a vehicle (CGObj_IsVehicleCOS
@@ -298,7 +298,13 @@ func (rt *Runtime) advancePet(key petOwnerKey, nowMs int64) (output []simulation
 	}
 	owner := rt.liveSpawn(simulation.WorldKey(key.division, snapshot.Name), snapshot, nowMs)
 	if state.follower == nil || state.follower.GID() != cos.GID || state.refObjID != cos.RefObjID {
-		state.follower = simulation.NewPetFollower(cos.GID, owner)
+		start := owner
+		if isVehicleCOS(ref.TidWord) {
+			// Port-only (transportfollow.go): a transport just stepped off
+			// sets out from where its trader left it, not from the trader.
+			start = rt.companionLiveSpawn(key.division, snapshot, cos, nowMs)
+		}
+		state.follower = simulation.NewPetFollower(cos.GID, start)
 		state.generation++
 		state.refObjID = cos.RefObjID
 	}
@@ -353,6 +359,10 @@ func (rt *Runtime) advancePet(key petOwnerKey, nowMs int64) (output []simulation
 		result := rt.applyCosGroundAt(key.division, state.character, q, cosGroundAttempt{now: time.UnixMilli(nowMs)})
 		result = finishPendingCosPickup(state, result)
 		state.public = append(state.public, result.Broadcast...)
+		// A shared pickup's receipt and the party loot notices belong to other
+		// members (routeSharedPickup, partyLootNotice); advancePets drains
+		// them beside the kill-settlement frames.
+		state.others = append(state.others, result.Recipients...)
 		for _, f := range result.Frames {
 			frames = append(frames, simulation.Frame{Opcode: f.Opcode, Payload: f.Payload, Current: f.Current, Scope: f.Scope})
 		}
@@ -492,7 +502,10 @@ func (rt *Runtime) companionPresentation(division string, state *petSession, cos
 	}
 	var world simulation.WorldState
 	var revision uint64
-	if ref.TidWord>>11 <= 2 || cos.Mounted {
+	// Port-only (transportfollow.go): a following transport presents its
+	// follower like a pet; a parked one, natively, its admission anchor.
+	following := rt.companionFollows(ref.TidWord) && state.follower != nil && state.follower.GID() == cos.GID
+	if ref.TidWord>>11 <= 2 && !following || cos.Mounted {
 		if state.transportCOS != cos {
 			state.transportCOS = cos
 			state.transportWorld = simulation.WorldState{Spawn: rt.liveSpawn(simulation.WorldKey(division, c.Name), c, now)}
@@ -547,6 +560,10 @@ func (rt *Runtime) rememberTransportCOS(division string, c *enterworld.Character
 	state := rt.bindCompanionSession(division, owner, c.ActiveCOS)
 	state.transportCOS = c.ActiveCOS
 	state.transportWorld = simulation.WorldState{Spawn: pose}
+	// The anchor is the transport's one pose: a follower bound earlier (at
+	// the owner) must not outrank it; a following transport (port-only,
+	// transportfollow.go) sets out from here on the next pet tick.
+	state.follower = nil
 	state.generation++
 	// 4FA861: a transport summoned with goods aboard is a caravan.
 	rt.registerCaravan(division, c)
@@ -659,7 +676,8 @@ followingCOSBand
 
 Pets (3, 4) and a captured quest monster (6) follow their owner on foot;
 transports (1, 2) move only with their rider. A parked trade transport
-instead holds its trader within range (advancePet's tether).
+instead holds its trader within range (advancePet's tether), unless the
+port-only SRO_TRANSPORT_FOLLOW has it follow (Runtime.companionFollows).
 ================
 */
 func followingCOSBand(band uint16) bool {

@@ -43,7 +43,17 @@ func (rt *Runtime) ConfigureCommerce(dir string, extra []commerce.ExtraGood) err
 	if e != nil {
 		return e
 	}
+	if rt.SunEventOnly.Enabled() {
+		// Port-only, not native: no NPC sells Sun gear (action/sunevent.go).
+		c.WithholdGoods(func(ref *enterworld.ItemRef) bool { return SunExcludes(rt.SunEventOnly, ref) })
+	}
+	if rt.TradeTiers {
+		// Port-only, not native: the shops price trade goods with their
+		// scaled references (SRO_TRADE_TIERS).
+		c.ScaleTradeGoodsPrices(enterworld.TradeGoodsPriceFactor)
+	}
 	rt.Commerce = c
+	rt.tradeOrigins = tradeOriginTowns(c)
 	rt.prepareCommerceReferences()
 	return nil
 }
@@ -217,6 +227,37 @@ func (rt *Runtime) shopCatalog(division string, c *enterworld.Character, gid uin
 
 /*
 ================
+commerceDoorLabel
+
+The door a shop transaction commits under, which names its gold rows in
+the economy ledger (port-only, domain/economy.go): a sale whose sold row is
+trade goods (in the bag, or in the COS bag the sale names, a transport's
+or a pickup pet's) pays out under "trade-sale"; every other purchase or
+sale stays "shop-transaction". The snapshot is read before the door; the
+door's own admission still decides.
+================
+*/
+func commerceDoorLabel(snapshot *enterworld.Character, q wire.ItemMoveRequest, fromCOS bool) string {
+	if q.MovementType != wire.MoveTypeShopSell {
+		return "shop-transaction"
+	}
+	rows := snapshot.MissionInventory
+	if fromCOS {
+		rows = nil
+		if cos := snapshot.CompanionByGID(q.CosGID); cos != nil && cos.Container != nil {
+			rows = cos.Container.Rows
+		}
+	}
+	for _, row := range rows {
+		if row.Slot == int64(q.SourceSlot) && inventory.IsTradeGoods(row.TypeFlags) {
+			return "trade-sale"
+		}
+	}
+	return "shop-transaction"
+}
+
+/*
+================
 applyCommerce
 ================
 */
@@ -241,7 +282,7 @@ func (rt *Runtime) applyCommerce(division string, c *enterworld.Character, q wir
 	refusal := wire.ErrCodeInvalidRequest
 	roster := rt.commerceRoster(division, c)
 	var collected int64
-	committed := rt.deps.SettleTrade(roster.members, "shop-transaction", func(pool *domain.TradeRewardPool) bool {
+	committed := rt.deps.SettleTrade(roster.members, commerceDoorLabel(snapshot, q, isCOS), func(pool *domain.TradeRewardPool) bool {
 		if c.DeletePending {
 			return false
 		}
@@ -310,11 +351,8 @@ func (rt *Runtime) applyCommerce(division string, c *enterworld.Character, q wir
 			for index := range contents {
 				if contents[index].Ref != nil && inventory.IsTradeGoods(contents[index].Ref.TypeFlags()) {
 					contents[index].TradeOwner = c.Job.Alias
-					// INFERENCE: a newly materialized stack follows the same
-					// special-merchant, quest and active-transport admission
-					// as 617F70, with the buyer as its initial owner.
-					item := inventory.Item{TypeFlags: contents[index].Ref.TypeFlags(), TradeOwner: c.Job.Alias}
-					if code := rt.tradeAdmission(division, c, npc, item); code != 0 {
+					// 6182A0: a suited trader with a transport out buys.
+					if code := rt.tradePurchaseAdmission(division, c, npc); code != 0 {
 						refusal = code
 						return false
 					}
@@ -352,7 +390,17 @@ func (rt *Runtime) applyCommerce(division string, c *enterworld.Character, q wir
 				refusal = code
 				return false
 			}
-			if q.Quantity == 0 || q.Quantity > item.Quantity {
+			// 617F70's tail: above the stack cap 0x1815, above the held count
+			// 0x1814, both after the merchant's admission.
+			if q.Quantity > rt.maxStackFor(item.TypeFlags, item.Codename) {
+				refusal = tradeErrOverStack
+				return false
+			}
+			if q.Quantity > item.Quantity {
+				refusal = wire.ErrCodeInputFewerThanRemain
+				return false
+			}
+			if q.Quantity == 0 {
 				return false
 			}
 			price, restore, priced := commerce.SalePrices(ref, item.MagicOptions, rt.Commerce.Magic, rt.commerceTax(division, npc, c))

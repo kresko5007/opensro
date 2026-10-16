@@ -17,6 +17,7 @@ import type { UiTexture } from "@/engine/contracts/texture";
 import {
 	decodeNativeTextureLevel,
 	nativeTextureBlockBytes,
+	nativeTextureFeature,
 	nativeTextureLevelBytes,
 	validateNativeTexture
 } from "@/engine/foundation/assets/native-texture";
@@ -141,13 +142,16 @@ fs
 			{ binding: 4, visibility: GPUShaderStage.FRAGMENT, texture: {} }
 		]
 	} );
-	let pipeline: GPURenderPipeline | null = null, worldPipeline: GPURenderPipeline | null = null, disposed = false;
+	let pipeline: GPURenderPipeline | null = null,
+		worldPipeline: GPURenderPipeline | null = null,
+		additivePipeline: GPURenderPipeline | null = null,
+		disposed = false;
 	/*
 	================
 	descriptor
 	================
 	*/
-	const descriptor = ( depthCompare: GPUCompareFunction ): GPURenderPipelineDescriptor => ({
+	const descriptor = ( depthCompare: GPUCompareFunction, additive = false ): GPURenderPipelineDescriptor => ({
 		label: "gpu-ui",
 		layout: device.createPipelineLayout( { bindGroupLayouts: [ layout ] } ),
 		vertex: { module: shader, entryPoint: "vs" },
@@ -156,10 +160,15 @@ fs
 			entryPoint: "fs",
 			targets: [ {
 				format,
-				blend: {
-					color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
-					alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" }
-				}
+				blend: additive ?
+					{
+						color: { srcFactor: "src-alpha", dstFactor: "one", operation: "add" },
+						alpha: { srcFactor: "zero", dstFactor: "one", operation: "add" }
+					} :
+					{
+						color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
+						alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" }
+					}
 			} ]
 		},
 		primitive: { topology: "triangle-list" },
@@ -167,11 +176,13 @@ fs
 	});
 	const ready = Promise.all( [
 		device.createRenderPipelineAsync( descriptor( "always" ) ),
-		device.createRenderPipelineAsync( descriptor( "less-equal" ) )
-	] ).then( ( [overlay, world] ) => {
+		device.createRenderPipelineAsync( descriptor( "less-equal" ) ),
+		device.createRenderPipelineAsync( descriptor( "always", true ) )
+	] ).then( ( [overlay, world, additive] ) => {
 		if ( !disposed ) {
 			pipeline = overlay;
 			worldPipeline = world;
+			additivePipeline = additive;
 		}
 	} );
 	const storage = device.createBuffer( {
@@ -230,7 +241,8 @@ fs
 		const native = "kind" in image ? image : null;
 		if ( native ) validateNativeTexture( native );
 		const blockBytes = native ? nativeTextureBlockBytes( native.format ) : 0;
-		const compressed = native !== null && blockBytes > 0 && device.features.has( "texture-compression-bc" ) &&
+		const compressed = native !== null && blockBytes > 0 &&
+			device.features.has( nativeTextureFeature( native.format )! ) &&
 			native.width % BLOCK_SIDE === 0 && native.height % BLOCK_SIDE === 0;
 		const format: GPUTextureFormat = compressed ? native.format : "rgba8unorm";
 		const bytes = compressed ?
@@ -466,6 +478,8 @@ fs
 				const layer = quad.depth !== undefined ? "world" : quad.layer,
 					selectedPipeline = quad.depth !== undefined && quad.occlusion !== "none" ?
 						worldPipeline! :
+						quad.additive && quad.depth === undefined ?
+						additivePipeline! :
 						pipeline!;
 				if (
 					binding === previous && layer === next[next.length - 1]!.layer &&

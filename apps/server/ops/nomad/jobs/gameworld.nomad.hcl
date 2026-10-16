@@ -97,11 +97,17 @@ variable "private_network" {
   default = "0"
 }
 
-# "1" serves /debug/pprof/ on the loopback control listener (sro-nomad
-# deploy -pprof, loopback clusters only).
+# "1" serves /debug/pprof/ on its own loopback listener at pprof_addr
+# (transport/pprof.go; sro-nomad deploy -pprof, on by default for the first
+# shard). The address must be a loopback IP; the GameWorld refuses any other.
 variable "transport_pprof" {
   type    = string
   default = "0"
+}
+
+variable "pprof_addr" {
+  type    = string
+  default = "127.0.0.1:8792"
 }
 
 variable "allowed_origins" {
@@ -167,10 +173,199 @@ variable "party_masteries" {
   default = "on"
 }
 
+# pet_pacing moves grab and growth pets at four fifths of their run speed
+# (port-only, not native). "off" is native.
+variable "pet_pacing" {
+  type    = string
+  default = "off"
+}
+
 # storage_auto_stack lets a storage quick move (right-click, Ctrl+click) land
 # on a matching stack (port-only, not native; owner decision 2026-10-11).
 # "off" restores the native empty-slot rule.
 variable "storage_auto_stack" {
+  type    = string
+  default = "on"
+}
+
+# fast_den_return halves the Bandit Den Return Scroll's countdown (port-only,
+# not native; owner decision 2026-10-14). "off" restores the native 300 s.
+variable "fast_den_return" {
+  type    = string
+  default = "on"
+}
+
+# closed_object_rescue moves a character that logs in inside a closed object
+# (a tree trunk or rock no walk can leave) to the nearest open ground
+# (port-only, not native; owner decision 2026-10-15). "off" keeps the login
+# rescue to blocked tiles, islands and sealed decks.
+variable "closed_object_rescue" {
+  type    = string
+  default = "on"
+}
+
+# most_wanted counts a suited player's job kills into a wanted level
+# (bonuses per level, a bounty on their head) (port-only, not native;
+# owner decision 2026-10-14). "off" is native.
+variable "most_wanted" {
+  type    = string
+  default = "on"
+}
+
+# most_wanted_test is Most Wanted's temporary test pacing: 5 kills a level,
+# no anti-farm window, a 1,000,000 gold bounty a level (port-only, not
+# native). "off", the default, is the ordinary rule (owner 2026-10-15: a
+# shard-wide rule is the wrong tool for one tester's checks).
+# If it is ever switched on, DO NOT switch it off again without clearing
+# every Most Wanted streak in the same window (issue #1061): a test-earned
+# level is worth 100,000,000 gold a level under the ordinary rule.
+variable "most_wanted_test" {
+  type    = string
+  default = "off"
+}
+
+# most_wanted_test_kills and most_wanted_test_bounty are the test pacing's
+# kills per wanted level (1, 2, 5 or 10) and gold per level (0..100000000);
+# they act only with most_wanted_test on (port-only, game/tunables).
+variable "most_wanted_test_kills" {
+  type    = string
+  default = "5"
+}
+
+variable "most_wanted_test_bounty" {
+  type    = string
+  default = "1000000"
+}
+
+# job_kill_notices_per_minute and most_wanted_notices_per_minute cap each
+# notice kind per division a minute (1..30); job_kill_repeat_minutes is how
+# long one killer/victim pair stays quiet (1..60) with the repeat rule off
+# (port-only, game/tunables).
+variable "job_kill_notices_per_minute" {
+  type    = string
+  default = "6"
+}
+
+variable "most_wanted_notices_per_minute" {
+  type    = string
+  default = "6"
+}
+
+variable "job_kill_repeat_minutes" {
+  type    = string
+  default = "10"
+}
+
+# most_wanted_bounty_transfer pays a wanted player's bounty out of that
+# player's own gold, at most what they carry, instead of minting it
+# (port-only, not native; owner decision 2026-10-15). "off" mints it.
+variable "most_wanted_bounty_transfer" {
+  type    = string
+  default = "on"
+}
+
+# trade_tiers rates a caravan's stars by its cargo's gold value (5M, 10M,
+# 20M, 35M, 50M) and raises trade profit between Jangan and Donwhang +50%,
+# Hotan +100%, Samarkand +200%, Constantinople +300% (port-only, not
+# native; owner decision 2026-10-14). "off" is native.
+variable "trade_tiers" {
+  type    = string
+  default = "on"
+}
+
+# job_suit_hides_armor makes trader and hunter suits hide the armour worn
+# under them, as thief suits do (port-only, not native; owner decision
+# 2026-10-14). "off" is native.
+variable "job_suit_hides_armor" {
+  type    = string
+  default = "on"
+}
+
+# moonlit_thief_suit draws the level-20 thief suits in the Moonlit Ash
+# look (port-only, not native; owner decision 2026-10-15). "off" is native.
+variable "moonlit_thief_suit" {
+  type    = string
+  default = "on"
+}
+
+# den_no_transport_summon refuses a transport summon during the Bandit Den
+# Return Scroll's countdown (port-only, not native; owner decision
+# 2026-10-14). "off" restores the native rule, which allows it.
+variable "den_no_transport_summon" {
+  type    = string
+  default = "on"
+}
+
+# trader_cargo_drop keeps a loaded transport's goods in the world when its
+# trader dies riding it or logs out outside a town (port-only, not native;
+# owner decision 2026-10-14). "off" is native.
+variable "trader_cargo_drop" {
+  type    = string
+  default = "on"
+}
+
+# mall_transport_speed makes the Item Mall transports (buffalo, rhinoceros,
+# white elephant) walk and run 1.5 times as fast (port-only, not native;
+# owner decision 2026-10-14). "off" is native.
+variable "mall_transport_speed" {
+  type    = string
+  default = "on"
+}
+
+# mall_ride_speed makes the Item Mall's riding vehicles and pets walk and
+# run 1.3 times as fast (port-only, not native; owner decision 2026-10-15).
+# "off" is native.
+variable "mall_ride_speed" {
+  type    = string
+  default = "on"
+}
+
+# announce_sox_drop, announce_plus and announce_job_kill send shard notices
+# for a seal drop, an item advanced to +8..+11 and a job kill (port-only,
+# not native; owner decision 2026-10-14). "off" is native: no notice.
+variable "announce_sox_drop" {
+  type    = string
+  default = "on"
+}
+
+variable "announce_plus" {
+  type    = string
+  default = "on"
+}
+
+variable "announce_job_kill" {
+  type    = string
+  default = "on"
+}
+
+# job_kill_notice_repeat announces every job kill between the same pair,
+# with no 10-minute pair window (port-only, not native; owner decision
+# 2026-10-15). The per-minute shard cap stays. "off" restores the window.
+variable "job_kill_notice_repeat" {
+  type    = string
+  default = "on"
+}
+
+# announce_most_wanted announces a new Most Wanted level and a claimed
+# bounty by job alias on the job-kill channel (port-only, not native; owner
+# decision 2026-10-15). "off" is native: no notice.
+variable "announce_most_wanted" {
+  type    = string
+  default = "on"
+}
+
+# thief_party_bonus gives a party +10% monster EXP and gold per member
+# dressed as a thief, up to +50% (port-only, not native; owner decision
+# 2026-10-14). "off" is native.
+variable "thief_party_bonus" {
+  type    = string
+  default = "on"
+}
+
+# trade_job_bonus pays a trader +10% profit per party hunter (up to 20%)
+# and each hunter +10% gold per party trader (up to 60%) on a trade sale
+# (port-only, not native; owner decision 2026-10-14). "off" is native.
+variable "trade_job_bonus" {
   type    = string
   default = "on"
 }
@@ -285,12 +480,48 @@ variable "alchemy_no_assimilation" {
   default = "on"
 }
 
-# caravan_bandit_cap caps the bandits per caravan ambush (port-only, not
-# native; owner decision 2026-10-13): a count, or "off" for the original
-# game's uncapped count. A malformed value stops GameWorld at boot.
+# caravan_bandit_cap caps the bandits per caravan ambush, the thieves sent
+# at a trader and the hunters sent at a thief alike (port-only, not native;
+# owner decisions 2026-10-13 and 2026-10-14, 16 then 8): a count, or "off"
+# for the original game's uncapped count. A malformed value stops GameWorld
+# at boot.
 variable "caravan_bandit_cap" {
   type    = string
-  default = "16"
+  default = "8"
+}
+
+# caravan_star_ambush replaces the rolled ambush count with a fixed one per
+# caravan star: 1 star 2, 2 stars 3, 3 stars 4, 4 stars 7, 5 stars 10
+# (port-only, not native; owner decision 2026-10-15). "off" is the
+# original roll, capped by caravan_bandit_cap.
+variable "caravan_star_ambush" {
+  type    = string
+  default = "on"
+}
+
+# job_monster_speed makes the job system's thief and hunter monsters walk
+# and run 20% faster (port-only, not native; owner decision 2026-10-15).
+# "off" is their original speed.
+variable "job_monster_speed" {
+  type    = string
+  default = "on"
+}
+
+# transport_follow has a trade transport its trader or thief stepped off
+# walk after them instead of holding them within 100 m of it (port-only,
+# not native; owner decision 2026-10-15). "off" is the original parked
+# transport and its tether.
+variable "transport_follow" {
+  type    = string
+  default = "on"
+}
+
+# job_goods_teleport lets a trader with a transport out use town gates,
+# return scrolls and the reverse return, the transport travelling along
+# (port-only, not native; owner decision 2026-10-15). "off" is native.
+variable "job_goods_teleport" {
+  type    = string
+  default = "on"
 }
 
 # beta_shop_only_degree9 keeps degree-9 Lucky Powder, magic stones and
@@ -307,6 +538,15 @@ variable "beta_shop_only_degree9" {
 # sells them instead, so "on" with a shop list lacking any of the eight
 # elixirs stops GameWorld at boot. "off" is the original game's drops.
 variable "elixir_drops_off" {
+  type    = string
+  default = "on"
+}
+
+# alchemy_material_drops_off keeps every alchemy material (type 3/3/11/4,
+# the grey bags of monster parts) out of monster drops (port-only, not
+# native, beta balance; owner 2026-10-14). "off" is the original game's
+# drops.
+variable "alchemy_material_drops_off" {
   type    = string
   default = "on"
 }
@@ -345,16 +585,26 @@ variable "beta_seal_rates" {
   default = "on"
 }
 
+# sun_event_only keeps degree-9 Seal of Sun gear out of every monster drop
+# and NPC shop; it returns only as an event reward, and gear players own
+# is kept (port-only, not native; owner decision 2026-10-14). "off" is native.
+variable "sun_event_only" {
+  type    = string
+  default = "on"
+}
+
 # stack_sizes raises item stack caps per group (port-only, not native), e.g.
 # "potion=2000,elixir=50". Groups: potion, petpotion, universalpill, elixir,
 # luckypowder, magicstone, attrstone (stones merge only with an equal
-# assimilation value).
-# The deployment default raises Lucky Powder to 500 (owner, 2026-10-13).
+# assimilation value), arrow, bolt.
+# The deployment default raises Lucky Powder to 500 (owner, 2026-10-13) and
+# arrows and bolts to 2500 (owner, 2026-10-14).
 # Empty or "off" keeps every itemdata cap; an unknown group or a cap outside
-# 1..65535 stops GameWorld at boot.
+# 1..65535 stops GameWorld at boot, so a host's own stack_sizes may name a
+# group only once a release that knows it is live.
 variable "stack_sizes" {
   type    = string
-  default = "luckypowder=500"
+  default = "arrow=2500,bolt=2500,luckypowder=500"
 }
 
 # The community site's public read API listener (internal/agent/publicstats):
@@ -505,7 +755,32 @@ job "sro-gameworld-__SHARD_ID__" {
         SRO_BETA_SILK                      = var.beta_silk
         SRO_MAINTENANCE_GATE_PATH          = var.maintenance_gate_path
         SRO_PARTY_MASTERIES                = var.party_masteries
+        SRO_PET_PACING                     = var.pet_pacing
         SRO_STORAGE_AUTO_STACK             = var.storage_auto_stack
+        SRO_FAST_DEN_RETURN                = var.fast_den_return
+        SRO_CLOSED_OBJECT_RESCUE           = var.closed_object_rescue
+        SRO_MOST_WANTED                    = var.most_wanted
+        SRO_MOST_WANTED_TEST               = var.most_wanted_test
+        SRO_MOST_WANTED_TEST_KILLS         = var.most_wanted_test_kills
+        SRO_MOST_WANTED_TEST_BOUNTY        = var.most_wanted_test_bounty
+        SRO_MOST_WANTED_BOUNTY_TRANSFER    = var.most_wanted_bounty_transfer
+        SRO_TRADE_TIERS                    = var.trade_tiers
+        SRO_JOB_SUIT_HIDES_ARMOR           = var.job_suit_hides_armor
+        SRO_MOONLIT_THIEF_SUIT             = var.moonlit_thief_suit
+        SRO_DEN_NO_TRANSPORT_SUMMON        = var.den_no_transport_summon
+        SRO_TRADER_CARGO_DROP              = var.trader_cargo_drop
+        SRO_MALL_TRANSPORT_SPEED           = var.mall_transport_speed
+        SRO_MALL_RIDE_SPEED                = var.mall_ride_speed
+        SRO_ANNOUNCE_SOX_DROP              = var.announce_sox_drop
+        SRO_ANNOUNCE_PLUS                  = var.announce_plus
+        SRO_ANNOUNCE_JOB_KILL              = var.announce_job_kill
+        SRO_JOB_KILL_NOTICE_REPEAT         = var.job_kill_notice_repeat
+        SRO_JOB_KILL_NOTICES_PER_MINUTE    = var.job_kill_notices_per_minute
+        SRO_MOST_WANTED_NOTICES_PER_MINUTE = var.most_wanted_notices_per_minute
+        SRO_JOB_KILL_REPEAT_MINUTES        = var.job_kill_repeat_minutes
+        SRO_ANNOUNCE_MOST_WANTED           = var.announce_most_wanted
+        SRO_THIEF_PARTY_BONUS              = var.thief_party_bonus
+        SRO_TRADE_JOB_BONUS                = var.trade_job_bonus
         SRO_REVERSE_RETURN_MAP             = var.reverse_return_map
         SRO_GM_SETSPEED                    = var.gm_setspeed
         SRO_ALCHEMY_RATES                  = var.alchemy_rates
@@ -519,13 +794,19 @@ job "sro-gameworld-__SHARD_ID__" {
         SRO_INSTANT_INVENTORY_EXPANSION    = var.instant_inventory_expansion
         SRO_BETA_RARE_RATE                 = var.beta_rare_rate
         SRO_BETA_SEAL_RATES                = var.beta_seal_rates
+        SRO_SUN_EVENT_ONLY                 = var.sun_event_only
         SRO_BETA_DROP_CAP                  = var.beta_drop_cap
         SRO_BETA_DROP_MIX                  = var.beta_drop_mix
         SRO_SHOP_EXTRA_GOODS               = var.shop_extra_goods
         SRO_MALL_EXTRA_GOODS               = var.mall_extra_goods
         SRO_ALCHEMY_NO_ASSIMILATION        = var.alchemy_no_assimilation
         SRO_CARAVAN_BANDIT_CAP             = var.caravan_bandit_cap
+        SRO_CARAVAN_STAR_AMBUSH            = var.caravan_star_ambush
+        SRO_JOB_MONSTER_SPEED              = var.job_monster_speed
+        SRO_TRANSPORT_FOLLOW               = var.transport_follow
+        SRO_JOB_GOODS_TELEPORT             = var.job_goods_teleport
         SRO_ELIXIR_DROPS_OFF               = var.elixir_drops_off
+        SRO_ALCHEMY_MATERIAL_DROPS_OFF     = var.alchemy_material_drops_off
         SRO_BETA_SHOP_ONLY_DEGREE9         = var.beta_shop_only_degree9
         SRO_STACK_SIZES                    = var.stack_sizes
         SRO_PUBLIC_API_ADDR                = var.public_api_addr
@@ -538,6 +819,7 @@ job "sro-gameworld-__SHARD_ID__" {
         TRANSPORT_ALLOWED_ORIGINS          = var.allowed_origins
         SRO_TRANSPORT_TLS_ID               = var.transport_tls_id
         TRANSPORT_PPROF                    = var.transport_pprof
+        TRANSPORT_PPROF_ADDR               = var.pprof_addr
         SRO_RELEASE_ID                     = var.release_id
       }
 

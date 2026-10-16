@@ -15,6 +15,7 @@ test("all pet gear puts its level and Pet footer last without stack rows", () =>
 	for ( const degree of PET_DESIGN.gear ) {
 		for ( const gear of degree.items ) {
 			const item = {
+				slot: 13,
 				name: `${gear.name} (Degree ${degree.degree})`,
 				refObjId: gear.id,
 				typeFlags: 0x4ec,
@@ -55,7 +56,7 @@ test("all pet gear puts its level and Pet footer last without stack rows", () =>
 				]
 			) {
 				const row = rows.find( row => row.value === `${key} ${value}` );
-				assert.equal( !!row, value > 0 );
+				assert.equal( !!row, Number( value ) > 0 );
 				if ( row ) assert.equal( row.color, 0xffffffff );
 			}
 			assert.ok( !rows.some( row => /Needs pet level|PARAM_MAX_CONTAIN|UIIT_STT_AMOUNT/.test( row.value ) ) );

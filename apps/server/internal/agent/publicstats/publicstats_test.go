@@ -277,6 +277,36 @@ func TestProfileCarriesLookStatsAndCounts(t *testing.T) {
 
 /*
 ================
+TestAmmunitionIsNeverBroken
+
+Worn arrows read durability 0 (their reference has none); the profile
+leaves durability out for them, so nothing shows them as broken, while a
+weapon at 0 still says so.
+================
+*/
+func TestAmmunitionIsNeverBroken(t *testing.T) {
+	const arrowRef = 62
+	f := newFixture()
+	f.chars[0].MissionInventory = []domain.InventoryRow{{Slot: 6, RefObjID: 3801}, {Slot: 7, RefObjID: arrowRef}}
+	service := f.service()
+	service.src.HasDurability = func(refObjID uint32) bool { return refObjID != arrowRef }
+	var p Profile
+	if code := get(t, service, "/public/v1/characters/kekw", &p); code != http.StatusOK {
+		t.Fatalf("profile %d", code)
+	}
+	if len(p.Look.Worn) != 2 {
+		t.Fatalf("look %+v", p.Look)
+	}
+	if w := p.Look.Worn[0]; w.Durability == nil || *w.Durability != 0 {
+		t.Fatalf("a weapon at 0 is broken and says so: %+v", w)
+	}
+	if w := p.Look.Worn[1]; w.RefItemID != arrowRef || w.Durability != nil {
+		t.Fatalf("arrows carry no durability: %+v", w)
+	}
+}
+
+/*
+================
 TestBadQueriesAreRefused
 ================
 */
@@ -340,6 +370,12 @@ func TestSchemaDescribesEveryEncodedAnswer(t *testing.T) {
 		return []chatfeed.Line{{At: time.UnixMilli(1000), Kind: chatfeed.KindChat, Character: "Kekw", Text: "hi"},
 			{At: time.UnixMilli(2000), Kind: chatfeed.KindNotice, Text: "Maintenance"}}
 	}
+	// A guild with a union partner and a fortress, so every optional field meets the schema.
+	s.src.Guilds = func() []GuildEntry {
+		return []GuildEntry{{ID: 1, Name: "Silk", Level: 2, Members: []GuildEntryMember{{CharID: 1}}, Union: []int64{2}, Fortress: "jangan",
+			FoundedAtMs: 1760000000000},
+			{ID: 2, Name: "Tea", Level: 1, Members: []GuildEntryMember{{CharID: 2}}, Union: []int64{1}}}
+	}
 	var doc map[string]any
 	get(t, s, "/public/v1/schema", &doc)
 	endpoints, _ := doc["endpoints"].(map[string]any)
@@ -356,6 +392,7 @@ func TestSchemaDescribesEveryEncodedAnswer(t *testing.T) {
 		"/public/v1/schedule":             "/public/v1/schedule",
 		"/public/v1/rankings":             "/public/v1/rankings?by=gear",
 		"/public/v1/chat":                 "/public/v1/chat",
+		"/public/v1/guilds":               "/public/v1/guilds?q=s",
 	}
 	if len(endpoints) != len(samples) {
 		t.Fatalf("schema lists %d endpoints, want %d", len(endpoints), len(samples))

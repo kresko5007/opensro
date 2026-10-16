@@ -136,6 +136,12 @@ export function createHudResources(
 		"ifitemmallconfirmslot",
 		"ifmessagebox",
 		"ifcommunity",
+		"iffriend",
+		"iffriendslot",
+		"ifletter",
+		"ifletterslot",
+		"ifletterread",
+		"ifletterwrite",
 		"ifguild",
 		"ifguildmemberslot",
 		"ifguildnotifywrite",
@@ -144,6 +150,7 @@ export function createHudResources(
 		"ifguildmasterleave",
 		"ifguildmasterleaveslot",
 		"ifguildmasterelection",
+		"ifguildmasterelectionslot",
 		"ifguildpointup",
 		"ifguildpositiongrant",
 		"ifguildgrantpower",
@@ -158,6 +165,7 @@ export function createHudResources(
 		"ifguildwarconfirm",
 		"ifguildwaragree",
 		"ifexchange",
+		"ifghacha",
 		"ifstall",
 		"ifchatmodule",
 		"ifstallslot",
@@ -237,7 +245,8 @@ export function createHudResources(
 		"ifwhisperblockingslot",
 		"ifcompositeitemwnd",
 		"ifwholechat",
-		"ifspecialtydeal"
+		"ifspecialtydeal",
+		"ifjobalias"
 	];
 	const layouts = [
 		"ginterface",

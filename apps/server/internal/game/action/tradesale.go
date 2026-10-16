@@ -3,7 +3,7 @@
 
 tradesale.go - special and thief merchant admission and cargo valuation
 
-617F70 admits the sale; 4C8D10 values the complete quantity before tax.
+617F70 admits the sale and 6182A0 a purchase; 4C8D10 values the complete quantity before tax.
 Quotation calls are read-only. Inventory and rewards commit in commerce.go.
 
 ===========================================================================
@@ -27,6 +27,16 @@ const (
 	tradeErrVehicleDistance uint8 = 0x65
 	tradeErrQuest           uint8 = 0xb0
 	tradeErrJob             uint8 = 5
+	// tradeErrOnlyTrader is 6182A0's 0x1860 (UIIT_MSG_STRGERR_ONLY_TRADER_
+	// CAN_BUY_SPECIALTY); tradeErrBuyerLevel its 0x184E, which the v1.150
+	// client shows no text for.
+	tradeErrOnlyTrader uint8 = 0x60
+	tradeErrBuyerLevel uint8 = 0x4e
+	// minTradeBuyerLevel is 6182A0's level floor (CGObjChar_GetLevel < 0x14).
+	minTradeBuyerLevel int64 = 20
+	// tradeErrOverStack is 617F70's 0x1815: a sale above the item's stack
+	// cap (the client shows ENABLEINPUT_FEWERTHAN_REMAIN, as for 0x14).
+	tradeErrOverStack uint8 = 0x15
 	// v1.150's 47 authored goods rows have stack caps 10 or 40.
 	maxTradeGoodsStack uint16  = 40
 	tradeVehicleRange  float64 = 1000.0
@@ -45,6 +55,8 @@ func (rt *Runtime) tradeAdmission(division string, c *enterworld.Character, npc 
 		}
 		return 0
 	}
+	// 617F70 refuses job state 3 (a hunter's suit) and 4 (no job suit,
+	// 4E1120 / 4E9D96): only a suited trader or thief sells goods.
 	job := enterworld.DressedJob(c)
 	if job != domain.JobTrader && job != domain.JobThief {
 		return tradeErrJob
@@ -61,20 +73,82 @@ func (rt *Runtime) tradeAdmission(division string, c *enterworld.Character, npc 
 	if item.TradeOwner != c.Job.Alias && npc.TalkFlags&simulation.NpcTalkFlagThiefBuy == 0 {
 		return tradeErrOwner
 	}
-	if c.ActiveCOS == nil || !c.ActiveCOS.Summoned || c.ActiveCOS.CurrentHP <= 0 {
+	if !rt.transportSummoned(c) {
 		return tradeErrVehicleDistance
 	}
-	ref, valid := rt.cosReference(c.ActiveCOS)
-	if !valid || !isVehicleCOS(ref.TidWord) {
-		return tradeErrVehicleDistance
-	}
-	now := rt.Now().UnixMilli()
-	a := rt.liveSpawn(simulation.WorldKey(division, c.Name), c, now)
-	b := rt.cosLiveSpawn(division, c, now)
-	if !(math.Hypot(simulation.WorldDistance2D(a, b), a.Y-b.Y) <= tradeVehicleRange) {
+	if rt.transportBeyond(division, c, tradeVehicleRange) {
 		return tradeErrVehicleDistance
 	}
 	return 0
+}
+
+/*
+================
+tradePurchaseAdmission
+
+6182A0, the trade goods arm of a shop purchase (CShopApp_CreatePurchasedPackageItems
+619123), in its order: 4EC860 admits only a player whose job state
+(CGObjPC_GetJobState, the worn suit's kind) is the trader's 1 and whose first
+COS is a transport, else 0x1860; then level 20 (0x184E), the merchant's
+required trade quest (0x18B0) and the transport within 1000 (0x1865). The
+0x404 branch refuses only the TID4 2 goods v1.150 never sells.
+================
+*/
+func (rt *Runtime) tradePurchaseAdmission(division string, c *enterworld.Character, npc simulation.NpcDef) uint8 {
+	// INFERENCE: 6182A0 has no merchant test of its own; only special
+	// traders stock goods, so another merchant is refused as 617F70 would.
+	if npc.TalkFlags&simulation.NpcTalkFlagSpecialTrade == 0 {
+		return tradeErrWrongMerchant
+	}
+	if enterworld.DressedJob(c) != domain.JobTrader || !rt.transportSummoned(c) {
+		return tradeErrOnlyTrader
+	}
+	if c.Level == nil || *c.Level < minTradeBuyerLevel {
+		return tradeErrBuyerLevel
+	}
+	if quest := commerce.RequiredTradeQuest(npc.Codename); quest != "" {
+		id := rt.Commerce.TradeQuests[quest]
+		if id == 0 || !slices.Contains(c.CompletedQuestIds, id) {
+			return tradeErrQuest
+		}
+	}
+	if rt.transportBeyond(division, c, tradeVehicleRange) {
+		return tradeErrVehicleDistance
+	}
+	return 0
+}
+
+/*
+================
+transportSummoned
+
+Whether the player's live COS is a summoned transport (4EC8A0,
+CGObjPC_FirstCOSIsTransport).
+================
+*/
+func (rt *Runtime) transportSummoned(c *enterworld.Character) bool {
+	if c.ActiveCOS == nil || !c.ActiveCOS.Summoned || c.ActiveCOS.CurrentHP <= 0 {
+		return false
+	}
+	ref, valid := rt.cosReference(c.ActiveCOS)
+	return valid && isVehicleCOS(ref.TidWord)
+}
+
+/*
+================
+transportBeyond
+
+Whether the owner's summoned transport stands farther than limit from its
+owner, measured in 3D between their live positions (the relative vector's
+length, as 617F70 and 4F2B50 measure it). A position that is not finite
+counts as beyond.
+================
+*/
+func (rt *Runtime) transportBeyond(division string, c *enterworld.Character, limit float64) bool {
+	now := rt.Now().UnixMilli()
+	a := rt.liveSpawn(simulation.WorldKey(division, c.Name), c, now)
+	b := rt.cosLiveSpawn(division, c, now)
+	return !(math.Hypot(simulation.WorldDistance2D(a, b), a.Y-b.Y) <= limit)
 }
 
 /*
@@ -144,6 +218,8 @@ func (rt *Runtime) tradeSaleValue(division string, c *enterworld.Character, npc 
 		}
 		credit = int64(unit * uint32(item.Quantity))
 		profit = credit - int64(uint32(base)*uint32(item.Quantity))
+		// Port-only, not native: Jangan route profit (tradetiers.go).
+		credit, profit = RaiseRouteProfit(credit, profit, rt.routeProfitPercent(npc, item))
 	}
 	taxed, valid := commerce.AdjustPrice(uint64(max(credit, 0)), rt.commerceTax(division, npc, c), false)
 	return taxed, max(profit, 0), int64(uint64(max(credit, 0)) - taxed), valid

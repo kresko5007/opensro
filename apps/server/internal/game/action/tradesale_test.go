@@ -15,6 +15,7 @@ import (
 	"opensro.online/server/internal/domain"
 	"opensro.online/server/internal/game/enterworld"
 	"opensro.online/server/internal/game/item/commerce"
+	"opensro.online/server/internal/game/item/inventory"
 	"opensro.online/server/internal/game/item/wire"
 	"opensro.online/server/internal/game/world/simulation"
 )
@@ -27,6 +28,8 @@ traderFixture
 func traderFixture(t *testing.T, thief bool) (*Runtime, *enterworld.Character) {
 	t.Helper()
 	c := testCharacter()
+	level := minTradeBuyerLevel
+	c.Level = &level
 	role := domain.JobTrader
 	if thief {
 		role = domain.JobThief
@@ -181,7 +184,7 @@ func TestTraderPartySettlementFiltersRecipientsAndCommitsTogether(t *testing.T) 
 	calls := 0
 	deps.UpdateCharacters = func(members []*enterworld.Character, label string, update func() bool) bool {
 		calls++
-		if len(members) != 3 || label != "shop-transaction" {
+		if len(members) != 3 || label != "trade-sale" {
 			t.Fatalf("transaction roster %+v %q", members, label)
 		}
 		return update()
@@ -245,29 +248,172 @@ func TestTradeTransactionRefusalDoesNotPublishOrRemoveCargo(t *testing.T) {
 /*
 ================
 TestTradePurchaseRequiresMerchantJobQuestAndTransport
+
+6182A0's order and codes: a non-special merchant, then 4EC860 (a suited
+trader with a transport, else 0x60 even for a suited thief), level 20
+(0x4E), the required quest (0xB0) and the transport's distance.
 ================
 */
 func TestTradePurchaseRequiresMerchantJobQuestAndTransport(t *testing.T) {
-	for _, reason := range []string{"merchant", "job", "quest", "vehicle"} {
-		t.Run(reason, func(t *testing.T) {
-			rt, c := traderFixture(t, false)
+	cases := []struct {
+		reason string
+		thief  bool
+		code   uint8
+	}{
+		{"merchant", false, tradeErrWrongMerchant},
+		{"unsuited", false, tradeErrOnlyTrader},
+		{"thief", true, tradeErrOnlyTrader},
+		{"vehicle", false, tradeErrOnlyTrader},
+		{"level", false, tradeErrBuyerLevel},
+		{"quest", false, tradeErrQuest},
+	}
+	for _, tc := range cases {
+		t.Run(tc.reason, func(t *testing.T) {
+			rt, c := traderFixture(t, tc.thief)
 			ref, _ := rt.deps.ItemReferences().ItemRefByCodename(c.MissionInventory[1].Codename)
 			rt.Commerce.Tabs[1] = []commerce.Offer{{Slot: 2, Ref: ref, Price: 60, Stack: 40}}
-			switch reason {
+			switch tc.reason {
 			case "merchant":
 				rt.NpcRoster[0].TalkFlags = simulation.NpcTalkFlagShop
-			case "job":
+			case "unsuited":
 				c.MissionInventory = c.MissionInventory[1:]
-			case "quest":
-				rt.NpcRoster[0].Codename = "NPC_CH_SPECIAL2"
 			case "vehicle":
 				c.ActiveCOS = nil
+			case "level":
+				level := minTradeBuyerLevel - 1
+				c.Level = &level
+			case "quest":
+				rt.NpcRoster[0].Codename = "NPC_CH_SPECIAL2"
 			}
 			before := c.Snapshot()
 			result := trade(t, rt, c, wire.ItemMoveRequest{MovementType: wire.MoveTypeShopBuy, NpcGID: 17, ShopSlot: 2, Quantity: 3})
-			if !reflect.DeepEqual(before, c.Snapshot()) || len(result.Frames) != 1 || result.Frames[0].Payload[0] != 2 {
-				t.Fatalf("purchase bypassed %s: %+v", reason, result)
+			if !reflect.DeepEqual(before, c.Snapshot()) || len(result.Frames) != 1 || result.Frames[0].Payload[0] != 2 ||
+				result.Frames[0].Payload[1] != tc.code {
+				t.Fatalf("purchase bypassed %s (want code 0x%X): %+v", tc.reason, tc.code, result)
 			}
 		})
+	}
+}
+
+/*
+================
+TestTradeSaleJobAndQuantityRules
+
+617F70 refuses a sale in a hunter's suit or in no suit (job states 3 and
+4, code 5). Its tail answers a quantity above the held count with 0x14 and one
+above the stack cap with 0x15.
+================
+*/
+func TestTradeSaleJobAndQuantityRules(t *testing.T) {
+	cases := []struct {
+		reason   string
+		quantity uint16
+		code     uint8
+	}{
+		{"unsuited", 3, tradeErrJob},
+		{"hunter", 3, tradeErrJob},
+		{"held", 4, wire.ErrCodeInputFewerThanRemain},
+		{"cap", 41, tradeErrOverStack},
+	}
+	for _, tc := range cases {
+		t.Run(tc.reason, func(t *testing.T) {
+			rt, c := traderFixture(t, true)
+			switch tc.reason {
+			case "unsuited":
+				c.MissionInventory = c.MissionInventory[1:]
+			case "hunter":
+				c.Job.Type = domain.JobHunter
+				c.MissionInventory[0].TypeFlags = wire.PackTypeFlags(3, 1, 7, domain.JobHunter)
+			}
+			result := trade(t, rt, c, wire.ItemMoveRequest{MovementType: wire.MoveTypeShopSell, NpcGID: 17, SourceSlot: 13, Quantity: tc.quantity})
+			p := result.Frames[0].Payload
+			if tc.code == 0 {
+				if p[0] != 1 {
+					t.Fatalf("an unsuited holder could not sell: % X", p)
+				}
+				return
+			}
+			if p[0] != 2 || p[1] != tc.code {
+				t.Fatalf("%s: answer % X, want code 0x%X", tc.reason, p, tc.code)
+			}
+		})
+	}
+}
+
+/*
+================
+TestTransportPurchaseSendsTradeLevel
+
+A committed purchase into the transport tells the owner its trade level
+(0x352D) after the move's answer; a refused one does not.
+================
+*/
+func TestTransportPurchaseSendsTradeLevel(t *testing.T) {
+	rt, c := traderFixture(t, false)
+	ref, _ := rt.deps.ItemReferences().ItemRefByCodename(c.MissionInventory[1].Codename)
+	rt.Commerce.Tabs[1] = []commerce.Offer{{Slot: 2, Ref: ref, Price: 60, Stack: 40}}
+	result := trade(t, rt, c, wire.ItemMoveRequest{MovementType: wire.MoveTypeCosShopBuy, NpcGID: 17, ShopSlot: 2, Quantity: 3,
+		CosGID: c.ActiveCOS.GID})
+	last, committed := result.Frames[len(result.Frames)-1], false
+	for _, frame := range result.Frames {
+		committed = committed || frame.Opcode == wire.OpItemMoveResponse && frame.Payload[0] == 1
+	}
+	if !committed || last.Opcode != wire.OpTradeStarCount || len(last.Payload) != 1 {
+		t.Fatalf("purchase frames %+v, want the trade level last", result.Frames)
+	}
+	refused := trade(t, rt, c, wire.ItemMoveRequest{MovementType: wire.MoveTypeCosShopBuy, NpcGID: 17, ShopSlot: 9, Quantity: 3,
+		CosGID: c.ActiveCOS.GID})
+	for _, frame := range refused.Frames {
+		if frame.Opcode == wire.OpTradeStarCount {
+			t.Fatal("a refused purchase sent a trade level")
+		}
+	}
+}
+
+/*
+================
+TestCommerceDoorLabelNamesTradeSales
+
+A sale of goods (from the bag or from a transport) commits under the
+trade door the economy ledger reads as a trade payout; a purchase and an
+ordinary sale stay shop transactions.
+================
+*/
+func TestCommerceDoorLabelNamesTradeSales(t *testing.T) {
+	goods := wire.PackTypeFlags(3, 3, 8, 1)
+	potion := wire.PackTypeFlags(3, 3, 1, 1)
+	const transportGID, petGID = 0x00C00010, 0x00C00011
+	c := &enterworld.Character{
+		MissionInventory: []enterworld.InventoryRow{
+			{Slot: 13, TypeFlags: goods, StackCount: 5}, {Slot: 14, TypeFlags: potion, StackCount: 5}},
+		ActiveCOS: &enterworld.CharacterCOS{GID: transportGID, Summoned: true, Container: &domain.COSContainer{
+			Capacity: 4, Rows: []enterworld.InventoryRow{{Slot: 0, TypeFlags: goods, StackCount: 5}}}},
+	}
+	if !inventory.IsTradeGoods(goods) || inventory.IsTradeGoods(potion) {
+		t.Fatal("fixture type flags do not classify as intended")
+	}
+	// A pickup pet rides on its summoner's bag row (domain Companions).
+	c.MissionInventory = append(c.MissionInventory, enterworld.InventoryRow{Slot: 15, StackCount: 1,
+		Summon: &enterworld.CharacterCOS{GID: petGID, Summoned: true, Container: &domain.COSContainer{
+			Capacity: 4, Rows: []enterworld.InventoryRow{{Slot: 0, TypeFlags: potion, StackCount: 5}}}}})
+	cases := []struct {
+		name    string
+		move    uint8
+		slot    uint8
+		cos     uint32
+		fromCOS bool
+		want    string
+	}{
+		{"goods from the bag", wire.MoveTypeShopSell, 13, 0, false, "trade-sale"},
+		{"potion from the bag", wire.MoveTypeShopSell, 14, 0, false, "shop-transaction"},
+		{"goods from the transport", wire.MoveTypeShopSell, 0, transportGID, true, "trade-sale"},
+		{"potion from a pickup pet", wire.MoveTypeShopSell, 0, petGID, true, "shop-transaction"},
+		{"a purchase", wire.MoveTypeShopBuy, 13, 0, false, "shop-transaction"},
+	}
+	for _, tc := range cases {
+		q := wire.ItemMoveRequest{MovementType: tc.move, SourceSlot: tc.slot, CosGID: tc.cos}
+		if got := commerceDoorLabel(c, q, tc.fromCOS); got != tc.want {
+			t.Fatalf("%s = %q, want %q", tc.name, got, tc.want)
+		}
 	}
 }

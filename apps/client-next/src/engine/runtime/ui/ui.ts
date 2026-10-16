@@ -14,6 +14,30 @@ Visibility gates new requests, never collection of outstanding work.
 // CGInterface_ExecuteActionCommand 695420 case 1006: trade with the
 // selected player.
 const ACTION_EXCHANGE = 1006;
+// CIFJobAlias_OpenSubmitConfirm (646470): changing an alias costs the
+// character's level (player +0x820) times this much gold.
+const JOB_ALIAS_MODIFY_GOLD_PER_LEVEL = 50000;
+// A label closer than this to its window's left edge has left its window
+// (the frame's border is about this wide; the Experimental "Fit window labels").
+const WINDOW_LABEL_MARGIN = 6;
+// GDR_COS_INFO_NAME_BTN in ifcosinfo.txt: the pet's Name button.
+const COS_INFO_NAME_BUTTON = 26;
+// The Friends list (iffriend.txt id 30, 328 x 256): eleven 23-pixel
+// gil_bar02 rows and a scrollbar between its 16-pixel arrows.
+const FRIEND_VISIBLE_ROWS = 11;
+// The letter list shares the Friends list's scroll manager (ifletter.txt id
+// 30, 328 x 256): eleven 23-pixel rows. The write window's contents edit is
+// the one multiline letter control.
+const LETTER_VISIBLE_ROWS = 11;
+const LETTER_BODY_EDIT = "letter-body";
+// The read and write windows (ifletter.txt ids 55 and 51): 439 x 271
+// popups framed by LETTER_CHILD_FRAME.
+const LETTER_CHILD_WIDTH = 439;
+const LETTER_CHILD_HEIGHT = 271;
+// A fitted button caption keeps this far inside each side of its plate.
+const CAPTION_MARGIN = 4;
+const FRIEND_ROW_STEP = 23;
+const FRIEND_SCROLL_TRACK = 224;
 // 695420 case 9 opens the own stall's title prompt, case 0xD toggles the
 // stall network window (CGInterface_ToggleStallNetworkWindow 69DB80).
 const ACTION_STALL = 1009;
@@ -34,6 +58,22 @@ const STALL_CHAT_ROW = 15;
 const EDIT_CARET_WIDTH = 1;
 import { ACTION_FORTRESS_RETURN } from "@/engine/foundation/gameplay/fortress-return";
 import {
+	FRIEND_LIST_LIMIT,
+	FRIEND_NAME_LIMIT,
+	friendAddPrefill,
+	friendNameOrder
+} from "@/engine/foundation/gameplay/friends";
+import {
+	LETTER_BODY_LIMIT,
+	LETTER_MAILBOX_LIMIT,
+	LETTER_RECEIVER_LIMIT,
+	clampLetterText,
+	letterSend,
+	letterTime,
+	letterTimeKey,
+	type LetterRow
+} from "@/engine/foundation/gameplay/letters";
+import {
 	companionItemTargetCommand,
 	armsItemTargetCursor,
 	isReverseReturnScroll
@@ -41,6 +81,7 @@ import {
 import {
 	createStoragePanel,
 	firstFreeSlot,
+	storageMovePages,
 	storageQuickMove,
 	storagePages,
 	storageSlotControlId
@@ -51,7 +92,8 @@ import {
 	STORAGE_MOVE_DEPOSIT,
 	STORAGE_MOVE_ROOM,
 	STORAGE_MOVE_WITHDRAW,
-	STORAGE_PAGE_SLOTS
+	STORAGE_PAGE_SLOTS,
+	type StorageMove
 } from "@/engine/foundation/gameplay/storage-room";
 import { berserkHud, berserkEntryFlash } from "@/engine/foundation/ui/berserk-hud";
 import { resolveTextOverlaps } from "@/engine/foundation/rendering/ui-glyphs";
@@ -143,6 +185,7 @@ import {
 	createUniqueBanner,
 	uniqueBannerPaths,
 	createNoticeBanner,
+	noticeTiming,
 	notificationBannerPaths
 } from "./hud/unique-banner";
 import { createQuestBanner, questBannerPaths } from "./hud/quest-banner";
@@ -177,6 +220,20 @@ import { createSkinChangeHud } from "./hud/skin-change-hud";
 import { createGlobalChatHud } from "./hud/global-chat-hud";
 import { createReverseReturnHud } from "./hud/reverse-return-hud";
 import { createSpecialtyDealHud } from "./hud/specialty-deal-hud";
+import { socialQuestion } from "@/engine/foundation/ui/social-question";
+import {
+	cargoBuyTotal,
+	COS_TRADE_SELL_ALL,
+	COS_TRADE_STAR_FIRST,
+	COS_TRADE_STAR_LAST,
+	COS_TRADE_TOTAL,
+	cosCargoRows,
+	type SellAllRun,
+	sellAllEnabled,
+	sellAllStep,
+	tradeStarCount,
+	tradeStarTint
+} from "@/engine/foundation/gameplay/cos-trade-info";
 import {
 	dealSums,
 	isTradeGoods,
@@ -185,7 +242,9 @@ import {
 	tradeScale,
 	tradeScaleQuantity,
 	tradeScaleRow,
-	tradeScaleRows
+	tradeScaleRows,
+	tradeTierQuantity,
+	tradeTierScale
 } from "@/engine/foundation/gameplay/specialty-deal";
 import { GLOBAL_CHAT_MAX_LENGTH, isGlobalChatItem } from "@/engine/foundation/gameplay/global-chat";
 import { createJobHud } from "./hud/job-hud";
@@ -283,6 +342,8 @@ import { noticeText } from "@/engine/foundation/ui/notice-text";
 import {
 	JOB_ALIAS_CHECK,
 	JOB_ALIAS_CREATE,
+	JOB_ALIAS_MAX_LENGTH,
+	jobAliasCheck,
 	JOB_OUTCOME_COLLECT,
 	JOB_OUTCOME_QUERY,
 	JOB_RANK_ACTIVITY,
@@ -448,6 +509,7 @@ import {
 	boardText,
 	jobMark,
 	blindableCharacter,
+	blindableCompanion,
 	hiddenSilkCos,
 	nameInRange,
 	riderBoardPosition,
@@ -471,7 +533,9 @@ import {
 	type AutoPotionDraft
 } from "@/engine/foundation/gameplay/auto-potion";
 import { selectChatTab, composeChat, chatTabPrefix, chatFeedbackText } from "@/engine/foundation/ui/chat-presentation";
-import { textBoardLines, textBoxLines, textLines } from "@/engine/foundation/ui/text-lines";
+import { captionWords, textBoardLines, textBoxLines, textLines } from "@/engine/foundation/ui/text-lines";
+import { bagTabDropSlot } from "@/engine/foundation/ui/bag-tab-drop";
+import { PET_NAME_MAX, petNameError } from "@/engine/foundation/gameplay/pet-name";
 import { createSpeech } from "./hud/speech";
 import { createMessageScroll } from "./hud/scroll";
 import { createHudMessages } from "./hud/messages";
@@ -520,7 +584,15 @@ import {
 	travelLoadingBackground
 } from "@/engine/foundation/ui/mission-loading";
 import { catalogMessage } from "@/engine/foundation/ui/catalog-message";
-import { gachaPrizes, isGachaTicket } from "@/engine/foundation/gameplay/gacha-catalog";
+import {
+	GACHA_FUNCTION,
+	GACHA_OPERATOR_FUNCTION,
+	gachaPrizeEntry,
+	gachaSheet,
+	gachaSheetFrameRect,
+	isGachaVoucher
+} from "@/engine/foundation/ui/gacha-window";
+import { createGachaHud } from "./hud/gacha-hud";
 import {
 	quickSlotCommand,
 	quickSlotItemSlot,
@@ -555,6 +627,7 @@ import {
 	partyProposalAssets,
 	partyProposalLayout,
 	guildProposalLayout,
+	guildQuestionLayout,
 	reverseReturnLayout,
 	proposalLayout,
 	MESSAGE_FRAME,
@@ -585,7 +658,7 @@ import {
 import { messageBoxLines, textMessageBoxLayout } from "@/engine/foundation/ui/text-message-box";
 import { systemMenu, SYSTEM_MENU_HEIGHT, EXPERIMENTAL_MENU_ID } from "@/engine/foundation/ui/system-menu";
 import { inventorySlots, inventoryLattice } from "@/engine/foundation/ui/inventory-layout";
-import { guideTokens } from "@/engine/foundation/ui/guide-content";
+import { fillMarkup, groupedNumber, guideTokens, hasSml2Markup } from "@/engine/foundation/ui/guide-content";
 import type { AssetOwner } from "@/engine/contracts/assets";
 import type { SessionCommand, ServerRecord, CharacterRecord } from "@/engine/contracts/session";
 import type { UiView, UiEvent, UiRect, UiQuad, UiControl, UiSemantics, UiScene } from "@/engine/contracts/ui";
@@ -600,6 +673,13 @@ type CloseControlId = PanelCloseId | `${string}-close` | "stall-leave";
 
 // CIFCosInfo_RefreshSatietyDependentStats (6A4600) font colour 0xFF999999.
 const COS_LOW_SATIETY = [ 0x99 / 255, 0x99 / 255, 0x99 / 255, 1 ] as const;
+// Port-only, not native (owner 2026-10-15, Experimental "Grey disabled
+// tabs"): a disabled tab's dimmed look. Natively a disabled tab draws like an
+// unselected one (SetStateTextures 5376A0 falls back to the off texture at
+// 53784F). The dim borrows the original's own disabled-face alpha 0x80
+// (CIFButton_SetEnabledWithFaceAlpha 541640) and grey label 0xFF999999.
+const GREY_TAB_PLATE = [ 1, 1, 1, 0x80 / 255 ] as const;
+const GREY_TAB_LABEL = [ 0x99 / 255, 0x99 / 255, 0x99 / 255, 1 ] as const;
 // No video option combo is open (slot -1 is the screen-size combo).
 const VIDEO_COMBO_CLOSED = -99;
 const WORLD_MAP_WIDTH = 652;
@@ -607,11 +687,16 @@ const WORLD_MAP_HEIGHT = 424;
 const VIDEO_FRAME_LIMIT_SLOT = -3;
 const VIDEO_VISIBLE_ROWS = 6;
 const VIDEO_SCROLL_MAX = videoRows().length + 1 - VIDEO_VISIBLE_ROWS;
-const ROOT = "/assets/images/Media_extracted/", BUTTON = ROOT + "interface/ifcommon/com_button.png";
+const ROOT = "/assets/images/Media_extracted/",
+	PREPARE_SHEET = "/assets/images/Media_extracted/interface/alchemy/alcm_effect_prepare.png",
+	BUTTON = ROOT + "interface/ifcommon/com_button.png";
 // 683B40 assigns the notice root this texture after creating it.
 const MALL_NOTICE_FRAME = ROOT + "interface/mall/mall_communicate.png";
 const PARTS = frameParts();
 const FRAME = ROOT + "interface/frame/mframe_wnd_";
+// msgbox2_window_ has no centre tile: the letter popups' own tiles and black
+// squares (ifletterread / ifletterwrite ids 1-6) fill them.
+const LETTER_CHILD_FRAME = ROOT + "interface/messagebox/msgbox2_window_";
 const PARTY_MATCH_RANGE_SEPARATOR_ID = 43;
 // The bug reporter (issue #90): its chat command and its Option window row.
 const BUG_COMMAND = /^\/bug(?:\s+|$)/i;
@@ -634,6 +719,8 @@ const FORTRESS_SCHEDULE_PANEL = "Fortress war schedule";
 // CIFTaxManagement, the fortress manager's first row (fortress-tax-hud.ts).
 const FORTRESS_TAX_PANEL = "Fortress tax";
 const FORTRESS_TAX_RATE = "fortress-tax-rate";
+// CIFButton_SetEnabledWithFaceAlpha (541640): a disabled face draws at alpha 0x80.
+const DISABLED_FACE_TINT = [ 1, 1, 1, 0x80 / 255 ] as const;
 const FORTRESS_TAX_AMOUNT = "fortress-tax-amount";
 // CIFFortressMakeItemWnd, the smith's and trainer's production window
 // (fortress-production-hud.ts), and its count box's edit (MsgBoxMakeItem 116).
@@ -657,12 +744,56 @@ const FORTRESS_TAX_ARROW_RIGHT = 270;
 const FORTRESS_TAX_TRAVEL = 234;
 // CIFJobRank and CIFJobContributionRank share one panel (job-hud.ts).
 const JOB_RANK_PANEL = "Job ranking";
+// CIFNpcTalk_AppendFortressServiceRows (5D7AD0) and the employ question
+// (5D3880) quote one fee for every fortress staff member: 0x7530 gold and
+// 0xBB8 guild points.
+const FORTRESS_STAFF_FEE_GOLD = 30000;
+const FORTRESS_STAFF_FEE_GP = 3000;
+const JOB_ALIAS_PANEL = "Job alias";
+// CIFJobAlias_OpenForMode (645E90): modify grows the window to 297 x 180
+// and its background tile (id 5) to 265 x 124 for the AliasModify cost row
+// (ids 40-43); create keeps the authored 297 x 165 and 265 x 109.
+const JOB_ALIAS_MODIFY_HEIGHT = 180;
+const JOB_ALIAS_MODIFY_BG_HEIGHT = 124;
+const JOB_ALIAS_BG = 5;
+const JOB_ALIAS_EDIT = 13;
+const JOB_ALIAS_CHECK_BUTTON = 20;
+const JOB_ALIAS_OK_BUTTON = 30;
+const JOB_ALIAS_CANCEL_BUTTON = 31;
+const JOB_ALIAS_COST = 43;
+const JOB_ALIAS_MODIFY_ROW = [ 40, 41, 42, JOB_ALIAS_COST ];
 // The smith's avatar magic option window (CIFGrantMagicAttributeWnd).
 const GRANT_PANEL = "Magic option";
+// The panels that show the bag in the main popup beside their own window, and
+// every main popup page. One list each: the popup is drawn, takes its slots'
+// input and moves by its title bar for exactly these panels (a hand-copied
+// drag list once left the bag unmovable beside the warehouse).
+const INVENTORY_POPUP_PANELS: readonly string[] = [
+	"Inventory",
+	"Shop",
+	"Alchemy",
+	GRANT_PANEL,
+	"COS inventory",
+	"Storage"
+];
+const MAIN_POPUP_PANELS: readonly string[] = [
+	"Character",
+	"Party",
+	"Skills",
+	"Quests",
+	"Actions",
+	"Academy",
+	...INVENTORY_POPUP_PANELS
+];
+// The windows in which a dragged bag item is carried as an icon under the
+// pointer: every bag-popup panel, and CIFGhaCha, which embeds its own bag.
+const ITEM_CARRY_PANELS: readonly string[] = [ ...INVENTORY_POPUP_PANELS, "Magic Pang" ];
 // The slider's thumb travel inside GDR_SLIDER_CTRL (prev 2..22, next at 125).
 const SKIN_SLIDER_TRAVEL = 85;
+// CIFStall_OnCreate (5A2D60): the "Sell goods" tab's rect in the window.
+const STALL_TAB_X = 0x1c, STALL_TAB_Y = 0x56, STALL_TAB_W = 0x50, STALL_TAB_H = 0x18;
 // Item slot controls a carry can leave: inventory, avatar, storage, pet bag.
-const ITEM_SLOT_PREFIXES = [ "slot:", "avatar:", "storage-slot:", "cos-slot:" ] as const;
+const ITEM_SLOT_PREFIXES = [ "slot:", "avatar:", "storage-slot:", "cos-slot:", "gacha-bag:", "gacha-card" ] as const;
 const BUTTON_FOCUS = BUTTON.replace( ".png", "_focus.png" ),
 	BUTTON_PRESS = BUTTON.replace( ".png", "_press.png" ),
 	BUTTON_DISABLE = BUTTON.replace( ".png", "_disable.png" );
@@ -736,6 +867,69 @@ export function createUi(
 	let localBlocks: readonly string[] = [];
 	let blockTab: 0 | 1 = 0, blockOffset = 0, blockSelected = "", blockInput = "";
 	let blockDialog: "add" | "remove" | null = null;
+	// The Friends tab (CIFFriend, community panel member +0x7DC): the selected
+	// row's jid, the list scroll and the add/delete dialog.
+	let friendSelected = 0, friendOffset = 0, friendInput = "";
+	let friendDialog: "add" | "remove" | null = null;
+	// The Letter tab (CIFLetter, 605B80): the selected letter's mailbox index,
+	// the list scroll and sort, the write window's draft, and the letter the
+	// delete box asks about (-1 when none).
+	let letterSelected = -1, letterOffset = 0, letterSortByTime = false, letterSortDescending = false;
+	let letterDraft: { receiver: string; body: string; } | null = null, letterDeleting = -1;
+	/*
+	================
+	letterActivate
+
+	The Letter tab's buttons: the list (605B80), the read window (609BC0:
+	reply, delete), the write window (607B80) and the delete box (605C50).
+	A letter is named by its mailbox index throughout.
+	================
+	*/
+	function letterActivate( id: string ) {
+		const letters = view?.gameplay?.letters, rows = letters?.rows ?? [];
+		if ( id.startsWith( "letter-row:" ) ) letterSelected = Number( id.slice( 11 ) );
+		else if ( id === "letter-sort-sender" || id === "letter-sort-time" ) {
+			const byTime = id === "letter-sort-time";
+			letterSortDescending = letterSortByTime === byTime ? !letterSortDescending : false;
+			letterSortByTime = byTime;
+		} else if ( id === "letter-up" ) letterOffset = Math.max( 0, letterOffset - 1 );
+		else if ( id === "letter-down" ) letterOffset++;
+		else if ( id === "letter-write" || id === "letter-read-reply" ) {
+			const reading = letters && letters.reading >= 0 ? rows[letters.reading] : undefined;
+			letterDraft = { receiver: id === "letter-read-reply" ? reading?.sender ?? "" : "", body: "" };
+			if ( id === "letter-read-reply" ) sendGameplay( { kind: "letter-close" } );
+			focus = id === "letter-read-reply" ? LETTER_BODY_EDIT : "letter-receiver";
+			selection = [ 0, 0 ];
+			focusRequest = { id: focus, revision: ++focusRevision, caret: 0 };
+		} else if ( id === "letter-read" ) {
+			if ( rows[letterSelected] ) sendGameplay( { kind: "letter-read", index: letterSelected } );
+		} else if ( id === "letter-delete" ) {
+			if ( rows[letterSelected] ) letterDeleting = letterSelected;
+		} else if ( id === "letter-read-delete" ) {
+			if ( letters && rows[letters.reading] ) letterDeleting = letters.reading;
+		} else if ( id === "letter-read-close" ) sendGameplay( { kind: "letter-close" } );
+		else if ( id === "letter-write-send" && letterDraft ) {
+			sendGameplay( { kind: "letter-send", receiver: letterDraft.receiver, body: letterDraft.body } );
+			// A refused draft stays open with its notice (60D270); only a draft
+			// that leaves as a frame closes.
+			if ( letterSend( letterDraft.receiver, letterDraft.body ) ) {
+				letterDraft = null;
+				focus = null;
+				focusRequest = { id: null, revision: ++focusRevision, caret: 0 };
+			}
+		} else if ( id === "letter-write-cancel" ) {
+			letterDraft = null;
+			focus = null;
+			focusRequest = { id: null, revision: ++focusRevision, caret: 0 };
+		} else if ( id === "letter-delete-ok" && letterDeleting >= 0 ) {
+			sendGameplay( { kind: "letter-delete", index: letterDeleting } );
+			letterDeleting = -1;
+		} else if ( id === "letter-delete-cancel" ) letterDeleting = -1;
+	}
+	// 6A5990: the pet being named, and whether its name box or its
+	// "can not change" confirm (6A59E0) is up.
+	let petNameDialog: { readonly gid: number; readonly phase: "input" | "confirm"; } | null = null,
+		petNameInput = "";
 	let options = initialGameOptions(), optionDraft = options;
 	let optionTab = 0;
 	let optionScroll = [ 0, 0 ];
@@ -911,6 +1105,7 @@ export function createUi(
 	const unionHud = createUnionHud();
 	const guildWarHud = createGuildWarHud();
 	const exchangeHud = createExchangeHud();
+	const gachaHud = createGachaHud();
 	const stallHud = createStallHud();
 	const grantPowerHud = createGrantPowerHud();
 	const compositeItemHud = createCompositeItemHud();
@@ -1078,6 +1273,24 @@ export function createUi(
 	let structureRemoval: { gid: number; action: number; fortress: number; name: string; } | null = null;
 	/*
 	================
+	followStorageMove
+
+	Turns the warehouse or the bag to the page a quick move lands on
+	(storageMovePages), so a port-only cross-page placement never looks like
+	the item vanished.
+	================
+	*/
+	function followStorageMove( move: StorageMove, game: NonNullable<UiView["gameplay"]> ) {
+		const capacity = game.storage?.capacity ?? 0;
+		const pages = storageMovePages( move, game, {
+			storagePage: storagePanel.page( capacity ),
+			bagPage: inventoryPage
+		} );
+		if ( pages.storagePage !== undefined ) storagePanel.show( pages.storagePage, capacity );
+		if ( pages.bagPage !== undefined ) inventoryPage = pages.bagPage;
+	}
+	/*
+	================
 	carriedRow
 
 	The item row a carry shows, read from the container its source names.
@@ -1140,6 +1353,12 @@ export function createUi(
 	let splitStack: { slot: number; refObjId: number; quantity: number; } | null = null, splitAmount = "1";
 	let shopOpenRequest: { gid: number; tab: number; revision: number; } | null = null;
 	let shopWarning: { selection: MerchantSelection; name: string; quick: boolean; } | null = null;
+	// CIFCosBag's sell-all (cos-trade-info.ts): the confirm box, then the run
+	// over the transport sellAllGid, one stack in flight.
+	let sellAllPhase: "confirm" | "selling" | null = null, sellAllGid = 0;
+	let sellAllRun: SellAllRun | null = null;
+	// 649C40: the buy-all progress box, up while a purchase past one stack deals.
+	let allBuyProgress = false;
 	let shopPage = 0, shopTab = 0, shopDialog = false, shopChoice: MerchantSelection | null = null, shopQuantity = "1";
 	let shopPosition: readonly [number, number] | null = null;
 	let cosTab = 1,
@@ -1155,10 +1374,7 @@ export function createUi(
 		alchemySlots: number[] = [],
 		alchemyQuantity = "1",
 		processPage = 0,
-		gachaPage = 0,
-		gachaWasVisible = false,
-		gachaEntry = 1,
-		gachaSlot = -1;
+		gachaWasVisible = false;
 	let selectedAction = 4000;
 	let partyMatchSelection = 0, partyMatchOffset = 0;
 	let partyMatchSort: keyof PartyListing = "id", partyMatchDescending = false;
@@ -1309,8 +1525,29 @@ export function createUi(
 	canLeavePanel
 	================
 	*/
+	/*
+	================
+	gachaInput
+
+	What the Magic Pang hud reads each frame: the worker's roll state, the simulation
+	clock it stamped `started` with, and bag lookups.
+	================
+	*/
+	function gachaInput() {
+		const gameplay = view?.gameplay;
+		return {
+			gacha: gameplay?.gacha,
+			now: view?.simulationTimeMs ?? uiNow,
+			items: gameplay?.inventory ?? []
+		};
+	}
+	/*
+	================
+	canLeavePanel
+	================
+	*/
 	function canLeavePanel() {
-		return panel !== "Magic Pop" || ![ "rolling", "waiting" ].includes( view?.gameplay?.gacha?.phase ?? "" );
+		return panel !== "Magic Pang" || ![ "rolling", "waiting" ].includes( view?.gameplay?.gacha?.phase ?? "" );
 	}
 	/*
 	================
@@ -1527,6 +1764,10 @@ export function createUi(
 		blockDialog = null;
 		blockSelected = "";
 		blockOffset = 0;
+		friendDialog = null;
+		letterDraft = null;
+		letterDeleting = -1;
+		petNameDialog = null;
 		if ( shopDialog || shopWarning ) closeShopDialog();
 		guildDialog = "";
 		guildNoticeHud.close();
@@ -1547,7 +1788,7 @@ export function createUi(
 		carriedItem = null;
 		if ( panel === "Option" ) audioPreference( audioSaved, false );
 		if ( panel === "Alchemy" ) sendGameplay( { kind: "alchemy-close" } );
-		if ( panel === "Magic Pop" ) sendGameplay( { kind: "gacha-close" } );
+		if ( panel === "Magic Pang" ) sendGameplay( { kind: "gacha-close" } );
 		if ( panel === GRANT_PANEL ) sendGameplay( { kind: "magic-option-close" } );
 		if ( panel && !next ) sound( "close" );
 		if ( !next ) {
@@ -1694,6 +1935,16 @@ export function createUi(
 		blockDialog = null;
 		blockSelected = "";
 		blockInput = "";
+		friendDialog = null;
+		friendSelected = 0;
+		friendOffset = 0;
+		friendInput = "";
+		letterSelected = -1;
+		letterOffset = 0;
+		letterDraft = null;
+		letterDeleting = -1;
+		petNameDialog = null;
+		petNameInput = "";
 		blockOffset = 0;
 		panel = "";
 		admittedWindows.clear();
@@ -2066,7 +2317,8 @@ export function createUi(
 		specialtyCombo = false;
 		if ( !deal || deal.mode !== "buy" || deal.dealing ) return;
 		const inputs = specialtyInputs( game );
-		const quantity = tradeScaleQuantity( {
+		// Port-only, not native: the shard's SRO_TRADE_TIERS gold scale.
+		const quantity = (game?.tradeTiers === true ? tradeTierQuantity : tradeScaleQuantity)( {
 			row,
 			basis: inputs.basis,
 			speed2: inputs.speed2,
@@ -2105,7 +2357,8 @@ export function createUi(
 		const started = specialtyDealHud.confirm( specialtyStock( game ), uiNow );
 		specialtyCombo = false;
 		if ( !started ) return;
-		if ( started.progress ) hudMessages.append( hudCopy( "UIIT_MSG_SPECIALTY_ALLBUY_PROGRESS_WINDOW" ) );
+		// 64A8F0 -> 649C40: a purchase past one stack raises the progress box.
+		allBuyProgress = started.progress;
 		sendSpecialtyChunk( started.chunk );
 	}
 	/*
@@ -2692,8 +2945,15 @@ export function createUi(
 			else if ( row === "dissolve" || row === "secede" || row === "release" ) guildManagerHud.ask( row, npc );
 			else if ( row === "compensation" ) sendGameplay( { kind: "guild-compensation", gid: npc } );
 			else if ( row === "vote" ) {
+				// 5DA1B0 case 0x1A: a vote whose candidates the client holds opens
+				// at once; otherwise the row asks for them (0x7332) and 0xB332
+				// opens the window (75CBD0).
 				const vote = social?.guild?.votes?.find( v => v.kind === MASTER_RELEASE_VOTE );
-				if ( vote ) guildManagerHud.showVote( vote.id, vote.remainingMs );
+				if ( vote?.candidates ) guildManagerHud.showVote( vote.id, vote.remainingMs, npc );
+				else if ( vote ) {
+					guildManagerHud.awaitVote( vote.id, npc );
+					sendGameplay( { kind: "guild-vote-join", vote: vote.id } );
+				}
 			} else if ( row === "warehouse" ) {
 				if ( !canLeavePanel() ) return;
 				sendGameplay( { kind: "storage-open-guild", gid: npc } );
@@ -2820,6 +3080,21 @@ export function createUi(
 			if ( id === "submit" ) id = "blocking-ok";
 			if ( ![ "blocking-ok", "blocking-cancel" ].includes( id ) ) return;
 		}
+		if ( friendDialog ) {
+			if ( id === "submit" ) id = "friend-ok";
+			if ( ![ "friend-ok", "friend-cancel" ].includes( id ) ) return;
+		}
+		if ( letterDeleting >= 0 ) {
+			if ( id === "submit" ) id = "letter-delete-ok";
+			if ( ![ "letter-delete-ok", "letter-delete-cancel" ].includes( id ) ) return;
+		}
+		// Enter in the write window's receiver field sends nothing: the original
+		// sends only from its Send button (607B80).
+		if ( id === "submit" && letterDraft && panel === "Guild" && guildTab === 5 ) return;
+		if ( petNameDialog ) {
+			if ( id === "submit" ) id = "pet-name-ok";
+			if ( ![ "pet-name-ok", "pet-name-cancel" ].includes( id ) ) return;
+		}
 		if ( id === "submit" && consolePhase !== 0 && view.gameplay?.eligibility?.gm ) {
 			if ( consoleText && !composing ) {
 				appendConsoleLine( consoleText );
@@ -2861,7 +3136,74 @@ export function createUi(
 			dirty = true;
 			return;
 		}
-		if ( id.startsWith( "blocking-tab:" ) ) {
+		if ( id.startsWith( "friend-row:" ) ) friendSelected = Number( id.slice( 11 ) );
+		// 605230 re-sorts by name, always ascending (the list is drawn sorted).
+		else if ( id === "friend-sort" ) friendOffset = 0;
+		else if ( id === "friend-up" ) friendOffset = Math.max( 0, friendOffset - 1 );
+		else if ( id === "friend-down" ) friendOffset++;
+		else if ( id === "friend-whisper" ) {
+			const row = view.gameplay?.friends?.rows.find( r => r.jid === friendSelected );
+			if ( row ) beginWhisper( row.name );
+		} else if ( id === "friend-add" || id === "friend-remove" ) {
+			if ( id === "friend-remove" && !view.gameplay?.friends?.rows.some( r => r.jid === friendSelected ) ) return;
+			friendDialog = id === "friend-add" ? "add" : "remove";
+			// 602010: the add box opens with the selected player's name, or a
+			// selected mounted pet's rider (friendAddPrefill).
+			friendInput = friendDialog === "add" ?
+				friendAddPrefill( view.gameplay?.target, view.entities ?? [], view.gameplay?.localGid ) :
+				"";
+			focus = friendDialog === "add" ? "friend-name" : null;
+			selection = [ friendInput.length, friendInput.length ];
+			focusRequest = { id: focus, revision: ++focusRevision, caret: friendInput.length };
+		} else if ( id === "cos-name" ) {
+			// 6A5990: the name box for the shown, still unnamed pet.
+			const record = view.gameplay?.cosRecords?.find( r => r.gid === cosGid );
+			if ( !record || record.name || (record.band !== 3 && record.band !== 4) ) return;
+			petNameDialog = { gid: record.gid, phase: "input" };
+			petNameInput = "";
+			focus = "pet-name";
+			selection = [ 0, 0 ];
+			focusRequest = { id: focus, revision: ++focusRevision, caret: 0 };
+		} else if ( id === "pet-name-cancel" ) {
+			petNameDialog = null;
+			focus = null;
+			focusRequest = { id: null, revision: ++focusRevision, caret: 0 };
+		} else if ( id === "pet-name-ok" && petNameDialog ) {
+			if ( petNameDialog.phase === "input" ) {
+				// 6A59E0: 2..12 characters under the name rules (12:14), then the
+				// one-time confirm.
+				const rules = hud.data()?.nameRules;
+				if ( !rules ) return;
+				const key = petNameError( petNameInput, rules );
+				if ( key ) {
+					hudMessages.append( hudCopy( key ) );
+					dirty = true;
+					return;
+				}
+				petNameDialog = { ...petNameDialog, phase: "confirm" };
+				focus = null;
+				focusRequest = { id: null, revision: ++focusRevision, caret: 0 };
+			} else {
+				// 6A5570: Yes sends 0x7571.
+				sendGameplay( { kind: "cos-name", gid: petNameDialog.gid, name: petNameInput } );
+				petNameDialog = null;
+			}
+		} else if ( id === "friend-cancel" ) {
+			friendDialog = null;
+			focus = null;
+			focusRequest = { id: null, revision: ++focusRevision, caret: 0 };
+		} else if ( id === "friend-ok" && friendDialog ) {
+			if ( friendDialog === "add" ) {
+				if ( friendInput.trim() ) sendGameplay( { kind: "friend-request", name: friendInput.trim() } );
+			} else if ( friendSelected ) sendGameplay( { kind: "friend-delete", jid: friendSelected } );
+			friendDialog = null;
+			focus = null;
+			focusRequest = { id: null, revision: ++focusRevision, caret: 0 };
+		} else if ( id === "friend-accept" || id === "friend-refuse" ) {
+			sendGameplay( { kind: "friend-answer", accept: id === "friend-accept" } );
+		} else if ( id.startsWith( "letter-" ) ) {
+			letterActivate( id );
+		} else if ( id.startsWith( "blocking-tab:" ) ) {
 			blockTab = id === "blocking-tab:1" ? 1 : 0;
 			blockSelected = "";
 			blockOffset = 0;
@@ -3068,6 +3410,13 @@ export function createUi(
 				timing: (potionDraft.timing & 128) |
 					Math.max( 5, Math.min( 95, (potionDraft.timing & 127) + (id === "potion-time-up" ? 5 : -5) ) )
 			};
+		} else if ( id === "gacha-exchange" && view.gameplay?.target ) {
+			// 5DB662: 642270 looks for a voucher in the bag first; with none the talk window says so.
+			const gid = view.gameplay.target;
+			if ( view.gameplay.inventory.some( row => row.slot >= 13 && isGachaVoucher( row.typeFlags ) ) ) {
+				gachaHud.clearNoVoucher();
+				sendGameplay( { kind: "gacha-exchange", gid } );
+			} else gachaHud.noVoucher( gid );
 		} else if ( id === "gacha-open" && view.gameplay?.target ) {
 			sendGameplay( { kind: "gacha-open", gid: view.gameplay.target } );
 		} else if ( id.startsWith( "alchemy-mode:" ) ) {
@@ -3094,12 +3443,14 @@ export function createUi(
 					{ quantity: Number( alchemyQuantity ) } :
 					{})
 			} );
-		} else if ( id.startsWith( "gacha-prize:" ) ) gachaEntry = Number( id.slice( 12 ) );
-		else if ( id.startsWith( "gacha-card:" ) ) gachaSlot = Number( id.slice( 11 ) );
-		else if ( id === "gacha-prev" ) gachaPage = Math.max( 0, gachaPage - 1 );
-		else if ( id === "gacha-next" ) gachaPage++;
-		else if ( id === "gacha-roll" ) sendGameplay( { kind: "gacha-roll", entry: gachaEntry, slot: gachaSlot } );
-		else if ( id === "process-next" ) processPage++;
+		} else if ( id.startsWith( "gacha-prize:" ) ) {
+			// 642550: a prize slot click while no roll is in flight.
+			gachaHud.select( Number( id.slice( 12 ) ), gachaHud.frame( gachaInput() ).busy );
+		} else if ( id.startsWith( "gacha-bag-page:" ) ) gachaHud.setBag( Number( id.slice( 15 ) ) );
+		else if ( id === "gacha-play" ) {
+			const roll = gachaHud.play( gachaInput() );
+			if ( roll ) sendGameplay( { kind: "gacha-roll", ...roll } );
+		} else if ( id === "process-next" ) processPage++;
 		else if ( id === "process-prev" ) processPage = Math.max( 0, processPage - 1 );
 		else if ( id === "invite-accept" || id === "invite-refuse" || id === "invite-close" ) {
 			sendGameplay( { kind: "social-consent", accept: id === "invite-accept" } );
@@ -3132,17 +3483,26 @@ export function createUi(
 			sendGameplay( { kind: "party-leave" } );
 		} else if ( id.startsWith( "party-member-kick:" ) ) {
 			sendGameplay( { kind: "party-kick", id: Number( id.slice( 18 ) ) } );
-		} else if ( [ "party-leave", "party-kick", "guild-leave", "guild-dissolve", "guild-kick" ].includes( id ) ) {
-			if ( confirmSocial !== id ) confirmSocial = id;
-			else {
-				const gid = view.gameplay?.target ?? 0,
-					member = view.gameplay?.social?.guild?.members.find( m => m.id === socialMember );
-				if ( id === "party-leave" ) sendGameplay( { kind: id } );
-				else if ( id === "party-kick" ) sendGameplay( { kind: id, id: socialMember } );
-				else if ( id === "guild-kick" && member ) sendGameplay( { kind: id, name: member.name } );
-				else if ( id === "guild-leave" || id === "guild-dissolve" ) sendGameplay( { kind: id, gid } );
-				confirmSocial = "";
+		} else if ( id === "party-leave" ) {
+			// The social window's leave asks nothing, as the party window's does.
+			sendGameplay( { kind: id } );
+		} else if ( [ "party-kick", "guild-leave", "guild-dissolve", "guild-kick" ].includes( id ) ) {
+			// The question box below (socialQuestion) asks first; a ban needs a
+			// selected member to name.
+			const member = view.gameplay?.social?.guild?.members.find( m => m.id === socialMember );
+			if ( id !== "guild-kick" || member ) confirmSocial = id;
+		} else if ( id === "social-confirm-yes" ) {
+			const gid = view.gameplay?.target ?? 0,
+				member = view.gameplay?.social?.guild?.members.find( m => m.id === socialMember );
+			if ( confirmSocial === "party-kick" ) sendGameplay( { kind: confirmSocial, id: socialMember } );
+			else if ( confirmSocial === "guild-kick" && member ) {
+				sendGameplay( { kind: confirmSocial, name: member.name } );
+			} else if ( confirmSocial === "guild-leave" || confirmSocial === "guild-dissolve" ) {
+				sendGameplay( { kind: confirmSocial, gid } );
 			}
+			confirmSocial = "";
+		} else if ( id === "social-confirm-no" ) {
+			confirmSocial = "";
 		} else if ( id === "guild-create" ) {
 			sendGameplay( { kind: id, gid: view.gameplay?.target ?? 0, name: socialName } );
 		} else if ( id === "guild-invite" && view.gameplay?.target ) {
@@ -3552,7 +3912,8 @@ export function createUi(
 		else if ( id === "chat-whispers" ) whispersOpen = !whispersOpen;
 		else if ( id.startsWith( "whisper-name:" ) ) {
 			beginWhisper( id.slice( 13 ) );
-		} else if ( id.startsWith( "chat-line:" ) ) {
+		} else if ( id.startsWith( "chat-line:" ) || id.startsWith( "notice-name:" ) ) {
+			// A named line, or a notice's linked player (port-only, notice-links.ts).
 			const recipient = controls.find( control => control.id === id && !control.disabled )?.whisperTarget;
 			if ( recipient ) beginWhisper( recipient );
 		} else if ( id === "status-filter" ) statusFilterOpen = !statusFilterOpen;
@@ -4242,6 +4603,14 @@ export function createUi(
 					Math.max( 1, Math.min( q.maximum, Number( shopQuantity ) + (id === "shop-quantity-up" ? 1 : -1) ) )
 				);
 			}
+		} else if ( id === "cos-allsell" ) {
+			// 6A92D0: the confirm box, only while the special trade is open.
+			const gid = view.gameplay?.shop?.cosGid;
+			if ( gid ) {
+				sellAllPhase = "confirm";
+				sellAllGid = gid;
+				sellAllRun = null;
+			}
 		} else if ( id.startsWith( "cos-tab:" ) ) {
 			cosTab = Number( id.slice( 8 ) );
 			// A training page refreshes the wolf's state (cooldowns, new levels).
@@ -4585,6 +4954,51 @@ export function createUi(
 				// Message box 0x1E owns input until a destination or Cancel wins.
 				return;
 			}
+			if ( allBuyProgress && specialtyDealHud.state()?.dealing ) {
+				// 649150: Cancel on the progress box closes the deal window
+				// (CIFWnd_CloseOwnedMessageBox), as a finished deal does.
+				if (
+					event.kind === "key" && event.code === "Escape" ||
+					event.kind === "activate" && event.id === "specialty-allbuy-cancel"
+				) {
+					allBuyProgress = false;
+					specialtyDealHud.close();
+					specialtyCombo = false;
+					dirty = true;
+					return;
+				}
+				if (
+					event.kind === "key" || event.kind === "activate" || event.kind === "double-activate" ||
+					event.kind === "right-activate" || event.kind === "scroll" || event.kind === "drag" ||
+					event.kind === "drag-end" || event.kind === "edit"
+				) return;
+			}
+			if ( sellAllPhase !== null ) {
+				// 6A9120: No on the confirm, or Cancel on the progress box, ends it.
+				if (
+					event.kind === "key" && event.code === "Escape" ||
+					event.kind === "activate" && (event.id === "cos-allsell-no" || event.id === "cos-allsell-cancel")
+				) {
+					sellAllPhase = null;
+					sellAllRun = null;
+					dirty = true;
+					return;
+				}
+				if (
+					sellAllPhase === "confirm" && (event.kind === "key" && event.code === "Enter" && !composing ||
+						event.kind === "activate" && event.id === "cos-allsell-yes")
+				) {
+					sellAllPhase = "selling";
+					sellAllRun = null;
+					dirty = true;
+					return;
+				}
+				if (
+					event.kind === "key" || event.kind === "activate" || event.kind === "double-activate" ||
+					event.kind === "right-activate" || event.kind === "scroll" || event.kind === "drag" ||
+					event.kind === "drag-end" || event.kind === "edit"
+				) return;
+			}
 			if ( shopWarning ) {
 				if (
 					event.kind === "key" && event.code === "Escape" ||
@@ -4793,6 +5207,34 @@ export function createUi(
 					dirty = true;
 					return;
 				}
+				const election = guildManagerHud.vote();
+				if ( election ) {
+					const candidates = view?.gameplay?.social?.guild?.votes?.find( v =>
+						v.id === election.id
+					)?.candidates ?? [];
+					if ( event.kind === "activate" && event.id.startsWith( "guild-election-pick:" ) ) {
+						guildManagerHud.pickCandidate( Number( event.id.slice( 20 ) ) );
+						dirty = true;
+						return;
+					}
+					if (
+						event.kind === "scroll" ||
+						event.kind === "activate" &&
+							[ "guild-election-up", "guild-election-down" ].includes( event.id ) ||
+						event.kind === "drag" && event.id === "guild-election-thumb"
+					) {
+						const delta = event.kind === "scroll" ?
+							Math.sign( event.delta ) :
+							event.kind === "drag" ?
+							event.dy * Math.max( 0, candidates.length - 7 ) / 116 :
+							event.id.endsWith( "-up" ) ?
+							-1 :
+							1;
+						guildManagerHud.electionPosition( candidates.length, delta );
+						dirty = true;
+						return;
+					}
+				}
 				if ( guildManagerHud.field()?.kind === "master-leave" && !guildManagerHud.field()?.confirmed ) {
 					const members = view?.gameplay?.social?.guild?.members.filter( m => m.grade !== 0 ) ?? [];
 					if ( event.kind === "activate" && event.id.startsWith( "guild-transfer-member:" ) ) {
@@ -4824,9 +5266,18 @@ export function createUi(
 					event.kind === "activate" && event.id === "guild-manager-yes"
 				) {
 					dirty = true;
-					if ( guildManagerHud.vote() ) {
-						// 5EFF00 leaves the election open until a candidate is selected.
-						// v1.150's decoded vote state supplies no candidate list.
+					const election = guildManagerHud.vote();
+					if ( election ) {
+						// 5EFF00 sends the ticked candidate's option as the 0x7330 ballot;
+						// with none ticked the window stays open.
+						if ( election.option === null || view?.session?.phase !== "world" ) return;
+						sendGameplay( {
+							kind: "guild-vote",
+							gid: election.npc,
+							vote: election.id,
+							option: election.option
+						} );
+						guildManagerHud.reset();
 						return;
 					}
 					if ( view?.session?.phase !== "world" ) return;
@@ -4961,10 +5412,26 @@ export function createUi(
 				}
 			}
 			const aliasWindow = jobHud.alias();
-			if ( aliasWindow !== null ) {
+			if ( aliasWindow !== null && aliasWindow.confirming ) {
+				// 645BA0: Yes sends the checked name (mode 1) and closes the window;
+				// either answer closes the box.
+				const yes = event.kind === "activate" && event.id === "job-alias-yes";
+				if (
+					yes || event.kind === "activate" && event.id === "job-alias-no" ||
+					event.kind === "key" && event.code === "Escape"
+				) {
+					const sent = jobHud.answerAliasConfirm( yes );
+					if ( sent && view?.session?.phase === "world" ) {
+						sendGameplay( { kind: "job-alias", gid: sent.npc, mode: JOB_ALIAS_CREATE, alias: sent.alias } );
+					}
+					dirty = true;
+					return;
+				}
+				if ( event.kind === "activate" ) return;
+			} else if ( aliasWindow !== null ) {
 				if (
 					event.kind === "key" && event.code === "Escape" ||
-					event.kind === "activate" && event.id === "job-alias-cancel"
+					event.kind === "activate" && (event.id === "job-alias-cancel" || event.id === "job-alias-close")
 				) {
 					jobHud.closeAlias();
 					dirty = true;
@@ -4975,20 +5442,31 @@ export function createUi(
 					dirty = true;
 					return;
 				}
-				if ( event.kind === "activate" && (event.id === "job-alias-check" || event.id === "job-alias-ok") ) {
-					// 6461C0 asks whether the name is free (mode 0); 646470 takes it (mode 1).
-					if ( aliasWindow.text && view?.session?.phase === "world" ) {
+				if ( event.kind === "activate" && event.id === "job-alias-check" ) {
+					// 6461C0 asks whether the name is free (mode 0).
+					const rules = hud.data()?.nameRules;
+					if ( !rules ) return;
+					const check = jobAliasCheck( aliasWindow.text, aliasWindow.checked, rules );
+					if ( check.notice ) hudMessages.append( hudCopy( check.notice.key ) );
+					if ( check.send && view?.session?.phase === "world" ) {
 						sendGameplay( {
 							kind: "job-alias",
 							gid: aliasWindow.npc,
-							mode: event.id === "job-alias-ok" ? JOB_ALIAS_CREATE : JOB_ALIAS_CHECK,
+							mode: JOB_ALIAS_CHECK,
 							alias: aliasWindow.text
 						} );
-						if ( event.id === "job-alias-ok" ) jobHud.closeAlias();
 					}
 					dirty = true;
 					return;
 				}
+				if ( event.kind === "activate" && event.id === "job-alias-ok" ) {
+					// 646810 -> 646470: the create or modify confirm, for a checked name.
+					jobHud.openAliasConfirm();
+					dirty = true;
+					return;
+				}
+				// Inferred: the window opens from the NPC talk, which holds input until
+				// the talk ends, so other controls wait as they did behind the old box.
 				if ( event.kind === "activate" ) return;
 			}
 			if ( repairHud.confirmCost() !== null ) {
@@ -5405,6 +5883,79 @@ export function createUi(
 					![ "blocking-ok", "blocking-cancel", "blocking-name", "submit" ].includes( event.id )
 				) return;
 			}
+			if ( petNameDialog ) {
+				if ( event.kind === "key" ) {
+					if ( event.code === "Escape" ) activate( "pet-name-cancel" );
+					else if ( event.code === "Enter" && !composing ) activate( "pet-name-ok" );
+					return;
+				}
+				if (
+					event.kind === "scroll" || event.kind === "drag" || event.kind === "drag-end" ||
+					event.kind === "double-activate"
+				) return;
+				if (
+					"id" in event && event.id !== null &&
+					![ "pet-name-ok", "pet-name-cancel", "pet-name", "submit" ].includes( event.id )
+				) return;
+			}
+			if ( friendDialog ) {
+				if ( event.kind === "key" ) {
+					if ( event.code === "Escape" ) activate( "friend-cancel" );
+					else if ( event.code === "Enter" && !composing ) activate( "friend-ok" );
+					return;
+				}
+				if (
+					event.kind === "scroll" || event.kind === "drag" || event.kind === "drag-end" ||
+					event.kind === "double-activate"
+				) return;
+				if (
+					"id" in event && event.id !== null &&
+					![ "friend-ok", "friend-cancel", "friend-name", "submit" ].includes( event.id )
+				) return;
+			}
+			if ( letterDeleting >= 0 ) {
+				if ( event.kind === "key" ) {
+					if ( event.code === "Escape" ) activate( "letter-delete-cancel" );
+					else if ( event.code === "Enter" && !composing ) activate( "letter-delete-ok" );
+					return;
+				}
+				if (
+					event.kind === "scroll" || event.kind === "drag" || event.kind === "drag-end" ||
+					event.kind === "double-activate"
+				) return;
+				if (
+					"id" in event && event.id !== null &&
+					![ "letter-delete-ok", "letter-delete-cancel", "submit" ].includes( event.id )
+				) return;
+			}
+			if ( event.kind === "drag" && event.id === "letter-thumb" && panel === "Guild" ) {
+				const extra = Math.max( 0, (view?.gameplay?.letters?.rows.length ?? 0) - LETTER_VISIBLE_ROWS );
+				letterOffset = Math.max( 0, Math.min( extra, letterOffset + event.dy * extra / FRIEND_SCROLL_TRACK ) );
+				dirty = true;
+				return;
+			}
+			if ( event.kind === "scroll" && panel === "Guild" && guildTab === 5 ) {
+				const area = controls.find( c => c.id === "letter-list" );
+				if ( area && containsPoint( area.rect, event.x, event.y ) ) {
+					letterOffset = Math.max( 0, letterOffset + Math.sign( event.delta ) );
+					dirty = true;
+					return;
+				}
+			}
+			if ( event.kind === "drag" && event.id === "friend-thumb" && panel === "Guild" ) {
+				const extra = Math.max( 0, (view?.gameplay?.friends?.rows.length ?? 0) - FRIEND_VISIBLE_ROWS );
+				friendOffset = Math.max( 0, Math.min( extra, friendOffset + event.dy * extra / FRIEND_SCROLL_TRACK ) );
+				dirty = true;
+				return;
+			}
+			if ( event.kind === "scroll" && panel === "Guild" && guildTab === 3 ) {
+				const area = controls.find( c => c.id === "friend-list" );
+				if ( area && containsPoint( area.rect, event.x, event.y ) ) {
+					friendOffset = Math.max( 0, friendOffset + Math.sign( event.delta ) );
+					dirty = true;
+					return;
+				}
+			}
 			if ( event.kind === "drag" && event.id === "blocking-thumb" && panel === "Blocking" ) {
 				const rows = blockTab === 0 ? view?.gameplay?.chat?.blocked ?? [] : localBlocks;
 				blockOffset = Math.max(
@@ -5699,6 +6250,37 @@ export function createUi(
 					dirty = true;
 					return;
 				}
+				// 645180: a bag item released on the card slot registers it, whether it came from this
+				// window's bag or the main one (the source only has to be a bag slot); the slot's own item
+				// released anywhere else over the window empties it. Both ignore the release while a roll is in flight.
+				if ( panel === "Magic Pang" ) {
+					const target = topmostControlAt( controls, event.x, event.y ),
+						fromBag = event.id.startsWith( "gacha-bag:" ) || event.id.startsWith( "slot:" );
+					if ( fromBag && target?.id.startsWith( "gacha-" ) && !target.id.startsWith( "gacha-bag:" ) ) {
+						const input = gachaInput(),
+							current = gachaHud.frame( input ),
+							slot = Number( event.id.slice( event.id.indexOf( ":" ) + 1 ) );
+						gachaHud.drop(
+							slot,
+							input.items.find( row => row.slot === slot ),
+							current.busy,
+							current.state === 2
+						);
+						carriedItem = null;
+						dirty = true;
+						return;
+					}
+					if ( event.id === "gacha-card" || event.id.startsWith( "gacha-bag:" ) ) {
+						if (
+							event.id === "gacha-card" && target && target.id !== "gacha-card" &&
+							(target.id.startsWith( "gacha-" ) || target.id.startsWith( "slot:" ))
+						) {
+							gachaHud.clearCard( gachaHud.frame( gachaInput() ).busy );
+						}
+						dirty = true;
+						return;
+					}
+				}
 				// CIFStall: an offer dragged back onto the bag leaves the stall.
 				if ( event.id.startsWith( "stall-slot:" ) && view?.gameplay?.stall?.phase === "owner" ) {
 					const target = topmostControlAt( controls, event.x, event.y ),
@@ -5783,7 +6365,7 @@ export function createUi(
 				if (
 					carried &&
 					(carried.avatar ? event.id.startsWith( "avatar:" ) : event.id === "slot:" + carried.slot) &&
-					[ "Inventory", "Shop", "Alchemy", GRANT_PANEL, "COS inventory", "Storage" ].includes( panel ) &&
+					INVENTORY_POPUP_PANELS.includes( panel ) &&
 					view?.session?.phase === "world" && !view.gameplay?.inventoryPending && controls.some( c =>
 						c.id === event.id && c.draggable && !c.disabled
 					)
@@ -5932,6 +6514,32 @@ export function createUi(
 						dirty = true;
 						return;
 					}
+					// Port-only (Experimental "Drop on bag tabs"): a drop on the other
+					// page's tab sends the item to that page's first free slot.
+					if (
+						item && target?.id.startsWith( "inventory-page:" ) && !target.disabled &&
+						experimental.state().saved.dropOnBagTab
+					) {
+						const page = Number( target.id.slice( 15 ) ),
+							destination = bagTabDropSlot(
+								game.inventory,
+								game.inventorySlotCount ?? 0,
+								equipmentEnd,
+								page,
+								carried.slot
+							);
+						if ( destination !== null ) {
+							inventoryPage = page;
+							sendGameplay( {
+								kind: "inventory-move",
+								source: carried.slot,
+								destination,
+								quantity: item.quantity
+							} );
+						}
+						dirty = true;
+						return;
+					}
 					if (
 						item && target?.id.startsWith( "slot:" ) && !target.disabled &&
 						Number( target.id.slice( 5 ) ) !== carried.slot
@@ -6071,12 +6679,14 @@ export function createUi(
 			}
 			if (
 				event.kind === "drag" && ITEM_SLOT_PREFIXES.some( prefix => event.id.startsWith( prefix ) ) &&
-				[ "Inventory", "Shop", "Alchemy", GRANT_PANEL, "COS inventory", "Storage" ].includes( panel )
+				ITEM_CARRY_PANELS.includes( panel )
 			) {
 				const node = controls.find( c => c.id === event.id && !c.disabled && c.draggable );
 				if ( !node ) return;
 				const avatar = event.id.startsWith( "avatar:" ),
-					slot = avatar ?
+					slot = event.id === "gacha-card" ?
+						gachaHud.frame( gachaInput() ).cardSlot :
+						avatar ?
 						view?.gameplay?.avatarInventory?.find( i =>
 							i.typeFlags >>> 11 === Number( event.id.slice( 7 ) )
 						)?.slot :
@@ -6156,19 +6766,8 @@ export function createUi(
 				return;
 			}
 			if (
-				event.kind === "drag" && event.id === "main-popup-drag" &&
-				[
-					"Character",
-					"Inventory",
-					"Party",
-					"Skills",
-					"Quests",
-					"Actions",
-					"Academy",
-					"Shop",
-					"Alchemy",
-					"COS inventory"
-				].includes( panel ) && view
+				event.kind === "drag" && event.id === "main-popup-drag" && MAIN_POPUP_PANELS.includes( panel ) &&
+				view
 			) {
 				const x = popupPosition?.[0] ?? Math.max( 42, view.width - 388 ),
 					y = popupPosition?.[1] ?? Math.max( 0, view.height - 478 );
@@ -6456,7 +7055,10 @@ export function createUi(
 							autoStack: view.gameplay.storageAutoStack === true
 						}
 					);
-					if ( move ) sendGameplay( { kind: "storage-move", move } );
+					if ( move ) {
+						sendGameplay( { kind: "storage-move", move } );
+						followStorageMove( move, view.gameplay );
+					}
 					carriedItem = null;
 					inventorySlot = -1;
 					dirty = true;
@@ -6589,7 +7191,10 @@ export function createUi(
 							autoStack: view.gameplay.storageAutoStack === true
 						}
 					);
-					if ( move ) sendGameplay( { kind: "storage-move", move } );
+					if ( move ) {
+						sendGameplay( { kind: "storage-move", move } );
+						followStorageMove( move, view.gameplay );
+					}
 					return;
 				}
 				if ( event.id.startsWith( "slot:" ) ) {
@@ -6683,6 +7288,14 @@ export function createUi(
 					}
 				} else if ( event.id === "blocking-name" && blockDialog === "add" ) {
 					blockInput = event.value.slice( 0, 13 );
+				} else if ( event.id === "pet-name" && petNameDialog?.phase === "input" ) {
+					petNameInput = event.value.slice( 0, PET_NAME_MAX );
+				} else if ( event.id === "friend-name" && friendDialog === "add" ) {
+					friendInput = event.value.slice( 0, FRIEND_NAME_LIMIT );
+				} else if ( event.id === "letter-receiver" && letterDraft ) {
+					letterDraft = { ...letterDraft, receiver: clampLetterText( event.value, LETTER_RECEIVER_LIMIT ) };
+				} else if ( event.id === LETTER_BODY_EDIT && letterDraft ) {
+					letterDraft = { ...letterDraft, body: clampLetterText( event.value, LETTER_BODY_LIMIT ) };
 				} else if ( event.id === "academy-name" ) academyName = event.value;
 				else if ( event.id === "alchemy-quantity" ) alchemyQuantity = event.value;
 				else if ( event.id === FORTRESS_TAX_RATE && panel === FORTRESS_TAX_PANEL ) {
@@ -6998,6 +7611,7 @@ export function createUi(
 					undefined
 			);
 			// A collected outcome closes the talk (75D5C0); a rank answer opens its window.
+			jobHud.observeChecked( next.gameplay?.jobAliasChecked );
 			if ( jobHud.observe( next.gameplay?.jobRanks?.opened, next.gameplay?.jobOutcome ) ) {
 				sendGameplay( { kind: "npc-close" } );
 				dirty = true;
@@ -7031,6 +7645,27 @@ export function createUi(
 				storagePanel.reset();
 				setPanel( "Storage" );
 				dirty = true;
+			}
+			if ( sellAllPhase === "selling" ) {
+				// 6A85E0 / 758BD5: one whole stack at a time; leaving the special
+				// trade (6A7D40) or the transport ends the run.
+				const game = next.gameplay, record = game?.cosRecords?.find( r => r.gid === sellAllGid );
+				const step = !record || game?.shop?.cosGid !== sellAllGid ?
+					{ kind: "done" as const } :
+					sellAllStep( sellAllRun, cosCargoRows( record.inventory ?? [] ), !!game.inventoryPending, now );
+				if ( step.kind === "send" ) {
+					sendGameplay( {
+						kind: "cos-shop-sell",
+						gid: sellAllGid,
+						slot: step.row.slot,
+						quantity: step.row.quantity
+					} );
+					sellAllRun = { slot: step.row.slot, quantity: step.row.quantity, sentAt: now };
+				} else if ( step.kind === "done" ) {
+					sellAllPhase = null;
+					sellAllRun = null;
+					dirty = true;
+				}
 			}
 			if ( shopOpenRequest ) {
 				const request = shopOpenRequest, game = next.gameplay;
@@ -7220,7 +7855,8 @@ export function createUi(
 						next.gameplay?.notices ?? [],
 						now,
 						notificationBannerPaths.every( p => !!resources.size( p ) ) && !!hud.data(),
-						hudCopy
+						hudCopy,
+						noticeTiming( experimental.state().saved.shortNotices )
 					)
 				) dirty = true;
 				if (
@@ -7340,6 +7976,7 @@ export function createUi(
 				dirty = true;
 			}
 			const phase = next.session?.phase ?? "signed-out";
+			if ( next.gameplay?.npcConversation?.phase !== "menu" ) gachaHud.clearNoVoucher();
 			if ( phase === "world" ) {
 				for ( const notice of next.gameplay?.notices ?? [] ) {
 					if ( notice.sequence !== undefined && notice.sequence > noticeDialogSequence ) {
@@ -7429,9 +8066,8 @@ export function createUi(
 			if ( phase !== "disconnected" ) disconnectPosition = null;
 			const gachaVisible = phase === "world" && !!next.gameplay?.gacha?.visible;
 			if ( gachaVisible && !gachaWasVisible ) {
-				gachaPage = 0;
-				gachaSlot = -1;
-				setPanel( "Magic Pop" );
+				gachaHud.reset();
+				setPanel( "Magic Pang" );
 			}
 			gachaWasVisible = gachaVisible;
 			// B338 lock 0x80000000 (75AE50) shows the grant window with the inventory.
@@ -7791,6 +8427,21 @@ export function createUi(
 			) {
 				paths.push( path );
 				if ( resources.has( path ) ) rect( r, color, path, uv, clip );
+			}
+			/*
+			================
+			additiveImage
+
+			An effect sheet without alpha, drawn additively: black adds nothing. INFERENCE: the
+			native effect statics (ga_effect_*, alcm_effect_prepare) are opaque DXT1 art, so the
+			original can only show them by adding them to what is behind.
+			================
+			*/
+			function additiveImage( r: UiRect, path: string, uv: UiRect = [ 0, 0, 1, 1 ] ) {
+				paths.push( path );
+				if ( resources.has( path ) ) {
+					quads.push( { rect: r, color: white, texture: path, uv, clip: full, additive: true } );
+				}
 			}
 			/*
 			================
@@ -8178,6 +8829,57 @@ export function createUi(
 				clipToControl: boolean | "clip" = false
 			) {
 				const box = authoredClientRect( node, ox, oy );
+				// SML2 markup (843100) renders through the text board's layout, never
+				// as plain characters: the Item Mall subtitles and alchemy texts.
+				if ( hasSml2Markup( value ) ) {
+					// Markup the guide layout cannot read falls back to plain text.
+					let tokens: ReturnType<typeof guideTokens> | null = null;
+					try {
+						tokens = guideTokens( value );
+					} catch {
+						tokens = null;
+					}
+					if ( tokens ) {
+						const out = text.guide( tokens, box, clipToControl ? box : full, node.color, resources.size );
+						quads.push( ...out.quads );
+						paths.push( ...out.paths );
+						return;
+					}
+				}
+				// Port-only (Experimental "Fit window labels", off is the original):
+				// an English label that would run past its window's left edge (the
+				// trade window's "Purchase amount", right-aligned in 63 pixels, with
+				// a wider text face) wraps onto two lines inside its box instead.
+				if ( !clipToControl && experimental.state().saved.fitWindowLabels && value.includes( " " ) ) {
+					const measure = ( line: string ) => text.run( line, 0, node.fontIndex ).width;
+					const width = measure( value ),
+						left = node.hAlign === 2 ?
+							box[0] + box[2] - width :
+							node.hAlign === 1 ?
+							box[0] + (box[2] - width) / 2 :
+							box[0];
+					const lines = left < ox + WINDOW_LABEL_MARGIN ? textLines( value, box[2], measure ) : [];
+					if ( lines.length === 2 && lines.every( line => measure( line ) <= box[2] ) ) {
+						const lineHeight = text.extentHeight( node.fontIndex ?? 0 ),
+							top = box[1] + (box[3] - 2 * lineHeight) / 2;
+						lines.forEach( ( line, index ) =>
+							quads.push(
+								...text.quads(
+									line,
+									[ box[0], top + index * lineHeight, box[2], lineHeight ],
+									full,
+									node.color,
+									{
+										fontIndex: node.fontIndex,
+										hAlign: node.hAlign,
+										vAlign: 1
+									}
+								)
+							)
+						);
+						return;
+					}
+				}
 				quads.push(
 					...text.quads( value, box, clipToControl ? box : full, node.color, {
 						fontIndex: node.fontIndex,
@@ -8418,7 +9120,7 @@ export function createUi(
 				maxLength: number,
 				native = false
 			) {
-				const multiline = id === "social-contents";
+				const multiline = id === "social-contents" || id === LETTER_BODY_EDIT;
 				if ( multiline ) {
 					// The guild notice editor (#710): a left-aligned multiline board.
 					const r = authoredRect( node, ox, oy );
@@ -8545,7 +9247,15 @@ export function createUi(
 			================
 			*/
 			function simpleMessageBox(
-				box: { title: string; lines: readonly string[]; yes: string; no: string; yesDisabled?: boolean; }
+				box: {
+					title: string;
+					lines: readonly string[];
+					yes: string;
+					no: string;
+					yesDisabled?: boolean;
+					// CIFSimpleMessageBox types 0 (Confirm, yes id) and 2 (Cancel, no id).
+					single?: "confirm" | "cancel";
+				}
 			) {
 				const lines = messageBoxLines( box.lines, value => text.run( value ).width );
 				const layout = textMessageBoxLayout( w, h, lines.map( line => text.run( line ).width ) );
@@ -8563,8 +9273,28 @@ export function createUi(
 				for ( const [i, line] of lines.entries() ) {
 					quads.push( ...text.quads( line, layout.lines[i]!, full, white, { vAlign: 0 } ) );
 				}
-				button( box.yes, hudCopy( "UIIT_CTL_YES" ), layout.accept[0], layout.accept[1], 76, !!box.yesDisabled );
-				button( box.no, hudCopy( "UIIT_CTL_NO" ), layout.refuse[0], layout.refuse[1], 76 );
+				if ( box.single === "confirm" ) {
+					button(
+						box.yes,
+						hudCopy( "UIIT_CTL_CONFIRM" ),
+						layout.single[0],
+						layout.single[1],
+						76,
+						!!box.yesDisabled
+					);
+				} else if ( box.single === "cancel" ) {
+					button( box.no, hudCopy( "UIIT_CTL_CANCEL" ), layout.single[0], layout.single[1], 76 );
+				} else {
+					button(
+						box.yes,
+						hudCopy( "UIIT_CTL_YES" ),
+						layout.accept[0],
+						layout.accept[1],
+						76,
+						!!box.yesDisabled
+					);
+					button( box.no, hudCopy( "UIIT_CTL_NO" ), layout.refuse[0], layout.refuse[1], 76 );
+				}
 				return layout;
 			}
 			/*
@@ -8672,6 +9402,13 @@ export function createUi(
 			/*
 			================
 			nativeTab
+
+			A disabled tab is unavailable: it refuses input and, as the original,
+			looks like an unselected one; with the Experimental row Grey disabled
+			tabs on (the default) its plate is dimmed and its label grey. A busy
+			tab is only waiting for the server (its owner's request is pending):
+			it refuses input and always keeps the original look, so a pending
+			trade never flashes grey.
 			================
 			*/
 			function nativeTab(
@@ -8679,9 +9416,9 @@ export function createUi(
 				caption: string,
 				r: UiRect,
 				selected: boolean,
-				style: { family: string; disabled?: boolean; client?: UiRect; }
+				style: { family: string; disabled?: boolean; busy?: boolean; client?: UiRect; }
 			) {
-				const { family, disabled = false, client = [ 0, 0, 0, 0 ] } = style;
+				const { family, disabled = false, busy = false, client = [ 0, 0, 0, 0 ] } = style;
 				const content: UiRect = [
 					r[0] + client[0],
 					r[1] + client[1],
@@ -8689,10 +9426,11 @@ export function createUi(
 					r[3] - client[1] - client[3]
 				];
 				const path = ROOT + "interface/ifcommon/" + family + (selected ? "_on" : "_off") + ".png";
-				image( r, path );
-				controls.push( { id, label: caption, rect: r, kind: "button", selected, disabled } );
+				const grey = disabled && experimental.state().saved.greyDisabledTabs;
+				image( r, path, grey ? GREY_TAB_PLATE : white );
+				controls.push( { id, label: caption, rect: r, kind: "button", selected, disabled: disabled || busy } );
 				quads.push(
-					...text.quads( caption, content, full, white, {
+					...text.quads( caption, content, full, grey ? GREY_TAB_LABEL : white, {
 						hAlign: 1,
 						vAlign: 1,
 						fontStyle: selected ? 2 : 0
@@ -9664,12 +10402,24 @@ export function createUi(
 							selection[1] ?? 0,
 							composing
 						];
-					for ( const line of lines ) key.push( line.channel, line.name, line.gid, line.text, line.outgoing );
+					key.push( experimental.state().saved.noticeLinks );
+					for ( const line of lines ) {
+						key.push(
+							line.channel,
+							line.name,
+							line.gid,
+							line.text,
+							line.outgoing,
+							line.notice?.name,
+							line.notice?.item
+						);
+					}
 					const output = chatLayoutCache.read(
 						key,
 						() =>
 							chatLayout( {
 								chatTimestamps: experimental.state().saved.chatTimestamps,
+								noticeLinks: experimental.state().saved.noticeLinks,
 								compact: compact ?
 									{
 										bottom: compact.bottom,
@@ -9899,16 +10649,6 @@ export function createUi(
 					// Banners own a separate strip below player, pet, target buffs and telemetry.
 					compactTelemetryTop = Math.max( targetBottom, compactTelemetryTop );
 					targetBottom = drawTransientBanners( compactTelemetryTop + HUD_TOOLS_HEIGHT + 12 );
-				}
-				if ( target?.kind === "npc" && target.refObjId === 9251 ) {
-					button(
-						"gacha-open",
-						"Magic Pop",
-						w / 2 - 110,
-						102,
-						100,
-						game?.inventoryPending || !!game?.targetPending
-					);
 				}
 				const barX = compact ? 0 : Math.trunc( (w - 800) / 2 ), barY = compact ? compact.top : h - 52;
 				if ( hudData && !compact ) {
@@ -10285,15 +11025,19 @@ export function createUi(
 						draggable: !extPositionLock
 					} );
 					for ( const node of authoredPaintOrder( layout ) ) {
-						// 548700 changes child CTextBoard alpha. 5405D0 resets ALPHAOP
-						// before 568420 draws cooldown/quantity overlays, so those stay independent.
+						// 548700 sets alpha 0x6E on the bar's own boards and on its slot
+						// proxies (ids 100-109), but a proxy draws nothing itself: 548E70
+						// moves the linked under-bar slot onto it and renders that slot
+						// (A00F20), whose alpha is its own times its real parent's, the
+						// opaque under-bar (5405D0 reads 53CF20). Icons stay opaque; only
+						// the frames below fade.
 						if ( node.id >= 100 ) {
 							if ( extOpen ) {
 								quickSlotCell(
 									extendedSlot( node.id - 100 ),
 									authoredRect( node, ex, ey ),
 									String( node.id - 99 ),
-									{ locked: extSlotLock, iconAlpha: alpha }
+									{ locked: extSlotLock }
 								);
 							}
 							continue;
@@ -11073,7 +11817,9 @@ export function createUi(
 					const layout = hudData.windows.ifoption!, slot = hudData.windows.ifgameoptionslot!;
 					windowBox( "Experimental", px, py, width, height );
 					closeButton( px + width - 26, py + 10, panelCloseId( "Experimental" ) );
-					const tabWidth = 78, tabStart = (width - (EXPERIMENTAL_TABS.length * tabWidth - 2)) / 2;
+					// The native tab is 78 pixels; more tabs than the window holds share its width.
+					const tabWidth = Math.min( 78, Math.floor( (width - 10) / EXPERIMENTAL_TABS.length ) ),
+						tabStart = (width - (EXPERIMENTAL_TABS.length * tabWidth - 2)) / 2;
 					for ( let i = 0; i < EXPERIMENTAL_TABS.length; i++ ) {
 						nativeTab(
 							"experimental-tab:" + i,
@@ -12140,7 +12886,7 @@ export function createUi(
 					}
 				}
 				if (
-					[ "Inventory", "Shop", "Alchemy", GRANT_PANEL, "COS inventory", "Storage" ].includes( panel ) &&
+					INVENTORY_POPUP_PANELS.includes( panel ) &&
 					!(panel === "Shop" && game?.shop?.cosGid) && hudData
 				) {
 					const admission = beginWindow();
@@ -12181,9 +12927,13 @@ export function createUi(
 					);
 					inventoryPage = slots.page;
 					for ( let page = 0; page < slots.pages; page++ ) {
+						// Port-only, not native: owner-approved deviation 2026-10-15,
+						// always on. The tabs read their page number ("1", "2", ...);
+						// the native UIIT_CTL_BELOINGING / UIIT_STT_INVENTORY_EXTENSION_TEB
+						// labels run past the 60-pixel tab.
 						nativeTab(
 							"inventory-page:" + page,
-							hudCopy( page ? "UIIT_STT_INVENTORY_EXTENSION_TEB" : "UIIT_CTL_BELOINGING" ),
+							String( page + 1 ),
 							[ bx + 4 + 62 * page, by - 23, 60, 24 ],
 							page === inventoryPage,
 							{ family: "com_tab" }
@@ -13657,7 +14407,9 @@ export function createUi(
 							) :
 							null,
 						canTalk: !!(capabilities & 2),
-						prompt: outcomePage ?
+						prompt: gachaHud.noVoucherFor() === game.npcConversation.gid ?
+							copy( "SN_TALK_CH_GACHA_OPERATOR_3" ) :
+							outcomePage ?
 							copy( "UIIT_STT_OUTCOME_WINDOW" ).replace( "%s", game.social?.localName ?? "" ).replace(
 								"%s",
 								outcomeReward.toLocaleString( "en-US" )
@@ -13693,13 +14445,19 @@ export function createUi(
 						fortressStaffRows: fortressStaffHud.target() ?
 							[ [ 1, "BATTLEAIDE" ], [ 2, "SMITH" ], [ 4, "TRAINER" ] ].map( ( [flag, name] ) => ({
 								id: "npc-fortress-hire:" + flag,
+								// 5D7AD0 fills the fee line with swprintf before it joins the row.
 								label: copy( "SN_FORTRESS_MANAGER_EMPLOY_" + name ) + " " +
-									copy( "SN_FORTRESS_MANAGER_EMPLOY_FEE" ),
+									fortressWarFormat( copy( "SN_FORTRESS_MANAGER_EMPLOY_FEE" ), [
+										FORTRESS_STAFF_FEE_GOLD,
+										FORTRESS_STAFF_FEE_GP
+									] ),
 								disabled: !fortressStaffView().commander ||
 									!!(fortressStaffView().flags & Number( flag ))
 							}) ) :
 							null,
 						canMagicOption: !!(capabilities & AVATAR_MAGIC_OPTION_FUNCTION),
+						canGacha: !!(capabilities & GACHA_FUNCTION),
+						canGachaOperator: !!(capabilities & GACHA_OPERATOR_FUNCTION),
 						// 5D9100 lists the guild set ahead of the job menu.
 						jobRows: [
 							...guildManagerRows( capabilities, game.social?.guild, game.social?.localName ?? "" ).map(
@@ -13769,8 +14527,9 @@ export function createUi(
 							),
 							[ px + 16 + i * 56, py + 38, 56, 24 ],
 							tabs[i] === shopTab,
-							// 5B22B3: shop content insets are 4, 4, 7, 4.
-							{ family: "com_short_tab", disabled: busy, client: [ 4, 4, 7, 4 ] }
+							// 5B22B3: shop content insets are 4, 4, 7, 4. A pending buy or
+							// sell only locks the tabs until the answer: busy, not greyed.
+							{ family: "com_short_tab", busy, client: [ 4, 4, 7, 4 ] }
 						);
 					}
 					for ( let i = 0; i < 30; i++ ) {
@@ -14248,7 +15007,9 @@ export function createUi(
 					const row = view?.gameplay?.fortress?.fortresses.find( r => r.id === context?.fortress );
 					const name = node( 27 );
 					if ( name && context ) authoredText( name, px, py, row?.nameStrId ? hudCopy( row.nameStrId ) : "" );
-					// 665470 ticks box 30 + i from siegefortress column 10 bit i, then disables it.
+					// 665470 ticks box 30 + i from siegefortress column 10 bit i, then
+					// disables it through CIFButton_SetEnabledWithFaceAlpha (541640),
+					// which draws a disabled face at alpha 0x80.
 					for ( let i = 0; i < 7; i++ ) {
 						const box = node( 30 + i );
 						if ( !box ) continue;
@@ -14257,7 +15018,9 @@ export function createUi(
 							{ ...box, rect: [ box.rect[0], box.rect[1], 16, 16 ] },
 							px,
 							py,
-							box.texture.replace( "_off", on ? "_on" : "_off" )
+							box.texture.replace( "_off", on ? "_on" : "_off" ),
+							1,
+							DISABLED_FACE_TINT
 						);
 					}
 					const rate = fortressTaxHud.draft();
@@ -14788,7 +15551,12 @@ export function createUi(
 						grouped = ( value: bigint | undefined ) =>
 							value === undefined ? "" : value.toLocaleString( "en-US" ),
 						grey: AuthoredControl["color"] = [ 0x99 / 255, 0x99 / 255, 0x99 / 255, 1 ],
-						scaleRow = tradeScaleRow( tradeScale( sums.buy, inputs.basis, inputs.speed2 ), inputs.rows );
+						scaleRow = tradeScaleRow(
+							game?.tradeTiers === true ?
+								tradeTierScale( sums.buy ) :
+								tradeScale( sums.buy, inputs.basis, inputs.speed2 ),
+							inputs.rows
+						);
 					nativeFrame( root, px, py, hudCopy( root.text ), "specialty-deal-close" );
 					// 6492C0 greys the sale and profit labels while buying; 6496E0 greys
 					// the scale label while selling.
@@ -14828,24 +15596,6 @@ export function createUi(
 							buying ? hudCopy( "UIIT_STT_TRADE_TRADESCALE" + (scaleRow + 1) ) : "",
 							!buying || !!specialtyDeal.dealing
 						);
-						if ( specialtyCombo && buying ) {
-							const list: UiRect = [ r[0], r[1] + r[3], r[2], inputs.rows * 18 ];
-							rect( list, [ 0, 0, 0, 1 ] );
-							blocks.push( list );
-							for ( let row = 0; row < inputs.rows; row++ ) {
-								const entry: UiRect = [ list[0], list[1] + row * 18, list[2], 18 ];
-								const label = hudCopy( "UIIT_STT_TRADE_TRADESCALE" + (row + 1) );
-								quads.push(
-									...text.quads( label, [ entry[0] + 4, entry[1], entry[2] - 8, 18 ], entry, white )
-								);
-								controls.push( {
-									id: "specialty-deal-row:" + row,
-									label,
-									rect: entry,
-									kind: "button"
-								} );
-							}
-						}
 					}
 					const ok = byId( 40 );
 					if ( ok ) {
@@ -14857,6 +15607,32 @@ export function createUi(
 							hudCopy( ok.text ),
 							count === 0 || !!specialtyDeal.dealing || !!game?.inventoryPending
 						);
+					}
+					// The open list is a popup: it draws after the window's last
+					// control (CIFComboBox's list is topmost; drawn before it, the
+					// Confirm button covered rows 2 and 3).
+					if ( combo && specialtyCombo && buying ) {
+						const r = authoredRect( combo, px, py ), height = inputs.rows * 18;
+						// Port-only (Experimental "Fit window labels"): a list that would
+						// leave the window opens upward from the box.
+						const up = experimental.state().saved.fitWindowLabels &&
+							r[1] + r[3] + height > py + root.rect[3] && r[1] - height >= py;
+						const list: UiRect = [ r[0], up ? r[1] - height : r[1] + r[3], r[2], height ];
+						rect( list, [ 0, 0, 0, 1 ] );
+						blocks.push( list );
+						for ( let row = 0; row < inputs.rows; row++ ) {
+							const entry: UiRect = [ list[0], list[1] + row * 18, list[2], 18 ];
+							const label = hudCopy( "UIIT_STT_TRADE_TRADESCALE" + (row + 1) );
+							quads.push(
+								...text.quads( label, [ entry[0] + 4, entry[1], entry[2] - 8, 18 ], entry, white )
+							);
+							controls.push( {
+								id: "specialty-deal-row:" + row,
+								label,
+								rect: entry,
+								kind: "button"
+							} );
+						}
 					}
 					endWindow( admission, "service:" + SPECIALTY_DEAL_PANEL );
 				}
@@ -14906,6 +15682,8 @@ export function createUi(
 							{
 								family: "com_long_tab",
 								client: [ 3, 6, 6, 0 ],
+								// Unavailable, not busy: an open shop window, or a tab the
+								// record's class lacks (6A1920), holds the lock.
 								disabled: panel === "Shop" ||
 									(i === 1 ?
 										!record?.inventory && !training :
@@ -14925,6 +15703,8 @@ export function createUi(
 					// class; the gauges (35..37) fill from the record below.
 					const sections = cosInfoSections( cosClass( record?.band ?? 0 ) ?? -1 );
 					const hiddenInfo = [
+						// GDR_COS_INFO_NAME_BTN: drawn below, only for an unnamed pet (6A5990).
+						COS_INFO_NAME_BUTTON,
 						35,
 						36,
 						37,
@@ -14958,11 +15738,21 @@ export function createUi(
 						40,
 						41
 					];
+					// 6A9420 creates TradeInfo for a transport only; its stars and the
+					// sell-all button are drawn below with their state.
+					const transport = cosClass( record?.band ?? 0 ) === COS_CLASS_TRANSPORT,
+						tradeInfo = Object.values( page ).filter( n => n.creationSection === 1 ).map( n => n.id );
 					nativePage(
 						page,
 						ox,
 						oy,
-						cosTab === 0 ? hiddenInfo : training ? setupControls : []
+						training ? setupControls : cosTab === 0 ?
+							hiddenInfo :
+							cosTab === 1 ?
+							(transport ?
+								[ COS_TRADE_STAR_FIRST, 27, 28, 29, COS_TRADE_STAR_LAST, COS_TRADE_SELL_ALL ] :
+								tradeInfo) :
+							[]
 					);
 					if ( cosTab === 1 && !training ) {
 						const pages = Math.max( 1, Math.ceil( (record?.status ?? 0) / 28 ) );
@@ -14994,6 +15784,34 @@ export function createUi(
 							cosPage,
 							pages
 						);
+						if ( transport && record ) {
+							const node = ( id: number ) => Object.values( page ).find( n => n.id === id );
+							const rows = cosCargoRows( record.inventory ?? [] ), total = node( COS_TRADE_TOTAL );
+							// 6A8240: the cargo's cost at its buy prices.
+							if ( total ) authoredText( total, ox, oy, cargoBuyTotal( rows ) );
+							// 6A7DD0: the server's trade level, every star tinted by the count.
+							const stars = tradeStarCount( game?.tradeStars ?? 0 ), tint = tradeStarTint( stars );
+							for ( let i = 0; i < stars; i++ ) {
+								const star = node( COS_TRADE_STAR_FIRST + i );
+								if ( star ) authoredImage( star, ox, oy, star.texture, 1, tint );
+							}
+							const sell = node( COS_TRADE_SELL_ALL );
+							if ( sell ) {
+								authoredLabeledButton(
+									sell,
+									ox,
+									oy,
+									"cos-allsell",
+									hudCopy( sell.text ),
+									sellAllPhase !== null ||
+										!sellAllEnabled( {
+											busy,
+											specialTradeOpen: game?.shop?.cosGid === record.gid,
+											rows
+										} )
+								);
+							}
+						}
 					} else if ( cosTab === 0 && record ) {
 						const trainingState =
 							experimental.state().saved.attackPetTraining && game?.petTraining?.gid === record.gid ?
@@ -15005,6 +15823,11 @@ export function createUi(
 							// CIFCosInfo_RefreshName (6A5320): an unnamed companion reads "No name".
 							[ 27, record.name || hudCopy( "UIIT_STT_COSNEWUI_TITLE" ) ]
 						];
+						// CIFCOSInfo +0x38C: the Name button shows while a pet has no name.
+						const nameButton = node( COS_INFO_NAME_BUTTON );
+						if ( nameButton && !record.name && (record.band === 3 || record.band === 4) ) {
+							authoredLabeledButton( nameButton, ox, oy, "cos-name", hudCopy( nameButton.text ), busy );
+						}
 						if ( sections.hp ) {
 							const ratio = cosStatusRatios( record, reference ).hp ?? 1;
 							texts.push( [ 41, cosHpText( record, reference ) ] );
@@ -15357,6 +16180,269 @@ export function createUi(
 						}
 					}
 					endWindow( admission, "service:COS inventory" );
+					if ( petNameDialog ) petNameDialogBox( petNameDialog );
+					/*
+					================
+					petNameDialogBox
+
+					6A57E0's name box (mode 0x3E8, input mode 6, UIIT_STT_COSPET_MAKENAME),
+					then 6A59E0's confirm (mode 0x3E9): the name can not change later.
+					================
+					*/
+					function petNameDialogBox( dialog: { readonly phase: "input" | "confirm"; } ) {
+						const mark = beginWindow();
+						controls = [];
+						blocks.push( full );
+						if ( dialog.phase === "confirm" ) {
+							simpleMessageBox( {
+								title: hudCopy( "UIIT_STT_CONFIRM_BOX" ),
+								lines: [
+									petNameInput,
+									hudCopy( "UIIT_MSG_COSPET_NOTREVISION_NAME" ),
+									hudCopy( "UIIT_MSG_COSPET_CHOOSE_NAME" )
+								],
+								yes: "pet-name-ok",
+								no: "pet-name-cancel"
+							} );
+							endWindow( [ mark[0], 0, mark[2], mark[3] ], "modal:pet-name" );
+							blocks.push( full );
+							return;
+						}
+						const dx = Math.max( 0, Math.floor( (w - 306) / 2 ) ),
+							dy = Math.max( 0, Math.floor( (h - 151) / 2 ) );
+						paths.push( ...partyProposalAssets() );
+						quads.push(
+							...frameRing(
+								[ dx, dy, 306, 151 ],
+								MESSAGE_FRAME,
+								PARTS.map( p => resources.size( MESSAGE_FRAME + p + ".png" ) ),
+								full
+							)
+						);
+						quads.push(
+							...normalTile(
+								[ dx + 16, dy + 40, 274, 95 ],
+								MESSAGE_TILE,
+								resources.size( MESSAGE_TILE ),
+								full
+							)
+						);
+						quads.push(
+							...text.quads(
+								hudCopy( "UIIT_STT_INPUT_BOX" ),
+								[ dx + 10, dy + 11, 285, 12 ],
+								full,
+								white,
+								{
+									hAlign: 1,
+									vAlign: 0
+								}
+							)
+						);
+						const copy = hudCopy( "UIIT_STT_COSPET_MAKENAME" );
+						quads.push(
+							...text.quads( copy, [ dx + 1, dy + 49, 305, 12 ], full, gold, { hAlign: 1, vAlign: 0 } )
+						);
+						const r: UiRect = [ dx + 19, dy + 73, 266, 20 ];
+						rect( [ dx + 12, dy + 71, 281, 25 ], [ 0, 0, 0, 1 ] );
+						controls.push( {
+							id: "pet-name",
+							label: copy,
+							kind: "text",
+							value: petNameInput,
+							rect: r,
+							maxLength: PET_NAME_MAX
+						} );
+						const start = Math.min( petNameInput.length, selection[0] ?? 0 ),
+							end = Math.min( petNameInput.length, selection[1] ?? start ),
+							before = text.run( petNameInput.slice( 0, start ) ).width,
+							through = text.run( petNameInput.slice( 0, end ) ).width;
+						if ( focus === "pet-name" && end > start ) {
+							rect(
+								[ r[0] + before, r[1], through - before, 20 ],
+								[ .2, .4, .7, .6 ],
+								"",
+								[ 0, 0, 1, 1 ],
+								r
+							);
+						}
+						quads.push( ...text.quads( petNameInput, r, r, white, { overflow: "clip" } ) );
+						if ( focus === "pet-name" && caretVisible ) {
+							rect( [ r[0] + through, r[1], 1, text.height() + 2 ], white, "", [ 0, 0, 1, 1 ], r );
+						}
+						button( "pet-name-ok", hudCopy( "UIIT_STT_OK" ) || "OK", dx + 72, dy + 114, 76 );
+						button( "pet-name-cancel", hudCopy( "UIIT_STT_CANCEL" ) || "Cancel", dx + 160, dy + 114, 76 );
+						endWindow( [ mark[0], 0, mark[2], mark[3] ], "modal:pet-name" );
+						blocks.push( full );
+					}
+				}
+				/*
+				================
+				gachaWindow
+
+				CIFGhaCha (ginterface GDR_GHACHA, resinfo\ifghacha.txt, 6450F0). The authored
+				controls paint in native order. The reels, effect, DECO sheet, prize slots, card
+				slot and Play button are live (643070, 642170, 645180); the bag at the right is
+				the Inventory section, laid out as the main bag is (59DF10).
+				================
+				*/
+				function gachaWindow() {
+					const root = hudData?.root.GDR_GHACHA, page = hudData?.windows.ifghacha;
+					if ( !root || !page || !game ) return;
+					const admission = beginWindow(),
+						firstControl = controls.length,
+						[px, py] = windowOrigin( "Magic Pang", [
+							Math.max( 0, (w - root.rect[2]) / 2 ),
+							Math.max( 0, (h - root.rect[3]) / 2 ),
+							root.rect[2],
+							root.rect[3]
+						] ),
+						frame = gachaHud.frame( gachaInput() ),
+						prizes = game.gacha?.prizes ?? [],
+						art = ( name: string ) => ROOT + "interface/game/" + name + ".png",
+						digits = ( n: number, width: number ) => String( n ).padStart( width, "0" );
+					// 645180 is the window's own drop handler (vtable 27), not the card slot's: a bag item
+					// released anywhere over the window registers. This region sits under every other control.
+					controls.splice( firstControl, 0, {
+						id: "gacha-window",
+						label: "Magic Pang",
+						kind: "region",
+						rect: [ px, py, root.rect[2], root.rect[3] ]
+					} );
+					// 643070 names these in code. Demand them with the window so the first spin
+					// never shows an empty reel.
+					for ( let f = 0; f <= 20; f += 2 ) paths.push( art( "gacha_roll" + digits( f, 4 ) ) );
+					for ( let f = 1; f <= 19; f++ ) paths.push( art( "ga_effect_" + digits( f, 2 ) ) );
+					paths.push( art( "gacha_roll_original" ), art( "ga_effect_sucess" ), PREPARE_SHEET );
+					nativeFrame( root, px, py, hudCopy( "UIIT_PAG_GACHA_TITLE" ), panelCloseId( "Magic Pang" ) );
+					for ( const node of authoredPaintOrder( page ) ) {
+						const r = authoredRect( node, px, py );
+						if ( node.name === "GDR_GHACHA_STA_ROLLING_L" || node.name === "GDR_GHACHA_STA_ROLLING_R" ) {
+							image(
+								r,
+								art(
+									frame.reelFrame === null ?
+										"gacha_roll_original" :
+										"gacha_roll" + digits( frame.reelFrame, 4 )
+								)
+							);
+						} else if ( node.name === "GDR_GHACHA_STA_EFFACT" ) {
+							additiveImage( r, art( "ga_effect_" + digits( frame.effectFrame, 2 ) ) );
+						} else if ( node.name === "GDR_GHACHA_DECO" ) {
+							if ( !frame.deco ) continue;
+							const sheet = frame.deco.sheet === "success",
+								sheetPath = sheet ? art( "ga_effect_sucess" ) : PREPARE_SHEET,
+								size = resources.size( sheetPath );
+							if ( size ) {
+								additiveImage(
+									r,
+									sheetPath,
+									gachaSheetFrameRect( gachaSheet( frame.deco.sheet ), frame.deco.frame, size )
+								);
+							} else paths.push( sheetPath );
+						} else if ( node.name === "GDR_GHACHA_CARD_SLOT" ) {
+							nativeItem(
+								"gacha-card",
+								frame.cardSlot >= 0 ?
+									game.inventory.find( item => item.slot === frame.cardSlot ) :
+									undefined,
+								r,
+								frame.busy
+							);
+						} else if ( node.name === "GDR_GHACHA_BTN_START" ) {
+							authoredLabeledButton(
+								node,
+								px,
+								py,
+								"gacha-play",
+								hudCopy( node.text ),
+								!frame.playEnabled
+							);
+						} else if ( node.type === "CIFSlotWithHelp" ) {
+							const entry = gachaPrizeEntry( node.id ), prize = prizes.find( row => row.entry === entry );
+							if ( !prize || entry === null ) continue;
+							const icon = iconPath( prize.icon );
+							if ( icon ) image( r, icon );
+							itemCount( { quantity: prize.quantity }, r );
+							// INFERENCE: 642550 sets the chosen slot's selected byte (+0x4FE) and 641DD0 clears the
+							// others, which the native slot draws as a highlight (565850). The effect's art is not
+							// recovered, so the port outlines the chosen slot in gold.
+							if ( frame.entry === entry ) {
+								const gold: UiQuad["color"] = [ 1, 0.82, 0.25, 1 ];
+								rect( [ r[0] - 1, r[1] - 1, r[2] + 2, 2 ], gold );
+								rect( [ r[0] - 1, r[1] + r[3] - 1, r[2] + 2, 2 ], gold );
+								rect( [ r[0] - 1, r[1] - 1, 2, r[3] + 2 ], gold );
+								rect( [ r[0] + r[2] - 1, r[1] - 1, 2, r[3] + 2 ], gold );
+							}
+							controls.push( {
+								id: "gacha-prize:" + entry,
+								label: localization.text( prize.nameSymbol, "" ) + " x" + prize.quantity,
+								rect: r,
+								kind: "button",
+								disabled: frame.busy,
+								selected: frame.entry === entry
+							} );
+						} else {
+							authoredChrome( node, px, py );
+							if ( node.name === "GDR_GHACHA_GRADATION" ) {
+								const line = frame.result === "win" ?
+									hudCopy( "UIIT_MSG_GACHA_WIN" ).replace(
+										"%s",
+										() =>
+											localization.text(
+												prizes.find( row => row.refObjId === frame.reward?.refObjId )
+													?.nameSymbol,
+												""
+											)
+									).replace( "%d", () => String( frame.reward?.quantity ?? 0 ) ) :
+									frame.result === "lose" ?
+									hudCopy( "UIIT_MSG_GACHA_LOSE" ) :
+									hudCopy( frame.text ?? "" );
+								authoredText( node, px, py, line );
+							} else if ( node.name === "GDR_CHACHA_STA_MONEY" ) {
+								authoredText( { ...node, hAlign: 2 }, px, py, String( game.progression?.gold ?? "0" ) );
+							}
+						}
+					}
+					// The Inventory section's bag, with the main bag's page tabs (above its frame).
+					const bagFrame = page.GDR_INVENTORY_FRAME;
+					if ( bagFrame ) {
+						const bx = px + bagFrame.rect[0],
+							by = py + bagFrame.rect[1],
+							bag = inventorySlots(
+								bx,
+								by,
+								game.inventorySlotCount ?? 0,
+								game.equipmentSlotCount ?? 13,
+								gachaHud.bag(
+									1 +
+										Math.max(
+											0,
+											Math.ceil(
+												((game.inventorySlotCount ?? 0) - (game.equipmentSlotCount ?? 13)) / 32
+											) - 1
+										)
+								)
+							);
+						for ( let tab = 0; tab < bag.pages; tab++ ) {
+							nativeTab(
+								"gacha-bag-page:" + tab,
+								hudCopy( tab ? "UIIT_STT_INVENTORY_EXTENSION_TEB" : "UIIT_CTL_BELOINGING" ),
+								[ bx + 4 + 62 * tab, by - 23, 60, 24 ],
+								tab === bag.page,
+								{ family: "com_tab" }
+							);
+						}
+						for ( const cell of bag.slots ) {
+							const item = game.inventory.find( row => row.slot === cell.slot );
+							if ( !cell.enabled ) {
+								image( cell.rect, hudData!.popupArt.blocked );
+								continue;
+							}
+							nativeItem( "gacha-bag:" + cell.slot, item, cell.rect, frame.busy );
+						}
+					}
+					endWindow( admission, "service:Magic Pang" );
 				}
 				/*
 				================
@@ -15482,6 +16568,16 @@ export function createUi(
 					nativeFrame( root, px, py, hudCopy( root.text ), owner ? "stall-close" : "stall-leave" );
 					// 0x5A2277/0x5A23F7 replace the invalid authored icon; never request it.
 					nativePage( page, px, py, [ 3, 4, 5, 6, 14, 15 ] );
+					// CIFStall_OnCreate (5A2D60) adds one runtime tab, id 0x32: "Sell goods",
+					// selected, com_long_tab, its rect and content insets literal there.
+					// The loop stops before the "Buy goods" branch, so v1.150 shows only this.
+					nativeTab(
+						"stall-tab-sell",
+						hudCopy( "UIIT_STT_SELL_GOODS" ),
+						[ px + STALL_TAB_X, py + STALL_TAB_Y, STALL_TAB_W, STALL_TAB_H ],
+						true,
+						{ family: "com_long_tab", client: [ 0, 10, 0, 5 ] }
+					);
 					authoredImage( at( 15 ), px, py, presentation.icon );
 					authoredImage( at( 14 ), px, py );
 					// The chat module (3) owns separate message and input controls in the left pane.
@@ -15898,6 +16994,428 @@ export function createUi(
 				CIFAllianceGuild_RefreshButtons (5F6880) arms.
 				================
 				*/
+				/*
+				================
+				friendPage
+
+				CIFFriend (iffriend.txt, OnCreate 6054D0) and its CIFFriendSlot rows
+				(iffriendslot.txt): the roster with its online mark (605880 binds
+				gil_contact_on for state 0), race mark and name, the ": n / 20" count
+				(600F80), and Whisper / Add / Delete. Unused rows keep the
+				gil_bar02_deselect filler (604830).
+				================
+				*/
+				function friendPage( page: AuthoredLayout, slot: AuthoredLayout, gx: number, gy: number ) {
+					const state = game?.friends,
+						// 604FD0 fills the list from a name-ordered tree: always ascending.
+						rows = [ ...state?.rows ?? [] ].sort( ( a, b ) => friendNameOrder( a.name, b.name ) ),
+						at = ( id: number ) => Object.values( page ).find( n => n.id === id )!,
+						slotAt = ( id: number ) => Object.values( slot ).find( n => n.id === id )!;
+					if ( friendSelected && !rows.some( row => row.jid === friendSelected ) ) friendSelected = 0;
+					friendOffset = Math.max(
+						0,
+						Math.min( Math.max( 0, rows.length - FRIEND_VISIBLE_ROWS ), friendOffset )
+					);
+					const first = Math.round( friendOffset ), selected = rows.find( row => row.jid === friendSelected );
+					nativePage( page, gx, gy, [ 12, 22, 41, 42, 43 ] );
+					authoredText( at( 12 ), gx, gy, ": " + rows.length + " / " + FRIEND_LIST_LIMIT );
+					authoredLabeledButton( at( 22 ), gx, gy, "friend-sort", hudCopy( at( 22 ).text ) );
+					const list = at( 30 ), lx = gx + list.rect[0], ly = gy + list.rect[1];
+					const select = ROOT + "interface/guild/gil_bar02_select.png",
+						deselect = ROOT + "interface/guild/gil_bar02_deselect.png",
+						contactOn = ROOT + "interface/guild/gil_contact_on.png";
+					paths.push( select, deselect, contactOn );
+					controls.push( {
+						id: "friend-list",
+						label: hudCopy( "UIIT_STT_FRIENDLIST" ),
+						rect: [ lx, ly, list.rect[2], list.rect[3] ],
+						kind: "button"
+					} );
+					for ( let i = 0; i < FRIEND_VISIBLE_ROWS; i++ ) {
+						const row = rows[first + i], r: UiRect = [ lx, ly + i * FRIEND_ROW_STEP, 312, 24 ];
+						if ( resources.has( select ) && resources.has( deselect ) ) {
+							rect( r, white, row && row.jid === friendSelected ? select : deselect );
+						}
+						if ( !row ) continue;
+						if ( row.online ) authoredImage( slotAt( 10 ), lx, r[1], contactOn );
+						else authoredImage( slotAt( 10 ), lx, r[1] );
+						authoredImage(
+							slotAt( 11 ),
+							lx,
+							r[1],
+							slotAt( 11 ).texture.replace(
+								"china",
+								hudData!.countries[row.modelRefId] === 1 ? "europe" : "china"
+							)
+						);
+						authoredText( slotAt( 12 ), lx, r[1], row.name );
+						controls.push( { id: "friend-row:" + row.jid, label: row.name, rect: r, kind: "button" } );
+					}
+					const scroll = chatScrollbar(
+						"friend",
+						[ lx + list.rect[2] - 16, ly + 16, 16, FRIEND_SCROLL_TRACK ],
+						Math.max( FRIEND_VISIBLE_ROWS, rows.length ),
+						FRIEND_VISIBLE_ROWS,
+						Math.max( 0, rows.length - FRIEND_VISIBLE_ROWS ) - friendOffset,
+						resources.size,
+						full,
+						hover,
+						pressed
+					);
+					paths.push( ...scroll.paths );
+					quads.push( ...scroll.quads );
+					controls.push( ...scroll.controls );
+					authoredLabeledButton(
+						at( 41 ),
+						gx,
+						gy,
+						"friend-whisper",
+						hudCopy( at( 41 ).text )
+					);
+					authoredLabeledButton( at( 42 ), gx, gy, "friend-add", hudCopy( at( 42 ).text ) );
+					// The original never disables Whisper or Delete (no CIFButton_SetEnabled
+					// from 6054D0, 604390 or 604FD0): each does nothing without a selection,
+					// and Whisper reaches an offline friend too (600740).
+					authoredLabeledButton( at( 43 ), gx, gy, "friend-remove", hudCopy( at( 43 ).text ) );
+				}
+				/*
+				================
+				friendDialogBox
+
+				The add box (UIIT_MSG_FRIEND_IDINPUT, a CIFMessageBox input, 52C870)
+				and the delete question (UIIT_MSG_FRIEND_IDDELET, Yes/No).
+				================
+				*/
+				function friendDialogBox() {
+					const mark = beginWindow();
+					controls = [];
+					blocks.push( full );
+					if ( friendDialog === "remove" ) {
+						simpleMessageBox( {
+							title: hudCopy( "UIIT_STT_CONFIRM_BOX" ),
+							lines: [ hudCopy( "UIIT_MSG_FRIEND_IDDELET" ) ],
+							yes: "friend-ok",
+							no: "friend-cancel"
+						} );
+						endWindow( [ mark[0], 0, mark[2], mark[3] ], "modal:friend" );
+						blocks.push( full );
+						return;
+					}
+					const dx = Math.max( 0, Math.floor( (w - 306) / 2 ) ),
+						dy = Math.max( 0, Math.floor( (h - 151) / 2 ) );
+					paths.push( ...partyProposalAssets() );
+					quads.push(
+						...frameRing(
+							[ dx, dy, 306, 151 ],
+							MESSAGE_FRAME,
+							PARTS.map( p => resources.size( MESSAGE_FRAME + p + ".png" ) ),
+							full
+						)
+					);
+					quads.push(
+						...normalTile(
+							[ dx + 16, dy + 40, 274, 95 ],
+							MESSAGE_TILE,
+							resources.size( MESSAGE_TILE ),
+							full
+						)
+					);
+					quads.push(
+						...text.quads( hudCopy( "UIIT_STT_INPUT_BOX" ), [ dx + 10, dy + 11, 285, 12 ], full, white, {
+							hAlign: 1,
+							vAlign: 0
+						} )
+					);
+					const copy = hudCopy( "UIIT_MSG_FRIEND_IDINPUT" );
+					quads.push(
+						...text.quads( copy, [ dx + 1, dy + 49, 305, 12 ], full, gold, { hAlign: 1, vAlign: 0 } )
+					);
+					const r: UiRect = [ dx + 19, dy + 73, 266, 20 ];
+					rect( [ dx + 12, dy + 71, 281, 25 ], [ 0, 0, 0, 1 ] );
+					controls.push( {
+						id: "friend-name",
+						label: copy,
+						kind: "text",
+						value: friendInput,
+						rect: r,
+						maxLength: FRIEND_NAME_LIMIT
+					} );
+					const start = Math.min( friendInput.length, selection[0] ?? 0 ),
+						end = Math.min( friendInput.length, selection[1] ?? start ),
+						before = text.run( friendInput.slice( 0, start ) ).width,
+						through = text.run( friendInput.slice( 0, end ) ).width;
+					if ( focus === "friend-name" && end > start ) {
+						rect(
+							[ r[0] + before, r[1], through - before, 20 ],
+							[ .2, .4, .7, .6 ],
+							"",
+							[ 0, 0, 1, 1 ],
+							r
+						);
+					}
+					quads.push( ...text.quads( friendInput, r, r, white, { overflow: "clip" } ) );
+					if ( focus === "friend-name" && caretVisible ) {
+						rect( [ r[0] + through, r[1], 1, text.height() + 2 ], white, "", [ 0, 0, 1, 1 ], r );
+					}
+					button( "friend-ok", hudCopy( "UIIT_STT_OK" ) || "OK", dx + 72, dy + 114, 76 );
+					button( "friend-cancel", hudCopy( "UIIT_STT_CANCEL" ) || "Cancel", dx + 160, dy + 114, 76 );
+					endWindow( [ mark[0], 0, mark[2], mark[3] ], "modal:friend" );
+					blocks.push( full );
+				}
+				/*
+				================
+				letterOrder
+
+				The mailbox in the list's order, each row with its mailbox index:
+				the header buttons sort by sender (21) or by time (22), a second
+				press of the same header reversing.
+				================
+				*/
+				function letterOrder( rows: readonly LetterRow[] ) {
+					const entries = rows.map( ( row, index ) => ({ row, index }) );
+					if ( !letterSortByTime && !letterSortDescending ) {
+						return entries.sort( ( a, b ) =>
+							a.row.sender.localeCompare( b.row.sender ) || a.index - b.index
+						);
+					}
+					const sign = letterSortDescending ? -1 : 1;
+					return entries.sort( ( a, b ) =>
+						sign * (letterSortByTime ?
+								letterTimeKey( a.row.received ) - letterTimeKey( b.row.received ) :
+								a.row.sender.localeCompare( b.row.sender )) || a.index - b.index
+					);
+				}
+				/*
+				================
+				letterTimeText
+
+				60C9B0's "%0.2d-%0.2d-%0.2d %s %0.2d:%0.2d".
+				================
+				*/
+				function letterTimeText( packed: number ): string {
+					const time = letterTime( packed ), two = ( n: number ) => String( n ).padStart( 2, "0" );
+					return two( time.year ) + "-" + two( time.month ) + "-" + two( time.day ) + " " +
+						hudCopy( time.meridiem ) + " " + two( time.hour ) + ":" + two( time.minute );
+				}
+				/*
+				================
+				letterPage
+
+				CIFLetter (ifletter.txt) and its CIFLetterSlot rows (ifletterslot.txt,
+				60C9B0): race mark, sender and receive time, an unread letter's text
+				drawn heavier (60C7E0's style bit), the ": n / 20" count and the five
+				commands. Guild and union letters (44, 45) need a server lane the
+				port does not have, so they stay disabled (inference: v1.150 arms
+				them only for a guild or union master, CIFLetterBox 607D60).
+				================
+				*/
+				function letterPage( page: AuthoredLayout, slot: AuthoredLayout, gx: number, gy: number ) {
+					const rows = letterOrder( game?.letters?.rows ?? [] ),
+						at = ( id: number ) => Object.values( page ).find( n => n.id === id )!,
+						slotAt = ( id: number ) => Object.values( slot ).find( n => n.id === id )!;
+					if ( !rows.some( entry => entry.index === letterSelected ) ) letterSelected = -1;
+					letterOffset = Math.max(
+						0,
+						Math.min( Math.max( 0, rows.length - LETTER_VISIBLE_ROWS ), letterOffset )
+					);
+					const first = Math.round( letterOffset );
+					nativePage( page, gx, gy, [ 12, 21, 22, 41, 42, 43, 44, 45, 51, 55, 60 ] );
+					authoredText( at( 12 ), gx, gy, ": " + rows.length + " / " + LETTER_MAILBOX_LIMIT );
+					authoredLabeledButton( at( 21 ), gx, gy, "letter-sort-sender", hudCopy( at( 21 ).text ) );
+					authoredLabeledButton( at( 22 ), gx, gy, "letter-sort-time", hudCopy( at( 22 ).text ) );
+					const list = at( 30 ), lx = gx + list.rect[0], ly = gy + list.rect[1];
+					const select = ROOT + "interface/guild/gil_bar02_select.png",
+						deselect = ROOT + "interface/guild/gil_bar02_deselect.png";
+					paths.push( select, deselect );
+					controls.push( {
+						id: "letter-list",
+						label: hudCopy( "UIIT_STT_LETTER" ),
+						rect: [ lx, ly, list.rect[2], list.rect[3] ],
+						kind: "button"
+					} );
+					for ( let i = 0; i < LETTER_VISIBLE_ROWS; i++ ) {
+						const entry = rows[first + i], r: UiRect = [ lx, ly + i * FRIEND_ROW_STEP, 312, 24 ];
+						if ( resources.has( select ) && resources.has( deselect ) ) {
+							rect( r, white, entry && entry.index === letterSelected ? select : deselect );
+						}
+						if ( !entry ) continue;
+						authoredImage(
+							slotAt( 9 ),
+							lx,
+							r[1],
+							slotAt( 9 ).texture.replace(
+								"china",
+								hudData!.countries[entry.row.modelRefId] === 1 ? "europe" : "china"
+							)
+						);
+						const time = letterTimeText( entry.row.received );
+						// 60C7E0: an unread letter's sender and time carry the heavier
+						// style; one extra pixel of the same text stands in for it.
+						for ( const dx of entry.row.read ? [ 0 ] : [ 0, 1 ] ) {
+							authoredText( slotAt( 10 ), lx + dx, r[1], entry.row.sender );
+							authoredText( slotAt( 11 ), lx + dx, r[1], time );
+						}
+						controls.push( {
+							id: "letter-row:" + entry.index,
+							label: entry.row.sender + " " + time,
+							rect: r,
+							kind: "button"
+						} );
+					}
+					const scroll = chatScrollbar(
+						"letter",
+						[ lx + list.rect[2] - 16, ly + 16, 16, FRIEND_SCROLL_TRACK ],
+						Math.max( LETTER_VISIBLE_ROWS, rows.length ),
+						LETTER_VISIBLE_ROWS,
+						Math.max( 0, rows.length - LETTER_VISIBLE_ROWS ) - letterOffset,
+						resources.size,
+						full,
+						hover,
+						pressed
+					);
+					paths.push( ...scroll.paths );
+					quads.push( ...scroll.quads );
+					controls.push( ...scroll.controls );
+					authoredLabeledButton( at( 41 ), gx, gy, "letter-write", hudCopy( at( 41 ).text ) );
+					authoredLabeledButton(
+						at( 42 ),
+						gx,
+						gy,
+						"letter-read",
+						hudCopy( at( 42 ).text ),
+						letterSelected < 0
+					);
+					authoredLabeledButton(
+						at( 43 ),
+						gx,
+						gy,
+						"letter-delete",
+						hudCopy( at( 43 ).text ),
+						letterSelected < 0
+					);
+					authoredLabeledButton( at( 44 ), gx, gy, "letter-guild", hudCopy( at( 44 ).text ), true );
+					authoredLabeledButton( at( 45 ), gx, gy, "letter-union", hudCopy( at( 45 ).text ), true );
+					letterChildWindow();
+				}
+				/*
+				================
+				letterChildWindow
+
+				The read window (CIFLetterRead, ifletterread.txt) or the write
+				window (CIFLetterWrite, ifletterwrite.txt); nothing when neither is
+				open. CIFLetter_OpenReadWindow (607830) and OpenWriteWindow (607A10)
+				create each as its own popup and centre it on the screen
+				(CGInterface_CenterWindowOnScreen); the letter list stays beneath.
+				================
+				*/
+				function letterChildWindow() {
+					const letters = game?.letters, windows = hudData?.windows;
+					const reading = letters && letters.reading >= 0 ? letters.rows[letters.reading] : undefined;
+					const native = reading ? windows?.ifletterread : letterDraft ? windows?.ifletterwrite : undefined;
+					if ( !native ) return;
+					// Port-only fit: a screen narrower than the window narrows its
+					// columns, never its text.
+					const width = Math.min( w, LETTER_CHILD_WIDTH ), sx = width / LETTER_CHILD_WIDTH;
+					const ox = Math.floor( (w - width) / 2 ),
+						oy = Math.max( 0, Math.floor( (h - LETTER_CHILD_HEIGHT) / 2 ) );
+					const layout: AuthoredLayout = sx === 1 ? native : Object.fromEntries(
+						Object.entries( native ).map( ( [key, node] ) => [ key, {
+							...node,
+							rect: [
+								Math.round( node.rect[0] * sx ),
+								node.rect[1],
+								Math.round( node.rect[2] * sx ),
+								node.rect[3]
+							] as UiRect
+						} ] )
+					);
+					const at = ( id: number ) => Object.values( layout ).find( n => n.id === id )!;
+					const area: UiRect = [ ox, oy, width, LETTER_CHILD_HEIGHT ];
+					paths.push( ...PARTS.map( p => LETTER_CHILD_FRAME + p + ".png" ) );
+					quads.push(
+						...frameRing(
+							area,
+							LETTER_CHILD_FRAME,
+							PARTS.map( p => resources.size( LETTER_CHILD_FRAME + p + ".png" ) ),
+							full
+						)
+					);
+					blocks.push( area );
+					// The popup covers what lies beneath: its controls alone answer the pointer.
+					controls.push( { id: "letter-child", label: "", rect: area, kind: "region" } );
+					/*
+					================
+					caption
+
+					Port-only, not native (Experimental "Fit window labels"): a
+					caption wider than its plate ("Delete message", "Send message"
+					on the 76-pixel com_button) keeps the leading words that fit.
+					================
+					*/
+					const caption = ( id: number ) => {
+						const node = at( id ), value = hudCopy( node.text );
+						if ( !experimental.state().saved.fitWindowLabels ) return value;
+						const room = authoredRect( node, ox, oy )[2] - 2 * CAPTION_MARGIN;
+						return captionWords( value, room, line => text.run( line, 0, node.fontIndex ).width );
+					};
+					if ( reading ) {
+						nativePage( layout, ox, oy, [ 11, 12, 13, 20, 21 ] );
+						authoredText( at( 20 ), ox, oy, reading.sender );
+						const body = authoredRect( at( 21 ), ox, oy ), LINE_HEIGHT = 16;
+						const lines = textBoxLines( reading.body ?? "", body[2], value => text.run( value ).width );
+						controls.push( {
+							id: "letter-read-body",
+							label: reading.body ?? "",
+							rect: body,
+							kind: "region"
+						} );
+						lines.slice( 0, Math.max( 1, Math.floor( body[3] / LINE_HEIGHT ) ) ).forEach( ( line, i ) => {
+							quads.push(
+								...text.quads(
+									line,
+									[ body[0], body[1] + i * LINE_HEIGHT, body[2], LINE_HEIGHT ],
+									body,
+									white,
+									{
+										vAlign: 0,
+										overflow: "clip"
+									}
+								)
+							);
+						} );
+						authoredLabeledButton( at( 11 ), ox, oy, "letter-read-reply", caption( 11 ) );
+						authoredLabeledButton( at( 12 ), ox, oy, "letter-read-delete", caption( 12 ) );
+						authoredLabeledButton( at( 13 ), ox, oy, "letter-read-close", caption( 13 ) );
+						return;
+					}
+					if ( !letterDraft ) return;
+					nativePage( layout, ox, oy, [ 11, 12, 20, 21 ] );
+					partyEdit( at( 20 ), ox, oy, "letter-receiver", letterDraft.receiver, LETTER_RECEIVER_LIMIT );
+					partyEdit( at( 21 ), ox, oy, LETTER_BODY_EDIT, letterDraft.body, LETTER_BODY_LIMIT );
+					authoredLabeledButton( at( 11 ), ox, oy, "letter-write-send", caption( 11 ) );
+					authoredLabeledButton( at( 12 ), ox, oy, "letter-write-cancel", caption( 12 ) );
+				}
+				/*
+				================
+				letterDialogBox
+
+				607920's question (UIIT_MSG_LETTER_LETTERDELETE, Yes/No) before a
+				delete from the list or the read window.
+				================
+				*/
+				function letterDialogBox() {
+					const mark = beginWindow();
+					controls = [];
+					blocks.push( full );
+					simpleMessageBox( {
+						title: hudCopy( "UIIT_STT_CONFIRM_BOX" ),
+						lines: [ hudCopy( "UIIT_MSG_LETTER_LETTERDELETE" ) ],
+						yes: "letter-delete-ok",
+						no: "letter-delete-cancel"
+					} );
+					endWindow( [ mark[0], 0, mark[2], mark[3] ], "modal:letter" );
+					blocks.push( full );
+				}
 				function unionPage( page: AuthoredLayout, slot: AuthoredLayout, gx: number, gy: number ) {
 					const social = game?.social,
 						at = ( id: number ) => Object.values( page ).find( n => n.id === id )!,
@@ -16279,7 +17797,7 @@ export function createUi(
 								{
 									family: "com_long_tab",
 									client: [ 6, 5, 6, 0 ],
-									disabled: ![ 0, 1, 2, 4 ].includes( i )
+									disabled: ![ 0, 1, 2, 3, 4, 5 ].includes( i )
 								}
 							)
 						);
@@ -16531,6 +18049,149 @@ export function createUi(
 							} );
 							return;
 						}
+						if ( guildTab === 3 ) {
+							// The Friends page reflowed: the same rows, in the same order
+							// (friendNameOrder), marks and actions.
+							const rows = [ ...game?.friends?.rows ?? [] ].sort( ( a, b ) =>
+								friendNameOrder( a.name, b.name )
+							);
+							if ( friendSelected && !rows.some( row => row.jid === friendSelected ) ) friendSelected = 0;
+							const selected = rows.find( row => row.jid === friendSelected ),
+								listTop = top + LINE_HEIGHT + 4,
+								visible = Math.max( 1, Math.floor( (bottom - 60 - listTop) / ROW_HEIGHT ) );
+							friendOffset = Math.max(
+								0,
+								Math.min( Math.max( 0, rows.length - visible ), friendOffset )
+							);
+							const first = Math.round( friendOffset );
+							put( hudCopy( "UIIT_CTL_FRIEND" ) + ": " + rows.length + " / " + FRIEND_LIST_LIMIT, [
+								left,
+								top,
+								inner,
+								LINE_HEIGHT
+							] );
+							controls.push( {
+								id: "friend-list",
+								label: hudCopy( "UIIT_STT_FRIENDLIST" ),
+								rect: [ left, listTop, inner, visible * ROW_HEIGHT ],
+								kind: "button"
+							} );
+							rows.slice( first, first + visible ).forEach( ( row, i ) => {
+								const r: UiRect = [ left, listTop + i * ROW_HEIGHT, inner, ROW_HEIGHT - 1 ];
+								memberRow( "friend-row:" + row.jid, row.name, r, row.jid === friendSelected );
+								image(
+									[ r[0] + 6, r[1] + 5, 12, 12 ],
+									ROOT + "interface/guild/gil_contact_" + (row.online ? "on" : "off") + ".png"
+								);
+								put( row.name, [ r[0] + 24, r[1], r[2] - 30, r[3] ] );
+							} );
+							const actionY = bottom - 54, third = Math.floor( inner / 3 );
+							if ( rows.length > visible ) {
+								button( "friend-up", "<", left, actionY, 40, first === 0 );
+								button(
+									"friend-down",
+									">",
+									left + inner - 40,
+									actionY,
+									40,
+									first + visible >= rows.length
+								);
+							}
+							button(
+								"friend-whisper",
+								hudCopy( "UIIT_STT_GET_WHISPER" ),
+								left,
+								actionY + 28,
+								third - 2
+							);
+							button(
+								"friend-add",
+								hudCopy( "UIIT_CTL_FRIENDADD" ),
+								left + third,
+								actionY + 28,
+								third - 2
+							);
+							button(
+								"friend-remove",
+								hudCopy( "UIIT_CTL_FRIENDDEL" ),
+								left + third * 2,
+								actionY + 28,
+								third - 2
+							);
+							return;
+						}
+						if ( guildTab === 5 ) {
+							// The Letter page reflowed: the same rows, order and actions; the
+							// read and write windows open at the screen's centre.
+							const rows = letterOrder( game?.letters?.rows ?? [] ),
+								listTop = top + LINE_HEIGHT + 4,
+								visible = Math.max( 1, Math.floor( (bottom - 60 - listTop) / ROW_HEIGHT ) );
+							if ( !rows.some( entry => entry.index === letterSelected ) ) letterSelected = -1;
+							letterOffset = Math.max(
+								0,
+								Math.min( Math.max( 0, rows.length - visible ), letterOffset )
+							);
+							const first = Math.round( letterOffset );
+							put( hudCopy( "UIIT_STT_LETTER" ) + ": " + rows.length + " / " + LETTER_MAILBOX_LIMIT, [
+								left,
+								top,
+								inner,
+								LINE_HEIGHT
+							] );
+							controls.push( {
+								id: "letter-list",
+								label: hudCopy( "UIIT_STT_LETTER" ),
+								rect: [ left, listTop, inner, visible * ROW_HEIGHT ],
+								kind: "button"
+							} );
+							rows.slice( first, first + visible ).forEach( ( entry, i ) => {
+								const r: UiRect = [ left, listTop + i * ROW_HEIGHT, inner, ROW_HEIGHT - 1 ];
+								memberRow(
+									"letter-row:" + entry.index,
+									entry.row.sender,
+									r,
+									entry.index === letterSelected
+								);
+								put( entry.row.sender, [ r[0] + 6, r[1], Math.floor( r[2] / 2 ) - 8, r[3] ] );
+								put( letterTimeText( entry.row.received ), [
+									r[0] + Math.floor( r[2] / 2 ),
+									r[1],
+									r[2] / 2 - 4,
+									r[3]
+								] );
+							} );
+							const actionY = bottom - 54, third = Math.floor( inner / 3 );
+							if ( rows.length > visible ) {
+								button( "letter-up", "<", left, actionY, 40, first === 0 );
+								button(
+									"letter-down",
+									">",
+									left + inner - 40,
+									actionY,
+									40,
+									first + visible >= rows.length
+								);
+							}
+							button( "letter-write", hudCopy( "UIIT_CTL_LETTER_SEND" ), left, actionY + 28, third - 2 );
+							button(
+								"letter-read",
+								hudCopy( "UIIT_STT_LETTER_READ" ),
+								left + third,
+								actionY + 28,
+								third - 2,
+								letterSelected < 0
+							);
+							button(
+								"letter-delete",
+								hudCopy( "UIIT_CTL_LETTER_DELETE" ),
+								left + third * 2,
+								actionY + 28,
+								third - 2,
+								letterSelected < 0
+							);
+							letterChildWindow();
+							return;
+						}
 						const contentTop = top + 30;
 						if ( guildTab === 1 ) {
 							[ "UIIT_STT_GUILD_RESPECT_ALLY", "UIIT_STT_GUILD_RESPECT_WAR" ].forEach( ( key, i ) =>
@@ -16728,6 +18389,8 @@ export function createUi(
 						const admission = beginWindow();
 						appendCompactGuild();
 						endWindow( admission );
+						if ( friendDialog ) friendDialogBox();
+						if ( letterDeleting >= 0 ) letterDialogBox();
 					} else {
 						const admission = beginWindow(),
 							root = hudData.root.GDR_COMMUNITY!,
@@ -16759,7 +18422,7 @@ export function createUi(
 								{
 									family: "com_long_tab",
 									client: [ 6, 5, 6, 0 ],
-									disabled: ![ 0, 1, 2, 4 ].includes( i )
+									disabled: ![ 0, 1, 2, 3, 4, 5 ].includes( i )
 								}
 							)
 						);
@@ -16804,6 +18467,10 @@ export function createUi(
 						} else if ( guildTab === 2 ) {
 							nativePage( hudData.windows.ifwarstate!, gx, gy );
 							guildWarPage( true, gx + 6, gy + 29 );
+						} else if ( guildTab === 3 && hudData.windows.iffriend && hudData.windows.iffriendslot ) {
+							friendPage( hudData.windows.iffriend, hudData.windows.iffriendslot, gx, gy );
+						} else if ( guildTab === 5 && hudData.windows.ifletter && hudData.windows.ifletterslot ) {
+							letterPage( hudData.windows.ifletter, hudData.windows.ifletterslot, gx, gy );
 						} else {
 							// 5EA9D0 creates Create before the subsequent resource sections. Their
 							// insertion lists reverse within a section, not across constructor calls.
@@ -17033,78 +18700,17 @@ export function createUi(
 							}
 						}
 						endWindow( admission );
+						if ( friendDialog ) friendDialogBox();
+						if ( letterDeleting >= 0 ) letterDialogBox();
 					}
 				}
-				if ( [ "Magic Pop", "Chat" ].includes( panel ) ) {
+				if ( panel === "Magic Pang" ) gachaWindow();
+				if ( panel === "Chat" ) {
 					const admission = beginWindow();
 					const px = Math.max( 12, (w - 380) / 2 ), py = Math.max( 150, (h - 440) / 2 );
 					windowBox( panel, px, py, 380, 420 );
-					closeButton( px + 354, py + 10, panelCloseId( panel === "Chat" ? "Chat" : "Magic Pop" ) );
-					if ( panel === "Magic Pop" ) {
-						const active = game?.gacha,
-							busy = !!game?.inventoryPending,
-							prizes = gachaPrizes(),
-							cards = game?.inventory.filter( item => isGachaTicket( item.typeFlags ) ) ?? [];
-						prizes.forEach( ( prize, index ) =>
-							button(
-								"gacha-prize:" + prize.entry,
-								localization.text( prize.nameSymbol, "Loading item..." ) + " x" + prize.quantity,
-								px + 22 + (index % 2) * 170,
-								py + 45 + Math.floor( index / 2 ) * 27,
-								164,
-								busy,
-								prize.entry === gachaEntry
-							)
-						);
-						gachaPage = Math.min( gachaPage, Math.max( 0, Math.ceil( cards.length / 2 ) - 1 ) );
-						cards.slice( gachaPage * 2, gachaPage * 2 + 2 ).forEach( ( item, index ) =>
-							button(
-								"gacha-card:" + item.slot,
-								(item.name ?? "Magic Pop card") + " x" + item.quantity,
-								px + 22,
-								py + 216 + index * 28,
-								336,
-								busy,
-								gachaSlot === item.slot
-							)
-						);
-						button( "gacha-prev", "Previous", px + 22, py + 276, 164, busy || gachaPage === 0 );
-						button(
-							"gacha-next",
-							"Next",
-							px + 194,
-							py + 276,
-							164,
-							busy || (gachaPage + 1) * 2 >= cards.length
-						);
-						button(
-							"gacha-roll",
-							"Play",
-							px + 22,
-							py + 314,
-							336,
-							busy || !cards.some( item => item.slot === gachaSlot )
-						);
-						label(
-							active?.phase === "rolling" ?
-								"Rolling..." :
-								active?.phase === "waiting" ?
-								"Waiting for result..." :
-								active?.result === "win" ?
-								"Win: " + localization.text(
-									prizes.find( p => p.refObjId === active.reward?.refObjId )?.nameSymbol,
-									"Reward"
-								) + " x" + active.reward?.quantity :
-								active?.result === "lose" ?
-								"Try again" :
-								active?.error !== null && active?.error !== undefined ?
-								"Magic Pop rejected: " + active.error :
-								"Select a prize and a card.",
-							px + 22,
-							py + 354,
-							gold
-						);
-					} else if ( panel === "Chat" ) {
+					closeButton( px + 354, py + 10, panelCloseId( "Chat" ) );
+					if ( panel === "Chat" ) {
 						const channels = [ [ 1, "All" ], [ 2, "Whisper" ], [ 4, "Party" ], [ 5, "Guild" ], [
 							11,
 							"Union"
@@ -17222,7 +18828,9 @@ export function createUi(
 					for ( const entity of next.entities ) {
 						if (
 							hiddenSilkCos( entity, options.hideSilkCos ) ||
-							next.blindHeld && blindableCharacter( entity, game?.localGid )
+							next.blindHeld && (blindableCharacter( entity, game?.localGid ) ||
+									experimental.state().saved.vHidesCompanions &&
+										blindableCompanion( entity, game?.localGid ))
 						) continue;
 						const overlay = overheads.get( entity.gid );
 						if (
@@ -17387,7 +18995,9 @@ export function createUi(
 					}
 					if (
 						![ "local-player", "player", "monster", "npc", "cos" ].includes( entity.kind ) ||
-						next.blindHeld && blindableCharacter( entity, game?.localGid )
+						next.blindHeld && (blindableCharacter( entity, game?.localGid ) ||
+								experimental.state().saved.vHidesCompanions &&
+									blindableCompanion( entity, game?.localGid ))
 					) continue;
 					// 86AB90: the dress bar under the head, 4.8 px a second, shrinking
 					// 0.48 px every 100 ms, in ARGB FFFFEE1F, whether or not the name shows.
@@ -18150,6 +19760,58 @@ export function createUi(
 				button(
 					"invite-refuse",
 					copy( guild ? "UIIT_CTL_NO" : "UIIT_STT_REFUSE", "Refuse" ),
+					layout.refuse[0],
+					layout.refuse[1],
+					76,
+					false,
+					false,
+					6
+				);
+			}
+			const friendPrompt = game?.friends?.prompt;
+			if ( friendPrompt && worldVisible && !game?.social?.invitation ) {
+				// 760C90 opens confirm box 0x23 (52F460): "'name' proposed to make
+				// friends with you." over "Will you accept it?", answered Yes / No.
+				controls = [];
+				blocks = [ full ];
+				if ( focus !== "friend-accept" && focus !== "friend-refuse" ) {
+					focus = null;
+					composing = false;
+				}
+				paths.push( ...partyProposalAssets() );
+				const layout = proposalLayout( 5, w, h, undefined, null );
+				quads.push( ...normalTile( layout.background, MESSAGE_TILE, resources.size( MESSAGE_TILE ), full ) );
+				quads.push(
+					...frameRing(
+						layout.frame,
+						MESSAGE_FRAME,
+						PARTS.map( p => resources.size( MESSAGE_FRAME + p + ".png" ) ),
+						full
+					)
+				);
+				/*
+				================
+				line
+				================
+				*/
+				const line = ( value: string, r: UiRect ) =>
+					quads.push( ...text.quads( value, r, full, white, { hAlign: 1, vAlign: 0 } ) );
+				line( hudCopy( "UIIT_STT_CONFIRM_BOX" ), layout.title );
+				line( "'" + friendPrompt.name + "' " + hudCopy( "UIIT_MSG_FRIEND_REQUEST_01" ), layout.name );
+				line( hudCopy( "UIIT_MSG_FRIEND_REQUEST_02" ), layout.question );
+				button(
+					"friend-accept",
+					hudCopy( "UIIT_CTL_YES" ) || "Yes",
+					layout.accept[0],
+					layout.accept[1],
+					76,
+					false,
+					false,
+					6
+				);
+				button(
+					"friend-refuse",
+					hudCopy( "UIIT_CTL_NO" ) || "No",
 					layout.refuse[0],
 					layout.refuse[1],
 					76,
@@ -19040,6 +20702,20 @@ export function createUi(
 					no: "union-ask-no"
 				} );
 			}
+			const socialAsk = socialQuestion( confirmSocial, game?.social?.guild, socialMember );
+			if ( worldVisible && socialAsk ) {
+				// The guild window's Withdraw (UIIT_STT_GUILD_EXPULSION, a ban of
+				// the selected member), Secede and Disband, and the party ban,
+				// each ask their native question before anything is sent.
+				controls = [];
+				blocks = [ full ];
+				simpleMessageBox( {
+					title: hudCopy( socialAsk.title ),
+					lines: socialAsk.lines.map( line => hudCopy( line.key ).replace( "%s", () => line.arg ?? "" ) ),
+					yes: "social-confirm-yes",
+					no: "social-confirm-no"
+				} );
+			}
 			if ( worldVisible && recallConfirm !== null ) {
 				// 5C82D0 / 52F460 type 5 retain the 308x148 MsgBoxINIF geometry.
 				const layout = guildProposalLayout( w, h );
@@ -19230,10 +20906,173 @@ export function createUi(
 			}
 			const fortressAsk = fortressWarHud.question(), staffAsk = fortressStaffHud.question();
 			if ( worldVisible && (fortressAsk || staffAsk) ) {
-				// 6649C0's question boxes 0x64-0x67.
-				const layout = guildProposalLayout( w, h ),
-					row = view?.gameplay?.fortress?.fortresses.find( r => r.id === fortressAsk?.fortress ),
+				// CIFFortressWarApplyWndSlot_OpenConfirmMsgBox (664210) and
+				// CIFNpcTalk_ShowJobGuildMsgBox (5D3880) show these as plain text in
+				// CGInterface_ShowSimpleMessageBox, so 52BCF0 grows the box to its
+				// widest line ("[%s] Do you want to cancel the application for
+				// occupation?" is about 390 px); 6649C0 takes the answer.
+				const row = view?.gameplay?.fortress?.fortresses.find( r => r.id === fortressAsk?.fortress ),
 					name = row?.nameStrId ? hudCopy( row.nameStrId ) : "";
+				const message = fortressWarFormat(
+					hudCopy(
+						staffAsk ?
+							"UIIT_MSG_FORT_MANAGER_EMPLOY_WINDOW" :
+							fortressWarQuestionKey( fortressAsk!.question )
+					),
+					staffAsk ?
+						[
+							hudCopy(
+								"SN_FORTRESS_MANAGER_NPC_NAME_" +
+									(staffAsk.flag === 1 ?
+										"BATTLEAID" :
+										staffAsk.flag === 2 ?
+										"SMITH" :
+										"TRAINER")
+							),
+							FORTRESS_STAFF_FEE_GOLD,
+							FORTRESS_STAFF_FEE_GP
+						] :
+						[ name, row?.requestFee ?? 0 ]
+				);
+				controls = [];
+				blocks = [ full ];
+				simpleMessageBox( {
+					title: hudCopy( "UIIT_STT_CONFIRM_BOX" ),
+					lines: message.split( "\n" ),
+					yes: staffAsk ? "fortress-staff-yes" : "fortress-war-yes",
+					no: staffAsk ? "fortress-staff-no" : "fortress-war-no"
+				} );
+			}
+			const jobAsk = jobHud.confirm(), aliasWindow = jobHud.alias(), aliasData = hud.data();
+			if ( worldVisible && aliasWindow && aliasData?.windows.ifjobalias && aliasData.root.GDR_JOB_ALIAS ) {
+				// CIFJobAlias (ginterface GDR_JOB_ALIAS, resinfo ifjobalias.txt) as
+				// CIFJobAlias_OpenForMode (645E90) dresses it: the create or modify
+				// title and size, the AliasModify cost row (level x 50,000 gold) only
+				// to modify, Check until the name is checked and OK only after
+				// (646110 / 646340).
+				const admission = beginWindow(),
+					root = aliasData.root.GDR_JOB_ALIAS,
+					height = aliasWindow.modify ? JOB_ALIAS_MODIFY_HEIGHT : root.rect[3],
+					page: AuthoredLayout = Object.fromEntries(
+						Object.entries( aliasData.windows.ifjobalias ).filter( ( [, node] ) =>
+							aliasWindow.modify || !JOB_ALIAS_MODIFY_ROW.includes( node.id )
+						).map( ( [key, node] ) => [
+							key,
+							{
+								...node,
+								// 645E90 creates the AliasModify section after the window's
+								// own, so its frame, tile and label paint over the grown
+								// background tile; the hud copy carries no section order.
+								creationSection: JOB_ALIAS_MODIFY_ROW.includes( node.id ) ? 1 : 0,
+								...(node.id === JOB_ALIAS_BG && aliasWindow.modify ?
+									{
+										rect: [
+											node.rect[0],
+											node.rect[1],
+											node.rect[2],
+											JOB_ALIAS_MODIFY_BG_HEIGHT
+										] as UiRect
+									} :
+									{})
+							}
+						] )
+					),
+					nodes = Object.values( page ),
+					byId = ( id: number ) => nodes.find( n => n.id === id ),
+					[px, py] = windowOrigin( JOB_ALIAS_PANEL, [
+						Math.max( 0, (w - root.rect[2]) / 2 ),
+						Math.max( 0, (h - height) / 2 ),
+						root.rect[2],
+						height
+					] );
+				nativeFrame(
+					{ ...root, rect: [ root.rect[0], root.rect[1], root.rect[2], height ] as UiRect },
+					px,
+					py,
+					hudCopy( aliasWindow.modify ? "UIIT_PAG_ALIAS_MODIFY" : "UIIT_PAG_ALIAS_CREATE" ),
+					"job-alias-close"
+				);
+				nativePage( page, px, py, [
+					JOB_ALIAS_EDIT,
+					JOB_ALIAS_CHECK_BUTTON,
+					JOB_ALIAS_OK_BUTTON,
+					JOB_ALIAS_CANCEL_BUTTON,
+					JOB_ALIAS_COST
+				] );
+				const edit = byId( JOB_ALIAS_EDIT ), cost = byId( JOB_ALIAS_COST );
+				if ( edit ) partyEdit( edit, px, py, "job-alias-text", aliasWindow.text, JOB_ALIAS_MAX_LENGTH );
+				if ( cost ) {
+					authoredText(
+						cost,
+						px,
+						py,
+						groupedNumber( (view?.gameplay?.progression?.level ?? 0) * JOB_ALIAS_MODIFY_GOLD_PER_LEVEL )
+					);
+				}
+				for (
+					const [id, control, disabled] of [
+						[ JOB_ALIAS_CHECK_BUTTON, "job-alias-check", !!aliasWindow.checked ],
+						[ JOB_ALIAS_OK_BUTTON, "job-alias-ok", !aliasWindow.checked ],
+						[ JOB_ALIAS_CANCEL_BUTTON, "job-alias-cancel", false ]
+					] as const
+				) {
+					const node = byId( id );
+					if ( !node ) continue;
+					// Port-only, not native (Experimental "Fit window labels"): the
+					// English "Check for duplicate entries" keeps the leading words
+					// that fit the 76-pixel plate, as the letter popups' captions do.
+					const value = hudCopy( node.text ), room = authoredRect( node, px, py )[2] - 2 * CAPTION_MARGIN;
+					const caption = experimental.state().saved.fitWindowLabels ?
+						captionWords( value, room, line => text.run( line, 0, node.fontIndex ).width ) :
+						value;
+					authoredLabeledButton( node, px, py, control, caption, disabled );
+				}
+				// Inferred: the talk holds input while the window is open (see the
+				// event handler), so the world behind it takes no click.
+				blocks.push( full );
+				endWindow( admission, "service:" + JOB_ALIAS_PANEL );
+			}
+			if ( worldVisible && (jobAsk || aliasWindow?.confirming) ) {
+				// 5D26F0's question boxes (types 4 and 5) and the alias window's
+				// confirm (646470). CIFSimpleMessageBox_SetTextAndResize (52DB20):
+				// SML2 text renders as markup (centred lines, breaks), never as raw
+				// tags. The alias texts take 646470's arguments with the checked
+				// name: create (name, alias); modify (alias, new alias, level x
+				// 50,000 gold).
+				const message = hudCopy(
+						jobAsk ?
+							(jobAsk.kind === "join" ?
+								"UIIT_STT_JOBGUILD_JOIN_WINDOW" :
+								"UIIT_STT_JOBGUILD_WITHD_WINDOW") :
+							aliasWindow?.modify ?
+							"UIIT_STT_ALIAS_MODIFY_WINDOW" :
+							"UIIT_STT_ALIAS_CREATE_WINDOW"
+					),
+					args = jobAsk || !aliasWindow ? [] : aliasWindow.modify ?
+						[
+							view?.gameplay?.job?.alias ?? "",
+							aliasWindow.checked,
+							groupedNumber( (view?.gameplay?.progression?.level ?? 0) * JOB_ALIAS_MODIFY_GOLD_PER_LEVEL )
+						] :
+						[ view?.session?.character ?? "", aliasWindow.checked ];
+				const filled = fillMarkup( message, args );
+				// Markup the guide layout cannot read falls back to plain text.
+				let markup: ReturnType<typeof guideTokens> | null = null;
+				if ( hasSml2Markup( filled ) ) {
+					try {
+						markup = guideTokens( filled );
+					} catch {
+						markup = null;
+					}
+				}
+				const layout = guildQuestionLayout(
+					w,
+					h,
+					markup ?
+						text.guide( markup, [ 0, 0, 300, 1000 ], [ 0, 0, 300, 1000 ], white, resources.size ).height :
+						12,
+					false
+				);
 				controls = [];
 				blocks = [ full ];
 				paths.push( ...partyProposalAssets() );
@@ -19248,134 +21087,18 @@ export function createUi(
 					...text.quads( hudCopy( "UIIT_STT_CONFIRM_BOX" ), layout.title, full, white, {
 						hAlign: 1,
 						vAlign: 0
-					} ),
-					...text.quads(
-						fortressWarFormat(
-							hudCopy(
-								staffAsk ?
-									"UIIT_MSG_FORT_MANAGER_EMPLOY_WINDOW" :
-									fortressWarQuestionKey( fortressAsk!.question )
-							),
-							staffAsk ?
-								[
-									hudCopy(
-										"SN_FORTRESS_MANAGER_NPC_NAME_" +
-											(staffAsk.flag === 1 ?
-												"BATTLEAID" :
-												staffAsk.flag === 2 ?
-												"SMITH" :
-												"TRAINER")
-									),
-									30000,
-									3000
-								] :
-								[ name, row?.requestFee ?? 0 ]
-						),
-						layout.name,
-						full,
-						white,
-						{ hAlign: 1, vAlign: 0 }
-					)
+					} )
 				);
-				button(
-					staffAsk ? "fortress-staff-yes" : "fortress-war-yes",
-					hudCopy( "UIIT_CTL_YES" ),
-					...layout.accept.slice( 0, 3 ) as [number, number, number]
-				);
-				button(
-					staffAsk ? "fortress-staff-no" : "fortress-war-no",
-					hudCopy( "UIIT_CTL_NO" ),
-					...layout.refuse.slice( 0, 3 ) as [number, number, number]
-				);
-			}
-			const jobAsk = jobHud.confirm(), aliasWindow = jobHud.alias();
-			if ( worldVisible && (jobAsk || aliasWindow) ) {
-				// 5D26F0's question boxes (types 4 and 5) and CIFJobAlias.
-				const layout = guildProposalLayout( w, h );
-				controls = [];
-				blocks = [ full ];
-				paths.push( ...partyProposalAssets() );
-				quads.push(
-					...normalTile( layout.background, MESSAGE_TILE, resources.size( MESSAGE_TILE ), full ),
-					...frameRing(
-						layout.frame,
-						MESSAGE_FRAME,
-						PARTS.map( p => resources.size( MESSAGE_FRAME + p + ".png" ) ),
-						full
-					),
-					...text.quads(
-						hudCopy(
-							jobAsk ?
-								"UIIT_STT_CONFIRM_BOX" :
-								aliasWindow?.modify ?
-								"UIIT_PAG_ALIAS_MODIFY" :
-								"UIIT_PAG_ALIAS_CREATE"
-						),
-						layout.title,
-						full,
-						white,
-						{ hAlign: 1, vAlign: 0 }
-					),
-					...text.quads(
-						hudCopy(
-							jobAsk ?
-								(jobAsk.kind === "join" ?
-									"UIIT_STT_JOBGUILD_JOIN_WINDOW" :
-									"UIIT_STT_JOBGUILD_WITHD_WINDOW") :
-								aliasWindow?.modify ?
-								"UIIT_STT_ALIAS_MODIFY_WINDOW" :
-								"UIIT_STT_ALIAS_CREATE_WINDOW"
-						),
-						layout.name,
-						full,
-						white,
-						{ hAlign: 1, vAlign: 0 }
-					)
-				);
-				if ( jobAsk ) {
-					button(
-						"job-confirm-yes",
-						hudCopy( "UIIT_CTL_YES" ),
-						...layout.accept.slice( 0, 3 ) as [number, number, number]
-					);
-					button(
-						"job-confirm-no",
-						hudCopy( "UIIT_CTL_NO" ),
-						...layout.refuse.slice( 0, 3 ) as [number, number, number]
-					);
-				} else if ( aliasWindow ) {
-					const field: UiRect = [ layout.question[0], layout.question[1], layout.question[2], 16 ];
-					controls.push( {
-						id: "job-alias-text",
-						label: hudCopy( "UIIT_STT_ALIAS_CREATE_WINDOW" ),
-						kind: "text",
-						value: aliasWindow.text,
-						rect: field,
-						maxLength: 12
-					} );
-					rect( field, [ 0, 0, 0, .6 ], "", [ 0, 0, 1, 1 ], full );
-					quads.push(
-						...text.quads( aliasWindow.text, field, field, white, {
-							hAlign: 1,
-							vAlign: 1,
-							overflow: "clip"
-						} )
-					);
-					if ( focus === "job-alias-text" && caretVisible ) {
-						const width = text.run( aliasWindow.text ).width;
-						rect(
-							[ field[0] + (field[2] + width) / 2, field[1] + 1, 2, 14 ],
-							white,
-							"",
-							[ 0, 0, 1, 1 ],
-							field
-						);
-					}
-					const [ax, ay, aw] = layout.accept, [rx, ry, rw] = layout.refuse;
-					button( "job-alias-check", hudCopy( "UIIT_CTL_CHECK" ), ax!, ay!, aw! );
-					button( "job-alias-ok", hudCopy( "UIIT_CTL_OK" ), rx!, ry!, rw! );
-					button( "job-alias-cancel", hudCopy( "UIIT_CTL_CANCEL" ), rx! + rw! + 8, ry!, rw! );
-				}
+				if ( markup ) {
+					const out = text.guide( markup, layout.name, full, white, resources.size );
+					quads.push( ...out.quads );
+					paths.push( ...out.paths );
+				} else quads.push( ...text.quads( filled, layout.name, full, white, { hAlign: 1, vAlign: 0 } ) );
+				const [yes, no] = jobAsk ?
+					[ "job-confirm-yes", "job-confirm-no" ] :
+					[ "job-alias-yes", "job-alias-no" ];
+				button( yes, hudCopy( "UIIT_CTL_YES" ), ...layout.accept.slice( 0, 3 ) as [number, number, number] );
+				button( no, hudCopy( "UIIT_CTL_NO" ), ...layout.refuse.slice( 0, 3 ) as [number, number, number] );
 			}
 			if ( !game?.npcConversation || game.npcConversation.phase !== "menu" ) guildManagerHud.reset();
 			else if ( game.social?.compensation !== undefined && !guildManagerHud.question() ) {
@@ -19391,10 +21114,14 @@ export function createUi(
 					transferSlot = hud.data()?.windows.ifguildmasterleaveslot;
 				const transferRoot = hud.data()?.root.GDR_GUILDMASTER_LEAVE;
 				const electionPage = hud.data()?.windows.ifguildmasterelection,
+					electionSlot = hud.data()?.windows.ifguildmasterelectionslot,
 					electionRoot = hud.data()?.root.GDR_GUILDMASTER_ELECTION;
-				if ( guildVote && electionPage && electionRoot ) {
-					// 5F0940: Create then ListWnd, seven empty rows, Confirm initially
-					// disabled. Candidate type 2 asserts in v1.150; do not invent rows.
+				if ( guildVote && electionPage && electionSlot && electionRoot ) {
+					// 5F0940: Create then ListWnd with seven rows; 5F0F30 fills one
+					// slot per candidate 0xB332 brought (name, ballots), and Confirm
+					// waits for a ticked candidate (5EFF00).
+					const candidates = game?.social?.guild?.votes?.find( v => v.id === guildVote.id )?.candidates ?? [];
+					const members = game?.social?.guild?.members ?? [];
 					const x = Math.max( 0, (w - electionRoot.rect[2]) / 2 ),
 						y = Math.max( 0, (h - electionRoot.rect[3]) / 2 );
 					const at = ( id: number ) => Object.values( electionPage ).find( n => n.id === id )!;
@@ -19434,12 +21161,32 @@ export function createUi(
 						rect: authoredRect( at( 14 ), x, y ),
 						kind: "region"
 					} );
+					const offset = guildManagerHud.electionPosition( candidates.length );
+					const slotNode = ( id: number ) => Object.values( electionSlot ).find( n => n.id === id )!;
+					candidates.slice( offset, offset + 7 ).forEach( ( candidate, i ) => {
+						const option = offset + i, row = at( 31 + i ), rx = x + row.rect[0], ry = y + row.rect[1];
+						const name = members.find( m => m.id === candidate.id )?.name ?? "";
+						nativePage( electionSlot, rx, ry );
+						authoredImage( slotNode( 10 ), rx, ry );
+						if ( option === guildVote.option ) {
+							image( [ rx + 14, ry + 7, 16, 16 ], ROOT + "interface/ifcommon/com_checkbutton_on.png" );
+						}
+						authoredText( slotNode( 11 ), rx, ry, name, true );
+						authoredText( slotNode( 12 ), rx, ry, String( candidate.ballots ), true );
+						controls.push( {
+							id: "guild-election-pick:" + option,
+							label: name,
+							rect: [ rx, ry, 221, 23 ],
+							kind: "button",
+							selected: option === guildVote.option
+						} );
+					} );
 					const scroll = chatScrollbar(
 						"guild-election",
 						[ x + 239, y + 80, 16, 116 ],
-						0,
+						candidates.length,
 						7,
-						0,
+						Math.max( 0, candidates.length - 7 - offset ),
 						resources.size,
 						full,
 						hover,
@@ -19447,8 +21194,15 @@ export function createUi(
 					);
 					paths.push( ...scroll.paths );
 					quads.push( ...scroll.quads );
-					controls.push( ...scroll.controls.map( c => ({ ...c, disabled: true }) ) );
-					authoredLabeledButton( at( 11 ), x, y, "guild-manager-yes", hudCopy( at( 11 ).text ), true );
+					controls.push( ...scroll.controls.map( c => ({ ...c, disabled: candidates.length <= 7 }) ) );
+					authoredLabeledButton(
+						at( 11 ),
+						x,
+						y,
+						"guild-manager-yes",
+						hudCopy( at( 11 ).text ),
+						guildVote.option === null
+					);
 					authoredLabeledButton( at( 12 ), x, y, "guild-manager-no", hudCopy( at( 12 ).text ) );
 				} else if (
 					guildField?.kind === "master-leave" && !guildField.confirmed && transferPage && transferSlot &&
@@ -19931,6 +21685,39 @@ export function createUi(
 					...layout.refuse.slice( 0, 3 ) as [number, number, number]
 				);
 			}
+			if ( allBuyProgress && !specialtyDealHud.state()?.dealing ) allBuyProgress = false;
+			if ( worldVisible && allBuyProgress ) {
+				controls = [];
+				blocks = [ full ];
+				simpleMessageBox( {
+					title: hudCopy( "UIIT_STT_EVENTGUIDE" ),
+					lines: [ hudCopy( "UIIT_MSG_SPECIALTY_ALLBUY_PROGRESS_WINDOW" ) ],
+					yes: "specialty-allbuy-yes",
+					no: "specialty-allbuy-cancel",
+					single: "cancel"
+				} );
+			}
+			if ( worldVisible && sellAllPhase !== null ) {
+				controls = [];
+				blocks = [ full ];
+				simpleMessageBox(
+					sellAllPhase === "confirm" ?
+						{
+							title: hudCopy( "UIIT_STT_CONFIRM_BOX" ),
+							lines: [ hudCopy( "UIIT_MSG_SPECIALTY_ALLSELL_WINDOW" ) ],
+							yes: "cos-allsell-yes",
+							no: "cos-allsell-no"
+						} :
+						{
+							// 6A9120: type 2, Cancel only, under the event guide title.
+							title: hudCopy( "UIIT_STT_EVENTGUIDE" ),
+							lines: [ hudCopy( "UIIT_MSG_SPECIALTY_ALLSELL_PROGRESS_WINDOW" ) ],
+							yes: "cos-allsell-yes",
+							no: "cos-allsell-cancel",
+							single: "cancel"
+						}
+				);
+			}
 			if ( worldVisible && shopWarning ) {
 				controls = [];
 				blocks = [ full ];
@@ -20330,8 +22117,7 @@ export function createUi(
 				}
 			}
 			if (
-				worldVisible && carriedItem &&
-				[ "Inventory", "Shop", "Alchemy", GRANT_PANEL, "COS inventory", "Storage" ].includes( panel )
+				worldVisible && carriedItem && ITEM_CARRY_PANELS.includes( panel )
 			) {
 				const item = carriedRow( carriedItem, game ), path = iconPath( item?.icon );
 				if ( path ) {
@@ -22034,7 +23820,8 @@ export function createUi(
 						tooltip,
 						control.rect,
 						full,
-						( s, strong ) => text.run( s, strong ? 2 : 0 ).width
+						( s, strong ) => text.run( s, strong ? 2 : 0 ).width,
+						experimental.state().saved.fitWindowLabels
 					);
 					paths.push( ...bubble.paths );
 					if ( bubble.paths.every( resources.has ) ) {

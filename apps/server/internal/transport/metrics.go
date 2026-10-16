@@ -145,6 +145,19 @@ type Metrics struct {
 	// MonsterNavigation is the world's route-plan and path-clip counters
 	// (simulation.NavigationMetrics), when the GameWorld installed them.
 	MonsterNavigation map[string]uint64 `json:"monster_navigation,omitempty"`
+	// Economy is the gold committed since start, per ledger reason and
+	// direction ("gold.<reason>.gain" / ".loss"; store/economy_ledger.go).
+	Economy map[string]uint64 `json:"economy,omitempty"`
+	// PetCombat counts attack pet orders and fights that ended on a dead or
+	// departed target, which the pet log no longer reports
+	// (action/petdiagnostics.go).
+	PetCombat map[string]uint64 `json:"pet_combat,omitempty"`
+	// PlacementInsideObject counts players a non-walk path placed inside an
+	// object no walk can enter, by the path (action/placementguard.go).
+	PlacementInsideObject map[string]uint64 `json:"placement_inside_object,omitempty"`
+	// Runtime is the Go runtime's GC pauses, scheduling latency, heap and
+	// goroutines since start (runtime_stats.go).
+	Runtime RuntimeStats `json:"runtime"`
 }
 
 /*
@@ -157,6 +170,42 @@ reads its counters; it never imports the world that counts them.
 */
 func (h *Hub) SetNavigationMetrics(read func() map[string]uint64) {
 	h.navigationMetrics.Store(&read)
+}
+
+/*
+==================
+SetEconomyMetrics
+
+Installs the provider of the economy block, as SetNavigationMetrics does:
+the transport never imports the store that counts.
+==================
+*/
+func (h *Hub) SetEconomyMetrics(read func() map[string]uint64) {
+	h.economyMetrics.Store(&read)
+}
+
+/*
+==================
+SetPetCombatMetrics
+
+Installs the provider of the pet_combat block, as SetNavigationMetrics
+does: the transport never imports the action runtime that counts.
+==================
+*/
+func (h *Hub) SetPetCombatMetrics(read func() map[string]uint64) {
+	h.petCombatMetrics.Store(&read)
+}
+
+/*
+==================
+SetPlacementMetrics
+
+Installs the provider of the placement_inside_object block, as
+SetNavigationMetrics does.
+==================
+*/
+func (h *Hub) SetPlacementMetrics(read func() map[string]uint64) {
+	h.placementMetrics.Store(&read)
 }
 
 // Metrics snapshots the counters and the current live-session count.
@@ -239,6 +288,18 @@ func (h *Hub) Metrics() Metrics {
 	if read := h.navigationMetrics.Load(); read != nil && *read != nil {
 		metrics.MonsterNavigation = (*read)()
 	}
+	if read := h.economyMetrics.Load(); read != nil && *read != nil {
+		metrics.Economy = (*read)()
+	}
+	if read := h.petCombatMetrics.Load(); read != nil && *read != nil {
+		metrics.PetCombat = (*read)()
+	}
+	if read := h.placementMetrics.Load(); read != nil && *read != nil {
+		if counts := (*read)(); len(counts) > 0 {
+			metrics.PlacementInsideObject = counts
+		}
+	}
+	metrics.Runtime = runtimeStats()
 	return metrics
 }
 

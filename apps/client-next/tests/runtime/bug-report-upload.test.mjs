@@ -143,6 +143,94 @@ test("unknown identity fields and free-form strings never enter shared technical
 	assert.deepEqual( event.pose, { x: 1, y: 2, z: 3 } );
 });
 
+test("a click keeps its control kind and slot, and a refusal its reason, but never a name", async () => {
+	const { uiControl, refusalReason } = await import( "../../src/engine/runtime/bug-report/journal.ts" );
+	const input = fixture();
+	const click = id => ({ kind: "ui", t: 1, id, ...uiControl( id ), button: 0 });
+	input["timeline.json"] = JSON.stringify( {
+		events: [
+			click( "slot:13" ),
+			click( "shop-repair:GDR_STORE_BTN_REPAIR" ),
+			click( "friend:PRIVATE_NAME" ),
+			click( "PRIVATE_BARE" ),
+			{ kind: "refusal", t: 2, refusal: refusalReason( "Error: Inventory is busy" ) },
+			{ kind: "refusal", t: 3, refusal: refusalReason( "PRIVATE_FREE_TEXT" ) }
+		]
+	} );
+	const { documents } = await readZip( await createDiagnosticUpload( input, OPTIONS ) );
+	assert.ok( !JSON.stringify( documents ).includes( "PRIVATE_" ) );
+	const events = documents["timeline.json"].events;
+	assert.deepEqual( events.slice( 0, 4 ).map( e => [ e.control, e.index ] ), [
+		[ "slot", 13 ],
+		[ "shop-repair", undefined ],
+		[ "friend", undefined ],
+		[ undefined, undefined ]
+	] );
+	assert.ok( events.every( e => e.id === undefined ), "the raw control id stays on the page" );
+	assert.deepEqual( events.slice( 4 ).map( e => e.refusal ), [ "inventory-busy", "other" ] );
+});
+
+test("a report names the adapter's compression features and limits, never free text", async () => {
+	const input = fixture();
+	input["environment.json"] = JSON.stringify( {
+		gpu: {
+			features: [ "texture-compression-etc2", "texture-compression-astc", "PRIVATE_FEATURE" ],
+			limits: { maxBufferSize: 268435456, maxStorageBufferBindingSize: 134217728, maxTextureDimension2D: 8192 },
+			vendor: "apple",
+			architecture: "PRIVATE Architecture"
+		}
+	} );
+	const { documents } = await readZip( await createDiagnosticUpload( input, OPTIONS ) );
+	assert.ok( !JSON.stringify( documents ).includes( "PRIVATE" ) );
+	assert.deepEqual( documents["environment.json"].gpu, {
+		features: [ "texture-compression-etc2", "texture-compression-astc" ],
+		limits: { maxBufferSize: 268435456, maxStorageBufferBindingSize: 134217728, maxTextureDimension2D: 8192 },
+		vendor: "apple"
+	} );
+});
+
+test("a report marks bag and storage rows drawn with no icon, never their names or paths", async () => {
+	// Threads 1559577119187673109 and 1559743886681972759: items "going
+	// invisible" in the bag and in storage, and the report could not say
+	// which slot had a row with nothing to draw.
+	const input = fixture();
+	input["state.json"] = JSON.stringify( {
+		gameplay: {
+			inventory: [
+				{ slot: 13, refObjId: 61, quantity: 20, name: "PRIVATE_NAME", icon: "item/etc/PRIVATE.ddj" },
+				{ slot: 14, refObjId: 24198, quantity: 1 }
+			],
+			storage: {
+				npc: 17,
+				phase: "open",
+				capacity: 150,
+				gold: "999",
+				items: [ { slot: 31, refObjId: 3630, quantity: 10, name: "PRIVATE_NAME" } ]
+			}
+		}
+	} );
+	const { documents } = await readZip( await createDiagnosticUpload( input, OPTIONS ) );
+	assert.ok( !JSON.stringify( documents ).includes( "PRIVATE" ) );
+	const gameplay = documents["state.json"].gameplay;
+	assert.deepEqual( gameplay.inventory, [
+		{ slot: 13, refObjId: 61, quantity: 20 },
+		{ slot: 14, refObjId: 24198, quantity: 1, iconless: true }
+	] );
+	assert.deepEqual( gameplay.storage, {
+		capacity: 150,
+		items: [ { slot: 31, refObjId: 3630, quantity: 10, iconless: true } ]
+	} );
+});
+
+test("a report keeps the inventory journal's slot rows", async () => {
+	// The same threads: the journal says which slots each bag answer changed.
+	const input = fixture();
+	const journal = [ 7, 0xb06d, 1, 0, 13, 0, 7, 0xb06d, 1, 0, 20, 1 ];
+	input["state.json"] = JSON.stringify( { gameplay: { inventory: [], inventoryJournal: journal } } );
+	const { documents } = await readZip( await createDiagnosticUpload( input, OPTIONS ) );
+	assert.deepEqual( documents["state.json"].gameplay.inventoryJournal, journal );
+});
+
 test("a browser without raw DEFLATE still sends a bounded stored ZIP", async t => {
 	t.mock.method( globalThis, "CompressionStream", function unavailable() {
 		throw Error( "unsupported" );

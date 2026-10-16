@@ -64,6 +64,12 @@ type playerKill struct {
 	legalEnemy  bool
 	enemyRules  playerEnemyRules
 	victimLevel int64
+	// Port-only, not native (mostwanted.go): whether killer and victim are
+	// strangers (no shared account, party, guild or union), which both the
+	// streak count and the bounty require, and the victim's wanted level
+	// before its death cleared it.
+	mostWantedStrangers bool
+	victimWanted        int64
 }
 
 /*
@@ -89,6 +95,7 @@ can persist while holding their own mutex. withVictim refreshes local facts.
 func (rt *Runtime) classifyPlayerKill(division string, killer, victim *enterworld.Character) playerKill {
 	kind := rt.deathKind(division, victim, rt.prepareDeathKiller(division, victim, deathKiller{player: killer}))
 	kill := playerKill{kind: kind, enemyRules: rt.worldPlayerEnemyRules(division, killer, victim)}
+	kill.mostWantedStrangers = rt.mostWantedStrangers(division, killer, victim)
 	return kill.withVictim(killer, victim)
 }
 
@@ -103,6 +110,7 @@ func (kill playerKill) withVictim(killer, victim *enterworld.Character) playerKi
 	kill.murderer = murderer(victim) && kill.kind != pk.DeathGuildWar
 	kill.legalEnemy = kill.enemyRules.enemy(killer, victim)
 	kill.victimLevel = rewardLevel(victim)
+	kill.victimWanted = mostWantedLevel(victim)
 	return kill
 }
 
@@ -115,9 +123,9 @@ EXP of 4E6980, then 4E1F60's bookkeeping. actor goes to the killer, public
 to every observer; shares are the job EXP its party members still earn.
 ================
 */
-func (rt *Runtime) payPlayerKillInDoor(division string, killer, victim *enterworld.Character, kill playerKill, now int64) (actor, public []wire.Frame, shares []jobKillShare) {
+func (rt *Runtime) payPlayerKillInDoor(division string, killer, victim *enterworld.Character, kill playerKill, now int64) (actor, public []wire.Frame, after jobKillPayout) {
 	if killer == nil || victim == nil {
-		return nil, nil, nil
+		return nil, nil, after
 	}
 	victimGid := enterworld.ObjectIDForCharacter(victim)
 	party := rt.rewardPartyOf(division, enterworld.ObjectIDForCharacter(killer))
@@ -151,6 +159,9 @@ func (rt *Runtime) payPlayerKillInDoor(division string, killer, victim *enterwor
 			public = append(public, playerPVPStateFrame(killer))
 		}
 	case pk.DeathJob:
+		if notice, ok := jobKillNoticeOf(division, killer, victim, now); ok {
+			after.notices = append(after.notices, notice)
+		}
 		if party == nil {
 			if frames, ok := rt.addJobExperience(killer, jobKillExperience(rt.deps.LevelData(), killer, rewardLevel(victim))); ok {
 				actor = append(actor, frames...)
@@ -160,7 +171,7 @@ func (rt *Runtime) payPlayerKillInDoor(division string, killer, victim *enterwor
 				at: rt.liveSpawn(simulation.WorldKey(division, victim.Name), victim, now)}
 			for _, share := range rt.jobKillShares(division, killer, fallen, party, now) {
 				if share.member != killer {
-					shares = append(shares, share)
+					after.shares = append(after.shares, share)
 					continue
 				}
 				if frames, ok := rt.addJobExperience(killer, share.exp); ok {
@@ -176,19 +187,63 @@ func (rt *Runtime) payPlayerKillInDoor(division string, killer, victim *enterwor
 			public = append(public, wire.ProgressionBroadcastFrames(frames)...)
 		}
 	}
-	return actor, public, shares
+	// Port-only, not native: the streak's count and the bounty (mostwanted.go).
+	wantedActor, wantedPublic, owed, wanted := rt.mostWantedKillInDoor(division, killer, victim, kill, now)
+	actor, public = append(actor, wantedActor...), append(public, wantedPublic...)
+	after.bounties = append(after.bounties, owed...)
+	after.wanted = append(after.wanted, wanted...)
+	return actor, public, after
+}
+
+/*
+================
+jobKillPayout
+
+What a committed kill still owes after its door: the party's job shares,
+the port-only job-kill and Most Wanted notices (announce.go) and, with the
+transfer on, the port-only bounty taken from the victim (mostwanted.go).
+Nothing here runs when the kill's commit rolls back.
+================
+*/
+type jobKillPayout struct {
+	shares   []jobKillShare
+	notices  []jobKillNotice
+	wanted   []mostWantedNotice
+	bounties []mostWantedBounty
+}
+
+/*
+================
+jobKillPayout.add
+
+Gathers several kills' payouts (an area strike can kill several players).
+================
+*/
+func (p *jobKillPayout) add(other jobKillPayout) {
+	p.shares = append(p.shares, other.shares...)
+	p.notices = append(p.notices, other.notices...)
+	p.wanted = append(p.wanted, other.wanted...)
+	p.bounties = append(p.bounties, other.bounties...)
 }
 
 /*
 ================
 payJobKillShares
 
-5BD7F0's party members other than the killer, each in its own door.
+5BD7F0's party members other than the killer, each in its own door, then
+the kill's notice and its Most Wanted notices, then each bounty owed from a victim (port-only, its
+own door over both characters).
 ================
 */
-func (rt *Runtime) payJobKillShares(shares []jobKillShare) []RecipientFrames {
+func (rt *Runtime) payJobKillShares(after jobKillPayout) []RecipientFrames {
+	for _, notice := range after.notices {
+		rt.postJobKillNotice(notice)
+	}
+	for _, notice := range after.wanted {
+		rt.postMostWantedNotice(notice)
+	}
 	var out []RecipientFrames
-	for _, share := range shares {
+	for _, share := range after.shares {
 		var frames []wire.Frame
 		rt.deps.Update(share.member, "job-kill-share", func() bool {
 			var ok bool
@@ -198,6 +253,9 @@ func (rt *Runtime) payJobKillShares(shares []jobKillShare) []RecipientFrames {
 		if len(frames) > 0 {
 			out = append(out, RecipientFrames{CharacterID: share.member.ID, Frames: frames})
 		}
+	}
+	for _, owed := range after.bounties {
+		out = append(out, rt.payMostWantedBounty(owed)...)
 	}
 	return out
 }

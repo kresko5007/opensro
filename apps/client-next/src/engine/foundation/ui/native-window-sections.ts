@@ -19,6 +19,8 @@ owners admit only the sections their native constructor creates together.
 */
 export function nativeWindowSections( name: string ): readonly string[] | undefined {
 	switch ( name ) {
+		case "ifghacha":
+			return [ "Create", "Inventory" ]; // 6450F0 builds Create, then Inventory.
 		case "ifitemmall":
 			return [ "Create", "ShopList", "MyInfo", "Trunk" ]; // 6BBFA0.
 		case "ifitemmallshop":
@@ -74,8 +76,11 @@ export function nativeWindowSections( name: string ): readonly string[] | undefi
 		case "iftaxmanagement":
 			return [ "Create", "TexListSlot", "TexChangeSlot", "TaxLevySlot" ]; // 664DA0.
 		case "ifcos":
+			return [ "Create" ]; // 6A13B0.
 		case "ifcosinventory":
-			return [ "Create" ]; // 6A13B0 / 6A9420.
+			// 6A9420 adds "TradeInfo" for a transport only; the window excludes it
+			// for every other companion.
+			return [ "Create", "TradeInfo" ];
 		default:
 			return undefined;
 	}

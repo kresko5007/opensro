@@ -1087,7 +1087,7 @@ test("the player panel selects the local character and frames itself while selec
 	}
 });
 
-test("contextual Shop entry leaves Alchemy through the same lifecycle; locked Magic Pop rejects entry", () => {
+test("contextual Shop entry leaves Alchemy through the same lifecycle; locked Magic Pang rejects entry", () => {
 	const sent = [], f = uiFixture( c => sent.push( c ) );
 	try {
 		f.state.gameplay = { ...f.state.gameplay, target: 99 };
@@ -1105,7 +1105,7 @@ test("contextual Shop entry leaves Alchemy through the same lifecycle; locked Ma
 		f.state.gameplay = { ...f.state.gameplay, shop: { npc: 99, offers: [] }, shopCompletionRevision: 1 };
 		f.ui.step( f.state, 1250 );
 		assert.deepEqual( sent.map( c => c.command?.kind ), [ "alchemy-open", "shop-open", "alchemy-close" ] );
-		f.ui.event( { kind: "activate", id: "open-window:Magic Pop" } );
+		f.ui.event( { kind: "activate", id: "open-window:Magic Pang" } );
 		f.state.gameplay = { ...f.state.gameplay, gacha: { visible: true, phase: "rolling" } };
 		f.ui.step( f.state, 1300 );
 		sent.length = 0;
@@ -2133,12 +2133,24 @@ test("GPU management controls send typed intent and preserve the selected guild 
 		f.ui.step( f.state, 200 );
 		f.ui.event( { kind: "activate", id: "party-kick" } );
 		assert.equal( sent.length, 0 );
-		f.ui.step( f.state, 300 );
-		f.ui.event( { kind: "activate", id: "party-kick" } );
+		// The ban asks its native question; Yes sends it.
+		output = f.ui.step( f.state, 300 );
+		assert.ok( output.controls.some( c => c.id === "social-confirm-yes" ) );
+		f.ui.event( { kind: "activate", id: "social-confirm-yes" } );
 		assert.deepEqual( sent.pop(), { kind: "party-kick", id: 22 } );
 		f.ui.event( { kind: "activate", id: "open-window:Guild" } );
 		f.ui.step( f.state, 400 );
 		f.ui.event( { kind: "activate", id: "social-member:22" } );
+		// Withdraw (UIIT_STT_GUILD_EXPULSION) asks before it bans; No drops it.
+		f.ui.event( { kind: "activate", id: "guild-kick" } );
+		output = f.ui.step( f.state, 410 );
+		assert.ok( output.controls.some( c => c.id === "social-confirm-no" ) );
+		f.ui.event( { kind: "activate", id: "social-confirm-no" } );
+		assert.equal( sent.length, 0 );
+		f.ui.event( { kind: "activate", id: "guild-kick" } );
+		f.ui.step( f.state, 420 );
+		f.ui.event( { kind: "activate", id: "social-confirm-yes" } );
+		assert.deepEqual( sent.pop(), { kind: "guild-kick", name: "Other" } );
 		f.ui.event( { kind: "activate", id: "guild-dialog:title" } );
 		f.ui.step( f.state, 450 );
 		f.ui.event( { kind: "edit", id: "social-name", value: "Officer", start: 7, end: 7, composing: false } );
@@ -3774,6 +3786,38 @@ test("retail extended quickslot layouts, fixed bindings, locks and bottom-bar ac
 	}
 });
 
+test("a transparent extended bar fades its frames, not its icons", async () => {
+	// 548700 sets alpha 0x6E only on the bar's own boards and its slot proxies
+	// (ids 100-109). A proxy draws nothing: 548E70 moves the linked under-bar
+	// slot onto itself and renders it (A00F20), and that slot's alpha is its
+	// own times its real parent's, the under-bar (53CF20 via 5405D0).
+	const f = uiFixture();
+	try {
+		const game = f.state.gameplay;
+		game.skills = [ 7 ];
+		game.skillCatalog = [ { id: 7, name: "Fixture", icon: "item/etc/hp_potion_01.ddj", cooldownGroup: 0 } ];
+		game.quickSlots = [ { slot: 41, kind: 0x49, payload: 7 } ];
+		let now = 1000, output;
+		for ( let frame = 0; frame < 20; frame++ ) {
+			output = f.ui.step( { ...f.state }, now += 20 ) ?? output;
+			await new Promise( resolve => setTimeout( resolve, 5 ) );
+		}
+		const slot = defined( output ).controls.find( c => c.id === "hotbar:41" ).rect;
+		const quads = f.scenes.at( -1 ).quads;
+		const icon = quads.find( q =>
+			q.texture?.includes( "hp_potion_01" ) && q.rect[0] === slot[0] && q.rect[1] === slot[1]
+		);
+		assert.ok( icon, "the extended slot draws its icon" );
+		assert.equal( icon.color[3], 1, "the icon is opaque although the bar is transparent" );
+		const frames = quads.filter( q =>
+			q.texture?.includes( "/quick_slot/" ) && Math.abs( q.color[3] - 110 / 255 ) < 1e-6
+		);
+		assert.ok( frames.length > 0, "the bar's own frames take alpha 110" );
+	} finally {
+		f.dispose();
+	}
+});
+
 test("dragging shortcuts into the world clears either bar and respects locked slots and occupied destinations", () => {
 	const commands = [], f = uiFixture( c => commands.push( c.command ) );
 	try {
@@ -4744,7 +4788,8 @@ test("native popup menu, selected tab weight, localized EU mastery and empty-par
 		assert.equal( f.state.gameplay.academy.member, false );
 		f.ui.event( { kind: "key", code: "KeyI" } );
 		settle();
-		const glyph = fontAtlas.fonts["0"].styles["2"].glyphs["69"],
+		// The selected first bag tab reads "1" (port-only page numbers, owner 2026-10-15).
+		const glyph = fontAtlas.fonts["0"].styles["2"].glyphs["49"],
 			uv = [
 				glyph.x / fontAtlas.atlasWidth,
 				glyph.y / fontAtlas.atlasHeight,
@@ -4753,7 +4798,7 @@ test("native popup menu, selected tab weight, localized EU mastery and empty-par
 			];
 		assert.ok(
 			f.scenes.at( -1 ).quads.some( q => q.texture === fontAtlas.image && q.uv.every( ( v, i ) => v === uv[i] ) ),
-			"selected Equipment uses the published style-2 E glyph"
+			'the selected first bag tab uses the published style-2 "1" glyph'
 		);
 		f.ui.event( { kind: "key", code: "KeyS" } );
 		settle();
