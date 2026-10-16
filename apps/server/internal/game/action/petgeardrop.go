@@ -18,11 +18,32 @@ import (
 
 	"opensro.online/server/internal/game/companion"
 	"opensro.online/server/internal/game/enterworld"
+	"opensro.online/server/internal/game/item/commerce"
 	"opensro.online/server/internal/game/item/grounditem"
 	"opensro.online/server/internal/game/item/inventory"
 	"opensro.online/server/internal/game/world/monster"
 	"opensro.online/server/internal/game/world/simulation"
 )
+
+/*
+================
+petGearShopOffer
+
+Port-only pet equipment is monster loot, including when a shop package
+or operator-added offer accidentally references it.
+================
+*/
+func petGearShopOffer(offer commerce.Offer) bool {
+	if offer.Ref != nil && companion.IsGearRef(offer.Ref.RefObjID) {
+		return true
+	}
+	for _, content := range offer.Contents {
+		if content.Ref != nil && companion.IsGearRef(content.Ref.RefObjID) {
+			return true
+		}
+	}
+	return false
+}
 
 /*
 ================

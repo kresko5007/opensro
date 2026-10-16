@@ -4,7 +4,7 @@ Updated 2026-10-15. Work ONLY in `E:/CodeProjects/opensro-lab`, branch `feat/Att
 
 ## Current level-90 checkpoint — read before historical notes
 
-**2026-10-16 count-overlay fix (uncommitted):** `item-count.ts` now uses the
+**2026-10-16 count-overlay fix (committed `6fd8325a`):** `item-count.ts` now uses the
 existing `isPetGearRef` predicate to suppress stack digits for pet equipment.
 Normal consumables still show quantities, including their final unit. Six
 count-rendering tests and client TypeScript check pass. Reloaded and logged
@@ -12,6 +12,24 @@ back into LabPetTest; Chain Harness D5 visibly has no `1` in the player bag.
 Proof `pet-gear-no-count.png` in the evidence folder. User moved the character
 to Niya Remains X1568,Y2573 and changed the active pet to Bear; these were
 preserved. No equipment, item or server state was edited for this fix.
+
+**2026-10-16 monster-only loot tests and NPC restriction:** shared merchant
+offer enumeration now rejects pet equipment references, both standalone and
+inside packages. This hides them from catalogues and rejects forged direct
+purchase requests, with expansion on or off. Normal merchant purchases remain
+covered by the existing commerce suite; returning a player's own sold item
+through buyback does not create fresh gear and is unchanged.
+
+`petloot_test.go` covers all27 degree/slot drop plans with forced random draws,
+their blue caps (including D9 six), NPC listing/purchase rejection, and a real
+fatal attack through ground publication, ground snapshot restore and ordinary
+pickup. Blue options and ownership survive; replayed kills/pickups cannot
+duplicate the item. Ordinary native loot still drops alongside pet gear.
+These are deterministic server integration tests, not a live random-drop claim.
+Action, companion and commerce package tests pass; action vet/lint pass with
+zero issues. Logs: `pet-monster-source-tests.log`, `pet-monster-full-tests.log`,
+`pet-monster-lint.log` under the evidence folder. Runtime drop probabilities
+are unchanged; no guaranteed-drop testing override was deployed.
 
 **Latest degree balance and artwork checkpoint (2026-10-15):** see
 `PET-GEAR-DEGREES.md`. D1–D9 use character thresholds1/8/16/24/32/42/52/64/76,
