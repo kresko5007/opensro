@@ -15163,18 +15163,22 @@ export function createUi(
 									draggable: !!item && !busy
 								} );
 							} );
-							const attack = (state?.attackPercent ?? 100) - 100,
-								defense = (state?.defensePercent ?? 100) - 100;
 							[
-								`Lv ${petLevel}   Attack ${attack >= 0 ? "+" : ""}${attack}%   Defense ${
-									defense >= 0 ? "+" : ""
-								}${defense}%`,
-								"Drag gear in from the bag. Right-click to take it off."
+								`Pet level ${petLevel}    Equipment ${
+									state?.gear.filter( item => item !== null ).length ?? 0
+								}/3`,
+								`Skill cooldown reduction: ${state?.stats?.cooldownPercent ?? 0}%`
 							].forEach( ( value, i ) =>
 								quads.push(
-									...text.quads( value, [ ox + 20, oy + 232 + i * 16, 290, 14 ], full, white, {
-										hAlign: 1
-									} )
+									...text.quads(
+										value,
+										[ ox + 20, oy + 232 + i * 20, 290, 16 ],
+										full,
+										i === 0 ? gold : [ .45, .75, 1, 1 ],
+										{
+											hAlign: 1
+										}
+									)
 								)
 							);
 						} else {

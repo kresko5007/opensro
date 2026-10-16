@@ -601,6 +601,8 @@ export interface PetTraining {
 		readonly magicPercent: number;
 		readonly magicDefensePercent: number;
 		readonly magicPrimary: boolean;
+		readonly gearStats?: readonly number[];
+		readonly cooldownPercent?: number;
 	};
 	readonly gid: number;
 	readonly points: number;

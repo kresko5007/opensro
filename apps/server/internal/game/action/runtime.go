@@ -322,6 +322,9 @@ type Runtime struct {
 	PetExpPace func(ownerLevel int64) float64
 	// Port-only Hunter wolf pilot; off preserves native companion behavior.
 	AttackPetExpansion bool
+	// Port-only: DB-configured chance of extra pet gear per admitted normal equipment drop.
+	PetGearDropFactor float64
+	PetGearAffixes    []companion.AffixDef
 
 	// PartyShareFloor raises every party member's EXP share to at least an
 	// even split (partyRewardFactors). Off is native; the closed-beta growth

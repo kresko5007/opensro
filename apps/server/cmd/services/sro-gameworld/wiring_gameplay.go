@@ -105,6 +105,15 @@ func newGameplayPlane(
 		return nil, err
 	}
 	items := action.NewRuntime(deps, deps.MonsterState)
+	items.PetGearDropFactor, err = authorityStore.PetGearDropFactor()
+	if err != nil {
+		return nil, fmt.Errorf("pet loot rules: %w", err)
+	}
+	log.Infof("pet loot: DB factor %.4g per normal equipment drop", items.PetGearDropFactor)
+	items.PetGearAffixes, err = loadPetGearAffixes(authorityStore)
+	if err != nil {
+		return nil, fmt.Errorf("pet blue rules: %w", err)
+	}
 	items.CaptureCharacterFrames = func(division, name string) func([]wire.Frame) {
 		return captureCharacterFrames(ts.Hub, division, name)
 	}

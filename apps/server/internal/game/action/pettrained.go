@@ -474,10 +474,11 @@ func petTrainedStats(ts *petTrainedStrike, target monster.Instance, attacker, de
 	m := ts.mods
 	attack, magic := companion.AttackScales(ts.codename, m)
 	flat := m.FireAdd + m.ColdAdd + m.ShockAdd + m.PoisonAdd
-	attacker.PhysicalAttackMin = attacker.PhysicalAttackMin*attack + flat
-	attacker.PhysicalAttackMax = attacker.PhysicalAttackMax*attack + flat
-	attacker.MagicalAttackMin = attacker.MagicalAttackMin*magic + flat
-	attacker.MagicalAttackMax = attacker.MagicalAttackMax*magic + flat
+	attacker.PhysicalAttackMin = (attacker.PhysicalAttackMin+m.GearStats.PhysicalAttack)*attack + flat
+	attacker.PhysicalAttackMax = (attacker.PhysicalAttackMax+m.GearStats.PhysicalAttack)*attack + flat
+	attacker.MagicalAttackMin = (attacker.MagicalAttackMin+m.GearStats.MagicalAttack)*magic + flat
+	attacker.MagicalAttackMax = (attacker.MagicalAttackMax+m.GearStats.MagicalAttack)*magic + flat
+	attacker.HitRate += m.GearStats.HitRatio
 	attacker.CriticalRate += m.CritPct + ts.critBonus
 	if ts.critWound > 0 && (petTargetBleeds(target) || uint64(target.CurrentHP)*2 < uint64(target.Ref.MaxHP)) {
 		attacker.CriticalRate += ts.critWound
@@ -664,8 +665,12 @@ func (rt *Runtime) petTrainingDefense(owner *enterworld.Character, pet *domain.C
 		}
 	}
 	scale := 1 + pct/100
-	stats.PhysicalDefense *= scale
-	stats.MagicalDefense *= scale
+	profile := companion.Profile(pet.Codename)
+	// The reference already includes the species profile; apply it only to new gear.
+	stats.PhysicalDefense = (stats.PhysicalDefense + m.GearStats.PhysicalDefense*profile.DefensePercent/100) * scale
+	stats.MagicalDefense = (stats.MagicalDefense + m.GearStats.MagicalDefense*profile.MagicDefensePercent/100) * scale
+	stats.EvasionRate += m.GearStats.ParryRatio
+	stats.ParryRate += m.GearStats.ParryRatio
 	return stats
 }
 

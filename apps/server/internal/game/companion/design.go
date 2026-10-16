@@ -100,11 +100,11 @@ GearItem / GearDegree
 ================
 */
 type GearItem struct {
-	Slot     string  `json:"slot"`
-	Name     string  `json:"name"`
-	Codename string  `json:"codename"`
-	ID       uint32  `json:"id"`
-	Implicit float64 `json:"implicit"`
+	Slot      string    `json:"slot"`
+	Name      string    `json:"name"`
+	Codename  string    `json:"codename"`
+	ID        uint32    `json:"id"`
+	BaseStats GearStats `json:"baseStats"`
 }
 
 type GearDegree struct {
@@ -128,6 +128,7 @@ id is AffixParamBase + Code).
 ================
 */
 type AffixDef struct {
+	RollPower float64  `json:"rollPower,omitempty"`
 	ID        string   `json:"id"`
 	Code      uint16   `json:"code"`
 	Name      string   `json:"name"`

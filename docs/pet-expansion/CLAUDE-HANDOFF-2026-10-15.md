@@ -3,6 +3,121 @@
 Updated 2026-10-15. Work ONLY in `E:/CodeProjects/opensro-lab`, branch `feat/Attack-pet-expansion` (created from `AttackPetRework`). Skill testing is postponed at the user's request; this checkpoint is saved in Git. Read `REVIEW-2026-10-14.md` here for the earlier bug review. Hub `E:/CodeProjects/opensro` supplies generated game assets and cluster credentials; do not edit its sources.
 
 ## Current level-90 checkpoint — read before historical notes
+**2026-10-16 flat equipment + DB blue rules (current):** pet gear now sums
+flat physical/magical attack, physical/magical defense, hit and parry before
+percentage modifiers. Collars: attacks/hit; harnesses: defenses/parry; charms:
+smaller bonuses to all six. The shared exporter emits baseStats for Go and TS.
+Implicit damage/defense/cooldown percentages were removed; these exist only
+as actual rolled blues. Old workbook implicit columns are legacy. Saved blue
+values/IDs are unchanged, not rerolled. Tooltip has native stat labels, then
+blue effects, then pet requirements; no drag instructions or stack amounts.
+
+Runtime loads validated authority table `pet_affix_rules` (100 catalogue tiers)
+with minimum, maximum, selection_weight and roll_power. Seeds only absent rows,
+preserves edits. Only implemented/degree/slot-eligible tiers can roll. Weight0
+excludes a tier. Power1 is uniform, power3 favors low rolls; max20. Cooldown
+code77 defaults13..50%, weight40, power3; codes75/76 retain5..8 and9..12.
+Degree floors still apply. Total cooldown reduction remains capped80% and is
+shown in blue under the gold equipment summary in Pet Inventory. Config edits
+apply after restart to future drops only. See PET-LOOT-DB-CONFIG.md.
+
+Wire0x3FB1 profile extension2 carries six flat bonuses and effective cooldown;
+new client still accepts extension1. Deploy matched client/server. The server's
+reference already has species defense applied; petTrainingDefense must apply
+species scaling only to added equipment, not multiply the reference twice.
+Final regression explicitly covers this. Source remains uncommitted.
+
+Verification: all companion/store/action/wire/gameworld tests pass
+(pet-base-stats-tests-final.log), 12 client tooltip/training/SoX tests, 3 asset
+projection tests, tsc and Go vet pass; pinned lint0 issues (pet-stats-lint.log).
+Existing client ownership/format debt documented above remains outside scope.
+Live LabBear90: swapped Rawhide Collar D1 for existing Dragonbone Collar D9;
+hit89->97, physical min1299->1396, magical16->46. Restored the original Rawhide
+Collar with its blue options; Rope Harness D1 and Primal Charm D9 untouched.
+Pet Inventory displays Equipment3/3 and cooldown0% (this loadout has no cooldown
+blue). No new50% item was granted/rolled in this test. Tooltip screenshot:
+pet-base-stats-tooltip.png. Owner position Niya X-1454,Y2440, HP full; pet HGP13%,
+so do not start combat without feeding it. No farming or full pet-skill retest.
+Final deploy log pet-stats-deploy-final.log; rates remain20/mix-on/cap16,
+petGearDropFactor0.10. Refresh DBeaver Tables to see pet_affix_rules.
+**Pet tooltip header follow-up:** headings now use the workbook's plain gear
+name, removing the published `(Degree X)` suffix. Gold identity rows below
+show native "Mounting part: Collar/Harness/Charm" and "Degree: X degrees".
+All27 item/degree combinations plus ordinary equipment regressions and tsc pass.
+This is shared tooltip presentation only; item IDs, saved names/data, rolls and
+equip behavior are unchanged. Client refreshed for the new code.
+**2026-10-16 pet equipment tooltip footer:** shared item-tooltip.ts suppresses
+maximum possessing/quantity rows for pet gear only, removes the legacy inline
+"Needs pet level" sentence, and appends "Level: Pet level X required" then
+"Pet" after blue options. X comes from current workbook-exported gear data
+(D9=76), not stale published descriptions (which still said77). Normal ETC
+quantity rows remain. No item references, quantities, rolls or requirements
+were changed. Client refreshed; owner visually checked and approved the result.
+Five targeted tooltip/regression tests pass, including all27 gear refs and
+ordinary stack rows; TypeScript passes. verify:quick remains blocked by existing
+ownership violations in viewer-camera.ts, pet-design-data.ts and pet-training.ts.
+Formatting check also reports existing unformatted tooltips.test.mjs; changed
+files were formatted. Source changes remain uncommitted.
+**2026-10-16 drop-rate experiment REVERTED at owner request:** restored
+`SRO_BETA_DROP_RATE=20`, `SRO_BETA_DROP_MIX=on`, cap16. The temporary
+1000x parser-limit increase and its test changes were also reverted; supported
+maximum is again100. Pet DB factor remains0.10. No character/item rollback.
+Focused progression parsing tests pass. Deployment log:
+`drop-rate-reverted-deploy.log`. Do not restore the superseded 100x/1000x
+settings on a later deploy.
+**DB RULE IMPLEMENTED; LIVE PET PICKUP STILL PENDING, 2026-10-16:** the owner requested
+reuse of normal equipment drop probabilities/degrees and a DB multiplier.
+The temporary workbook-based100% experiment was cancelled BEFORE live kills;
+all four files were restored byte-for-byte and normal binaries redeployed
+(`live-drops-normal-deploy.log`). Do not run its restore script again.
+
+New code derives pet loot only from admitted character-equipment drops, using
+their native itemClass degree; normal loot probabilities, rank, beta passes,
+capacity and level-gap rules therefore apply automatically. No extra unique
+degree promotion or independent workbook drop probability remains. Blues retain
+their existing separate degree-based rules. DB meta key `petGearDropFactor`
+is a finite0..1 chance per normal equipment drop, default0.10, read at startup.
+Safe offline tool: `go run ./cmd/tools/sro-pet-loot -authority-dir <dir> -factor <n>`.
+
+The live test used temporary DB factor 1.0 (`pet-db-factor-deploy.log`).
+The backend was then stopped cleanly and the tool restored the DB to **0.10**.
+Restart completed: Agent and GameWorld both 1/1 healthy, deploy exit 0
+(`pet-db-factor-restored-deploy.log`). Live GameWorld stdout at 08:13:49 reports
+`pet loot: DB factor 0.1 per normal equipment drop`. Actual authority is
+`E:/CodeProjects/opensro-lab/apps/server/.state/shards/global-official/authority`.
+The DB backup is `live-drop-backup/authority-before-factor.db`.
+Do not restore the whole backup after gameplay, because that would discard
+new character/item progress; change only the factor.
+
+Live evidence: normal Niya General/Royal Guard kills completed through pet
+Attack commands. AutoGrab's visible action was double-clicked for real pickups:
+gold, Special Universal Pill (small), Forgotten horn, Broken shield, Soft desert
+sand and General knife. **No native equipment or new pet equipment appeared**;
+same-degree matching and blue tooltips remain unverified in the live client.
+The old Chain Harness D5 in the bag is NOT evidence of a new monster drop.
+Several moving-monster clicks hit ground and moved the owner instead; use a
+fresh screenshot and confirm target in AX before Attack. Close guard selection
+did work. Do not replace this missing live evidence with fixture results.
+
+Owner LabPetTest remains level 90; LabBlader was not modified. User changed
+Bear to LabWolf before leaving the session idle. During the final return-scroll
+cast the owner died to an unselected guard (Niya X1428,Y2325); town resurrection
+was clicked before shutdown. Reconnected successfully: **Hotan X113,Y15,
+HP13226/13226, level90, LabWolf summoned, gold943852**, all six named pickup
+types still in inventory. Screenshot `pet-loot-db-restored-town.png`.
+About 15 of the
+50 X-large HP potions were consumed by recovery during this run, and minor death
+XP was lost. On reconnect the HP potion stack displayed 50 again (existing
+login resupply behavior; no manual refill was performed). Pickups/progression
+were preserved; no DB rollback was performed.
+
+Focused/full action, store, companion and gameworld tests pass; added factor
+boundaries, non-equipment exclusion and saved DB validation/restart coverage.
+Vet and final pinned lint pass with zero issues (`pet-native-table-lint-final.log`).
+Source remains uncommitted. Next: verify a native equipment + same-degree pet
+drop/pickup together, inspect its degree/blues, then test other degrees and
+save screenshot evidence. Use safer combat positioning and monitor HP; do not
+leave the character taking damage while reading source or casting a long scroll.
 
 **2026-10-16 count-overlay fix (committed `6fd8325a`):** `item-count.ts` now uses the
 existing `isPetGearRef` predicate to suppress stack digits for pet equipment.
@@ -262,3 +377,35 @@ Use same options for status/stop (without-build). Upgrade only offline with `go 
 All scratch/logs/screenshots: `E:/CodeProjects/SRO/outputs/pet-design-codex/`. Relevant logs tiers-go-all-final.log, tiers-go-vet-final.log, tiers-lint-final.log, tier-schema-test.log, tiers-quickslots.log, tier-tests.log, manual-pet-tests.log, tiers-deploy-corrected.log, tiers-upgrade-worktree.log. First tiers-deploy.log documents the corrected schema-path failure.
 
 Browser: existing IAB tab6 at localhost. Keep it open. Use cua browser controls. DOM mirror buttons have `data-ui-id`, e.g pet-skill-up:16 for learn versus pet-skill:16 for activate. Role labels duplicate across these; use exact IDs from observed DOM. Do not inject game state. Right-click inventory consumables to use. Map clicks pan, not move. User agreed to leave session idle. All files must be UTF8 LF (explicit encoding with Python on Windows).
+
+
+### Pet tooltip color and cooldown cap (2026-10-16)
+
+Pet equipment base combat stats now render white; blue modifiers retain their blue styling. Total cooldown reduction from all equipped items and passives is capped at 80% on the server, and the client accepts/displays up to 80%. Individual DB roll maxima (including 50% cooldown rolls) are unchanged. Regression coverage verifies three 50% items produce 80% effective reduction and 20% remaining cooldown, unequipping restores the lower total, all 27 gear tooltips use white base stats, and the client rejects totals above 80%.
+
+Deployed and healthy: Agent v1 / GameWorld v6 (pet-cooldown80-deploy.log). Eight targeted client tests, companion/action/wire Go tests and client typecheck pass. Live Dragonbone Collar tooltip verified white (pet-white-stats.png). No synthetic cooldown items granted; stacked 150-to-80 behavior tested in regression. LabPetTest died from field damage during UI verification; gear was not changed.
+
+### Live 80% cooldown cap acceptance (2026-10-16)
+
+- Used only the separate LabPetTest90 / LabBear90. Moved to the previously verified low-level Grassland spawn region24488 X689 Y3.900245 Z111 (map X6404 Y587), with weak Small-eyed Ghosts. Owner remained13226/13226 throughout casts; bear took only12HP from the taunted monsters. No death or LabBlader changes.
+- Reversible stopped-store fixture: scratch `cap80-fixture.go`, runnable ignored source `apps/server/.state/tools/captest/main.go`. Uses store.Open/UpdateCharacter and normal authority lock, owner/account/pet/level guards. Original three worn pieces/options saved in `cap80-original-gear.json`; never restore a whole character or DB over subsequent progress.
+- Temporarily equipped D9 Dragonscale Harness and D9 Primal Charm, each with encoded affix77 value50. These are valid slots/degrees; pet_affix_rules permits max50. Existing collar retained. No drop/blue probabilities changed. This is a provisioned test fixture, not evidence of a randomly dropped50% roll.
+- Live inventory displayed Skill cooldown reduction:80% from the100% sum (`cap80-stacked-inventory.png`). With no +skill charm, Iron HideIII rank1 base30s produced exactly6000ms: input1792147751692..1698, persisted ReadyAtMs1792147757698. Tree all3books and hotbar countdowns showed the same shortened timer (`cap80-six-second-cast.png`). After expiry all3books reenabled; immediate double activation correctly returned “Iron Hide III is not ready: its row is on cooldown.”
+- Against weak Small-eyed Ghosts, Challenging RoarIII base18s produced3599..3617ms relative to the input interval (expected3600ms). Pet received their attacks; owner remained fullHP. Screenshot `cap80-weak-monster-roar.png`. Original baseline0% Iron Hide showed28s because the original charm grants+2skills; do not mistake that proficiency change for a cooldown bug.
+- Normal gear change during combat correctly refused with “Recall the pet and leave combat before changing its skills or gear.” Single-item follow-up therefore uses the stopped-store fixture; restoration and final state pending below.
+- Raw evidence: `E:/CodeProjects/SRO/outputs/pet-design-codex/cap80-live.jsonl`, `cap80-cast-timing.json`, `cap80-repeat-timing.json`, `cap80-roar-timing.json`. Live assertions confirm ReadyAtMs is input+6000ms, rather than0ms or the old12s cap. No runtime code defect found so far.
+- Follow-up PASS: with only the D9 harness50% and empty charm (same effective skill rank1), live inventory showed50%; Iron HideIII produced15000..15008ms from input to persisted expiry (`cap80-single-timing.json`, `cap80-fifteen-second-cast.png`). Thus the50% and80% behavior is measured live, not inferred from UI alone.
+- Final restoration PASS: original Rawhide Collar30101 / Rope Harness30201 / Primal Charm30309 and every original option exactly match `cap80-original-gear.json`. Fixture pieces were only temporary replacements of worn records; none were inserted into the bag. Final effective cooldown reduction0%. Repositioned to appointed safe Hotan town region23687 X1138 Y250 Z153. LabPetTest remains90/full13226HP; normal progression/pickups/quickslots preserved. Bear lost91HP in total during weak-monster testing, no owner damage/death. No runtime code changes were needed. Server resumed with the same built cap80 binary and normal rates/DB blue rules unchanged.
+- Final GameWorld allocation running at Nomad job version14 after the reversible count0/count1 cycles; transport listening12:53:15, pet factor0.1 and normal20x drop passes preserved. Agent unchanged. All fixture/stage work is complete; continue future tests from Hotan, not the earlier Niya/death checkpoints.
+
+### Attack Pet System website guide and operator manual (2026-10-16)
+
+- Added `docs/pet-expansion/site/attack-pet-system.html` + scoped CSS. Standalone, no JS/dependencies; intended new website navigation entry: Attack Pet System. Matched the current live opensro.online/guide parchment panels, dark ground, gold/blue navigation and palace masthead. Existing public hero image is referenced, not downloaded/bundled. Public guide covers all20 current skill families, progression10/40/90, quickslots/shared cooldowns, the80%cap, three gear slots, degrees1–9, monster-only loot and troubleshooting.
+- Added `docs/pet-expansion/ATTACK-PET-SYSTEM.md`, indexed in docs/README.md. Contains website integration instructions, correct live authority DB path, stopped-shard SQL/CLI examples for petGearDropFactor, pet_affix_rules limits/weights/power, exact roll formula, per-degree odds/caps/floors, general beta rate limits/category mix, generated-data workflow, restart/revert rules and source map. Distinguishes DB settings from workbook/source/deployment settings and100×maximum general drop passes from unaccepted1000×requests.
+- The live site's complete Next.js frontend is not in this checkout; ops/site/index.html is the older minimal landing page. Guide is prepared for later integration, not published to production. Copy HTML/CSS into site public and add one nav link, or port just guide main into existing Next layout. No gameplay code, database settings or rates changed.
+- Verified HTML anchors/uniqueIDs, all20 names against actual treeSkills, all9 level/blue-cap rows against generated data,10details controls and zero scripts. Browser checked desktop and390px narrow layout (single-column cards323px, no horizontal overflow), FAQ expansion and section navigation. Hero loads. Preview at http://127.0.0.1:5182/attack-pet-system.html uses local-only Python static server, exec session98098; restart with Python http.server if needed. Screenshots under scratch: attack-pet-guide-desktop.png and attack-pet-guide-mobile.png. Preview tab retained as deliverable; game session not modified.
+
+### Pet skill point cadence changed to every2levels (2026-10-16)
+
+Owner requested one point per2petlevels. Changed workbook Rules!B9 (Points per pet levels)3→2 and regenerated server JSON/shared JSON/client TS through pet_design_export.py. Starting point remains; normal totals now level1=1,2=2,3=2,4=3,40=21,90=46. Existing spent ranks and operator BonusPoints are untouched; a level90 fixture with74bonus now has120total before spending (instead of105). Existing pets gain15available points at90 without a respec or DB mutation. HTML guide and operator formula updated. Added explicit progression boundary assertions; companion/action/wire Go tests and8client tests pass. Workbook edit authored with artifact-tool, then only its B9value merged into original package to avoid export style drift; all other ZIP parts verified byte-for-byte unchanged. Backup/evidence in scratch pet-design-before-points2.xlsx and points2-rules.png. Deployment log pet-points2-deploy.log; final readiness pending below.
+Final deployment succeeded: Agent v1 and GameWorld v15 each1/1healthy; pet-points2-deploy.log exit0. Guides reflect every2levels. No new combat test needed for this cadence-only change.

@@ -65,6 +65,17 @@ findPct raises the magic and rare odds (Lucky Feather, "of Fortune").
 ================
 */
 func RollGear(d GearDegree, slot int, findPct float64, r Roller) []uint64 {
+	return RollGearWithAffixes(d, slot, findPct, r, D.Affixes)
+}
+
+/*
+================
+RollGearWithAffixes
+
+Validated DB rules affect future drops, never saved rolls.
+================
+*/
+func RollGearWithAffixes(d GearDegree, slot int, findPct float64, r Roller, affixes []AffixDef) []uint64 {
 	scale := 1 + findPct/100
 	roll := r.Float()
 	count := 0
@@ -97,8 +108,8 @@ func RollGear(d GearDegree, slot int, findPct float64, r Roller) []uint64 {
 	for range count {
 		var pool []AffixDef
 		total := 0.0
-		for _, a := range D.Affixes {
-			if a.Status != "Implemented" || used[a.Group] || a.MinDegree > d.Degree || !hasSlot(a, slotName) {
+		for _, a := range affixes {
+			if a.Status != "Implemented" || a.Weight <= 0 || used[a.Group] || a.MinDegree > d.Degree || !hasSlot(a, slotName) {
 				continue
 			}
 			pool = append(pool, a)
@@ -120,7 +131,7 @@ func RollGear(d GearDegree, slot int, findPct float64, r Roller) []uint64 {
 		used[chosen.Group] = true
 		// Higher degrees raise the floor without exceeding the affix tier's cap.
 		low := chosen.Min + math.Floor((chosen.Max-chosen.Min)*d.RollFloor)
-		value := low + math.Floor(r.Float()*(chosen.Max-low+1))
+		value := low + math.Floor(math.Pow(r.Float(), max(1, chosen.RollPower))*(chosen.Max-low+1))
 		options = append(options, EncodeAffix(chosen.Code, uint32(min(value, chosen.Max))))
 	}
 	return options
@@ -195,6 +206,7 @@ one moment. Percentages are added (+10 is +10%).
 ================
 */
 type Modifiers struct {
+	GearStats      GearStats
 	AttackPct      float64 // both attack types (collar implicit)
 	PhysicalPct    float64 // physical affixes only
 	MagicPct       float64 // magical attack only
@@ -233,15 +245,7 @@ func ModifiersFor(p *domain.CharacterCOS) Modifiers {
 		if !ok || itemSlot != slot || p.Level < d.MinPetLevel {
 			continue
 		}
-		base := d.Items[slot].Implicit
-		switch slot {
-		case 0:
-			m.AttackPct += base
-		case 1:
-			m.DefensePct += base
-		case 2:
-			m.CooldownPct += base
-		}
+		m.GearStats.add(d.Items[slot].BaseStats)
 		for _, o := range g.Options {
 			if a, v, ok := DecodeAffix(o); ok && a.Status == "Implemented" {
 				m.addAffix(a, float64(v), pet)
@@ -271,7 +275,7 @@ func ModifiersFor(p *domain.CharacterCOS) Modifiers {
 			m.FindPct += v
 		}
 	}
-	m.CooldownPct = min(m.CooldownPct, 60)
+	m.CooldownPct = min(m.CooldownPct, 80)
 	return m
 }
 

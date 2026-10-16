@@ -21,6 +21,7 @@ import (
 	"opensro.online/server/internal/game/combat"
 	"opensro.online/server/internal/game/companion"
 	"opensro.online/server/internal/game/enterworld"
+	"opensro.online/server/internal/game/item/grounditem"
 	"opensro.online/server/internal/game/item/inventory"
 	"opensro.online/server/internal/game/item/wire"
 	"opensro.online/server/internal/game/social/chat"
@@ -474,20 +475,24 @@ TestMonstersDropPetGearWithBlues
 ================
 */
 func TestMonstersDropPetGearWithBlues(t *testing.T) {
-	rt, _, c, m := newPetCombatRuntime(t, 10000, attackPetBand)
+	rt, _, c, _ := newPetCombatRuntime(t, 10000, attackPetBand)
 	makeTrainedPet(rt, c, "COS_P_WOLF_030", 30)
 	rt.DropRoll = func() (uint32, error) { return 0, nil }
+	rt.PetGearDropFactor = 0.5
+	ref := &enterworld.ItemRef{RefObjID: 50000, Codename: "TEST_NATIVE_GEAR", TypeIDs: [4]int64{3, 1, 6, 2}, NativeFields: enterworld.NewNativeFields(map[string]float64{"itemClass": 1})}
+	rt.deps.ItemReferences().(cosTestItemSource).staticItemSource[ref.Codename] = ref
+	parent := grounditem.Item{RefObjID: ref.RefObjID}
 	at := simulation.Spawn{RegionID: 1}
-	if _, ok := rt.preparePetGearDrop(c, m, at, time.Now()); ok {
+	if _, ok := rt.preparePetGearDrop(c, parent, at, time.Now()); ok {
 		t.Fatal("dropped with the expansion off")
 	}
 	rt.AttackPetExpansion = true
-	drop, ok := rt.preparePetGearDrop(c, m, at, time.Now())
+	drop, ok := rt.preparePetGearDrop(c, parent, at, time.Now())
 	if !ok || !companion.IsGearRef(drop.RefObjID) || len(drop.MagicOptions) != 1 {
 		t.Fatalf("drop %+v", drop)
 	}
 	rt.DropRoll = func() (uint32, error) { return dropRollDomain - 1, nil }
-	if _, ok := rt.preparePetGearDrop(c, m, at, time.Now()); ok {
+	if _, ok := rt.preparePetGearDrop(c, parent, at, time.Now()); ok {
 		t.Fatal("a failed chance roll dropped gear")
 	}
 }

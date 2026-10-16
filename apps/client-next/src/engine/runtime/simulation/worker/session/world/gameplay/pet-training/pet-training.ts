@@ -100,10 +100,16 @@ a protocol error, never a partial one.
 			}
 			let stats: PetTraining["stats"];
 			if ( at < p.length ) {
-				if ( u8() !== 1 ) throw new Error( "Unknown pet combat profile" );
+				const version = u8();
+				if ( version !== 1 && version !== 2 ) throw new Error( "Unknown pet combat profile" );
 				const maxHp = u32(), magicPercent = u16(), magicDefensePercent = u16(), primary = u8();
 				if ( maxHp === 0 || primary > 1 ) throw new Error( "Invalid pet combat profile" );
 				stats = { maxHp, magicPercent, magicDefensePercent, magicPrimary: primary === 1 };
+				if ( version === 2 ) {
+					const gearStats = Array.from( { length: 6 }, () => u32() ), cooldownPercent = u16();
+					if ( cooldownPercent > 80 ) throw new Error( "Invalid pet cooldown reduction" );
+					stats = { ...stats, gearStats, cooldownPercent };
+				}
 			}
 			if ( at !== p.length ) throw new Error( "Trailing pet training bytes" );
 			state = {

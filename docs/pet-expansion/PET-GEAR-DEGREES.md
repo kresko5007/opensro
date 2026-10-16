@@ -15,9 +15,11 @@ Owner-approved change, 2026-10-15. Port-only; the existing
 | D8 | 64–75 | 5 | 43.75% |
 | D9 | 76+ | 6 | 50% |
 
-These are the character equipment degree thresholds through D9, rather than
-the previous pet-only thresholds one level later. Unique monsters keep the
-existing one-degree promotion, capped at D9. Normal drops may still have zero
+These are the character equipment degree thresholds through D9. Pet drops now
+inherit the degree of actual normal character-equipment loot, including
+lower-degree items a higher-level monster can roll. Uniques use their normal
+equipment tables; there is no additional pet-only degree promotion.
+See `PET-LOOT-DB-CONFIG.md` for the DB chance multiplier. White pet items may have zero
 blues. Magic drops roll one or two, subject to the degree cap. Rare drops roll
 three through six, also subject to that cap. Six-blue weight is available only
 on D9. A group may appear only once on an item, and only implemented affixes roll.
@@ -31,8 +33,9 @@ tier; D9 does not guarantee six blues or perfect rolls.
 
 ## Source and compatibility
 
-Edit `pet-design.xlsx` here: Degrees owns the level bands, maximum blues,
+Edit `pet-design.xlsx` here: Degrees owns equipment requirements, maximum blues,
 six-blue weights and roll floors; Rules owns the global six-blue ceiling.
+Legacy workbook drop chances/rank multipliers no longer control runtime drops.
 Run `python scripts/tools/pet_design_export.py` to regenerate the server,
 client and asset-pipeline projections. Do not hand-edit generated files.
 

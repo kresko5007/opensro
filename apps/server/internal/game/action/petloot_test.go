@@ -16,6 +16,7 @@ import (
 	"opensro.online/server/internal/game/companion"
 	"opensro.online/server/internal/game/enterworld"
 	"opensro.online/server/internal/game/item/commerce"
+	"opensro.online/server/internal/game/item/grounditem"
 	"opensro.online/server/internal/game/item/wire"
 	"opensro.online/server/internal/game/world/simulation"
 )
@@ -28,9 +29,11 @@ TestMonsterPetGearAllDegreesAndSlots
 func TestMonsterPetGearAllDegreesAndSlots(t *testing.T) {
 	for _, degree := range companion.D.Gear {
 		for slot, item := range degree.Items {
-			rt, clock, c, mob := newCombatTestRuntime(t, 1)
+			rt, clock, c, _ := newCombatTestRuntime(t, 1)
 			rt.AttackPetExpansion = true
-			mob.Ref.Level = degree.MinPetLevel
+			rt.PetGearDropFactor = 1
+			parent := &enterworld.ItemRef{RefObjID: 50000, Codename: "TEST_NATIVE_GEAR", TypeIDs: [4]int64{3, 1, 6, 2}, NativeFields: enterworld.NewNativeFields(map[string]float64{"itemClass": float64((degree.Degree-1)*3 + 1)})}
+			rt.deps.ItemReferences().(staticItemSource)[parent.Codename] = parent
 			ref := &enterworld.ItemRef{RefObjID: item.ID, Codename: item.Codename, TypeIDs: [4]int64{3, 3, 9, 0}}
 			rt.deps.ItemReferences().(staticItemSource)[ref.Codename] = ref
 			rolls := []uint32{0, uint32((slot*2 + 1) * dropRollDomain / 6), 0, dropRollDomain - 1}
@@ -42,10 +45,50 @@ func TestMonsterPetGearAllDegreesAndSlots(t *testing.T) {
 				rolls = rolls[1:]
 				return next, nil
 			}
-			drop, ok := rt.preparePetGearDrop(c, mob, simulation.Spawn{RegionID: 1}, clock.Now())
+			drop, ok := rt.preparePetGearDrop(c, grounditem.Item{RefObjID: parent.RefObjID}, simulation.Spawn{RegionID: 1}, clock.Now())
 			if !ok || drop.RefObjID != item.ID || drop.StackCount != 1 || len(drop.MagicOptions) != degree.MaxBlues {
 				t.Fatalf("D%d %s drop: %+v", degree.Degree, item.Slot, drop)
 			}
+		}
+	}
+}
+
+/*
+================
+TestPetGearFactorAndNativeParentRestrictions
+================
+*/
+func TestPetGearFactorAndNativeParentRestrictions(t *testing.T) {
+	rt, clock, c, _ := newCombatTestRuntime(t, 1)
+	rt.AttackPetExpansion = true
+	refs := rt.deps.ItemReferences().(staticItemSource)
+	refs["ITEM_COS_PET_COLLAR_01"] = &enterworld.ItemRef{RefObjID: 30101, Codename: "ITEM_COS_PET_COLLAR_01", TypeIDs: [4]int64{3, 3, 9, 0}}
+	parent := &enterworld.ItemRef{RefObjID: 50000, TypeIDs: [4]int64{3, 1, 6, 2}, NativeFields: enterworld.NewNativeFields(map[string]float64{"itemClass": 1})}
+	refs["PARENT"] = parent
+	for _, tc := range []struct {
+		factor float64
+		roll   uint32
+		class  float64
+		kind   int64
+		want   bool
+	}{
+		{0, 0, 1, 1, false}, {1, 32767, 1, 1, true}, {0.1, 3276, 1, 1, true}, {0.1, 3277, 1, 1, false},
+		{1, 0, 0, 1, false}, {1, 0, 28, 1, false}, {1, 0, 1, 3, false},
+	} {
+		rt.PetGearDropFactor = tc.factor
+		parent.TypeIDs[1] = tc.kind
+		parent.NativeFields = parent.NativeFields.With("itemClass", tc.class)
+		first := true
+		rt.DropRoll = func() (uint32, error) {
+			if first {
+				first = false
+				return tc.roll, nil
+			}
+			return 0, nil
+		}
+		_, ok := rt.preparePetGearDrop(c, grounditem.Item{RefObjID: parent.RefObjID}, simulation.Spawn{RegionID: 1}, clock.Now())
+		if ok != tc.want {
+			t.Fatalf("factor/parent %+v: got %v", tc, ok)
 		}
 	}
 }
@@ -103,14 +146,17 @@ func TestMonsterPetGearDeathPickupAndReplay(t *testing.T) {
 	ref := &enterworld.ItemRef{RefObjID: item.ID, Codename: item.Codename, TypeIDs: [4]int64{3, 3, 9, 0}, NativeFields: enterworld.NewNativeFields(map[string]float64{"maxStack": 1})}
 	rt.deps.ItemReferences().(staticItemSource)[ref.Codename] = ref
 	rt.AttackPetExpansion = true
+	rt.PetGearDropFactor = 1
+	parent := rt.deps.ItemReferences().(staticItemSource)["ITEM_CH_SWORD_01_A"]
+	parent.NativeFields = parent.NativeFields.With("itemClass", 1)
 	rt.DropRoll = constantDropRoll(0)
 	r := rt.HandleTargetInteract(testDivision, c, wire.SkillAction{ActionId: 2, HasTarget: true, TargetGid: target.Gid}.Encode())
 	r = assertAndSeparateActionSession(t, r)
 	drops := rt.Ground.All(testDivision)
-	if len(drops) == 0 || drops[0].RefObjID != ref.RefObjID || len(drops[0].MagicOptions) != 1 || drops[0].OwnerJID != enterworld.ObjectIDForCharacter(c) {
+	if len(drops) == 0 || drops[len(drops)-1].RefObjID != ref.RefObjID || len(drops[len(drops)-1].MagicOptions) != 1 || drops[len(drops)-1].OwnerJID != enterworld.ObjectIDForCharacter(c) {
 		t.Fatalf("death drop: %+v frames %+v", drops, r.Frames)
 	}
-	drop := drops[0]
+	drop := drops[len(drops)-1]
 	rt.Ground.Restore(rt.Ground.Snapshot())
 	finishTestCast(t, rt, clock, c)
 	r = rt.HandleTargetInteract(testDivision, c, wire.TargetInteract{Gid: drop.Gid}.Encode())

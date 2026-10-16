@@ -5,7 +5,7 @@
 		"rank2Level": 5,
 		"rank3Level": 10,
 		"petLevelsPerSkillLevel": 4,
-		"pointsPerPetLevels": 3,
+		"pointsPerPetLevels": 2,
 		"optionUnlockStep": 5,
 		"rowUnlock": [
 			1,
@@ -1539,21 +1539,42 @@
 					"name": "Rawhide Collar",
 					"codename": "ITEM_COS_PET_COLLAR_01",
 					"id": 30101,
-					"implicit": 2
+					"baseStats": {
+						"physicalAttack": 6,
+						"magicalAttack": 6,
+						"physicalDefense": 0,
+						"magicalDefense": 0,
+						"hitRatio": 2,
+						"parryRatio": 0
+					}
 				},
 				{
 					"slot": "Harness",
 					"name": "Rope Harness",
 					"codename": "ITEM_COS_PET_HARNESS_01",
 					"id": 30201,
-					"implicit": 3
+					"baseStats": {
+						"physicalAttack": 0,
+						"magicalAttack": 0,
+						"physicalDefense": 3,
+						"magicalDefense": 3,
+						"hitRatio": 0,
+						"parryRatio": 2
+					}
 				},
 				{
 					"slot": "Charm",
 					"name": "Bone Charm",
 					"codename": "ITEM_COS_PET_CHARM_01",
 					"id": 30301,
-					"implicit": 1
+					"baseStats": {
+						"physicalAttack": 3,
+						"magicalAttack": 3,
+						"physicalDefense": 1,
+						"magicalDefense": 1,
+						"hitRatio": 1,
+						"parryRatio": 1
+					}
 				}
 			]
 		},
@@ -1577,21 +1598,42 @@
 					"name": "Studded Collar",
 					"codename": "ITEM_COS_PET_COLLAR_02",
 					"id": 30102,
-					"implicit": 4
+					"baseStats": {
+						"physicalAttack": 20,
+						"magicalAttack": 20,
+						"physicalDefense": 0,
+						"magicalDefense": 0,
+						"hitRatio": 4,
+						"parryRatio": 0
+					}
 				},
 				{
 					"slot": "Harness",
 					"name": "Leather Harness",
 					"codename": "ITEM_COS_PET_HARNESS_02",
 					"id": 30202,
-					"implicit": 6
+					"baseStats": {
+						"physicalAttack": 0,
+						"magicalAttack": 0,
+						"physicalDefense": 10,
+						"magicalDefense": 10,
+						"hitRatio": 0,
+						"parryRatio": 4
+					}
 				},
 				{
 					"slot": "Charm",
 					"name": "Fang Charm",
 					"codename": "ITEM_COS_PET_CHARM_02",
 					"id": 30302,
-					"implicit": 2
+					"baseStats": {
+						"physicalAttack": 10,
+						"magicalAttack": 10,
+						"physicalDefense": 5,
+						"magicalDefense": 5,
+						"hitRatio": 2,
+						"parryRatio": 2
+					}
 				}
 			]
 		},
@@ -1615,21 +1657,42 @@
 					"name": "Bronze Collar",
 					"codename": "ITEM_COS_PET_COLLAR_03",
 					"id": 30103,
-					"implicit": 6
+					"baseStats": {
+						"physicalAttack": 36,
+						"magicalAttack": 36,
+						"physicalDefense": 0,
+						"magicalDefense": 0,
+						"hitRatio": 6,
+						"parryRatio": 0
+					}
 				},
 				{
 					"slot": "Harness",
 					"name": "Studded Harness",
 					"codename": "ITEM_COS_PET_HARNESS_03",
 					"id": 30203,
-					"implicit": 9
+					"baseStats": {
+						"physicalAttack": 0,
+						"magicalAttack": 0,
+						"physicalDefense": 18,
+						"magicalDefense": 18,
+						"hitRatio": 0,
+						"parryRatio": 6
+					}
 				},
 				{
 					"slot": "Charm",
 					"name": "Jade Charm",
 					"codename": "ITEM_COS_PET_CHARM_03",
 					"id": 30303,
-					"implicit": 3
+					"baseStats": {
+						"physicalAttack": 18,
+						"magicalAttack": 18,
+						"physicalDefense": 9,
+						"magicalDefense": 9,
+						"hitRatio": 3,
+						"parryRatio": 3
+					}
 				}
 			]
 		},
@@ -1653,21 +1716,42 @@
 					"name": "Iron Collar",
 					"codename": "ITEM_COS_PET_COLLAR_04",
 					"id": 30104,
-					"implicit": 8
+					"baseStats": {
+						"physicalAttack": 52,
+						"magicalAttack": 52,
+						"physicalDefense": 0,
+						"magicalDefense": 0,
+						"hitRatio": 8,
+						"parryRatio": 0
+					}
 				},
 				{
 					"slot": "Harness",
 					"name": "Scale Harness",
 					"codename": "ITEM_COS_PET_HARNESS_04",
 					"id": 30204,
-					"implicit": 12
+					"baseStats": {
+						"physicalAttack": 0,
+						"magicalAttack": 0,
+						"physicalDefense": 26,
+						"magicalDefense": 26,
+						"hitRatio": 0,
+						"parryRatio": 8
+					}
 				},
 				{
 					"slot": "Charm",
 					"name": "Amber Charm",
 					"codename": "ITEM_COS_PET_CHARM_04",
 					"id": 30304,
-					"implicit": 4
+					"baseStats": {
+						"physicalAttack": 26,
+						"magicalAttack": 26,
+						"physicalDefense": 13,
+						"magicalDefense": 13,
+						"hitRatio": 4,
+						"parryRatio": 4
+					}
 				}
 			]
 		},
@@ -1691,21 +1775,42 @@
 					"name": "Steel Collar",
 					"codename": "ITEM_COS_PET_COLLAR_05",
 					"id": 30105,
-					"implicit": 10
+					"baseStats": {
+						"physicalAttack": 68,
+						"magicalAttack": 68,
+						"physicalDefense": 0,
+						"magicalDefense": 0,
+						"hitRatio": 10,
+						"parryRatio": 0
+					}
 				},
 				{
 					"slot": "Harness",
 					"name": "Chain Harness",
 					"codename": "ITEM_COS_PET_HARNESS_05",
 					"id": 30205,
-					"implicit": 15
+					"baseStats": {
+						"physicalAttack": 0,
+						"magicalAttack": 0,
+						"physicalDefense": 34,
+						"magicalDefense": 34,
+						"hitRatio": 0,
+						"parryRatio": 10
+					}
 				},
 				{
 					"slot": "Charm",
 					"name": "Moonstone Charm",
 					"codename": "ITEM_COS_PET_CHARM_05",
 					"id": 30305,
-					"implicit": 5
+					"baseStats": {
+						"physicalAttack": 34,
+						"magicalAttack": 34,
+						"physicalDefense": 17,
+						"magicalDefense": 17,
+						"hitRatio": 5,
+						"parryRatio": 5
+					}
 				}
 			]
 		},
@@ -1729,21 +1834,42 @@
 					"name": "Silver Collar",
 					"codename": "ITEM_COS_PET_COLLAR_06",
 					"id": 30106,
-					"implicit": 12
+					"baseStats": {
+						"physicalAttack": 88,
+						"magicalAttack": 88,
+						"physicalDefense": 0,
+						"magicalDefense": 0,
+						"hitRatio": 12,
+						"parryRatio": 0
+					}
 				},
 				{
 					"slot": "Harness",
 					"name": "Plate Harness",
 					"codename": "ITEM_COS_PET_HARNESS_06",
 					"id": 30206,
-					"implicit": 18
+					"baseStats": {
+						"physicalAttack": 0,
+						"magicalAttack": 0,
+						"physicalDefense": 44,
+						"magicalDefense": 44,
+						"hitRatio": 0,
+						"parryRatio": 12
+					}
 				},
 				{
 					"slot": "Charm",
 					"name": "Sunstone Charm",
 					"codename": "ITEM_COS_PET_CHARM_06",
 					"id": 30306,
-					"implicit": 6
+					"baseStats": {
+						"physicalAttack": 44,
+						"magicalAttack": 44,
+						"physicalDefense": 22,
+						"magicalDefense": 22,
+						"hitRatio": 6,
+						"parryRatio": 6
+					}
 				}
 			]
 		},
@@ -1767,21 +1893,42 @@
 					"name": "Gilded Collar",
 					"codename": "ITEM_COS_PET_COLLAR_07",
 					"id": 30107,
-					"implicit": 14
+					"baseStats": {
+						"physicalAttack": 108,
+						"magicalAttack": 108,
+						"physicalDefense": 0,
+						"magicalDefense": 0,
+						"hitRatio": 14,
+						"parryRatio": 0
+					}
 				},
 				{
 					"slot": "Harness",
 					"name": "Gilded Harness",
 					"codename": "ITEM_COS_PET_HARNESS_07",
 					"id": 30207,
-					"implicit": 21
+					"baseStats": {
+						"physicalAttack": 0,
+						"magicalAttack": 0,
+						"physicalDefense": 54,
+						"magicalDefense": 54,
+						"hitRatio": 0,
+						"parryRatio": 14
+					}
 				},
 				{
 					"slot": "Charm",
 					"name": "Starstone Charm",
 					"codename": "ITEM_COS_PET_CHARM_07",
 					"id": 30307,
-					"implicit": 7
+					"baseStats": {
+						"physicalAttack": 54,
+						"magicalAttack": 54,
+						"physicalDefense": 27,
+						"magicalDefense": 27,
+						"hitRatio": 7,
+						"parryRatio": 7
+					}
 				}
 			]
 		},
@@ -1805,21 +1952,42 @@
 					"name": "Runed Collar",
 					"codename": "ITEM_COS_PET_COLLAR_08",
 					"id": 30108,
-					"implicit": 16
+					"baseStats": {
+						"physicalAttack": 132,
+						"magicalAttack": 132,
+						"physicalDefense": 0,
+						"magicalDefense": 0,
+						"hitRatio": 16,
+						"parryRatio": 0
+					}
 				},
 				{
 					"slot": "Harness",
 					"name": "Runed Harness",
 					"codename": "ITEM_COS_PET_HARNESS_08",
 					"id": 30208,
-					"implicit": 24
+					"baseStats": {
+						"physicalAttack": 0,
+						"magicalAttack": 0,
+						"physicalDefense": 66,
+						"magicalDefense": 66,
+						"hitRatio": 0,
+						"parryRatio": 16
+					}
 				},
 				{
 					"slot": "Charm",
 					"name": "Spirit Charm",
 					"codename": "ITEM_COS_PET_CHARM_08",
 					"id": 30308,
-					"implicit": 8
+					"baseStats": {
+						"physicalAttack": 66,
+						"magicalAttack": 66,
+						"physicalDefense": 33,
+						"magicalDefense": 33,
+						"hitRatio": 8,
+						"parryRatio": 8
+					}
 				}
 			]
 		},
@@ -1843,21 +2011,42 @@
 					"name": "Dragonbone Collar",
 					"codename": "ITEM_COS_PET_COLLAR_09",
 					"id": 30109,
-					"implicit": 18
+					"baseStats": {
+						"physicalAttack": 156,
+						"magicalAttack": 156,
+						"physicalDefense": 0,
+						"magicalDefense": 0,
+						"hitRatio": 18,
+						"parryRatio": 0
+					}
 				},
 				{
 					"slot": "Harness",
 					"name": "Dragonscale Harness",
 					"codename": "ITEM_COS_PET_HARNESS_09",
 					"id": 30209,
-					"implicit": 27
+					"baseStats": {
+						"physicalAttack": 0,
+						"magicalAttack": 0,
+						"physicalDefense": 78,
+						"magicalDefense": 78,
+						"hitRatio": 0,
+						"parryRatio": 18
+					}
 				},
 				{
 					"slot": "Charm",
 					"name": "Primal Charm",
 					"codename": "ITEM_COS_PET_CHARM_09",
 					"id": 30309,
-					"implicit": 9
+					"baseStats": {
+						"physicalAttack": 78,
+						"magicalAttack": 78,
+						"physicalDefense": 39,
+						"magicalDefense": 39,
+						"hitRatio": 9,
+						"parryRatio": 9
+					}
 				}
 			]
 		}

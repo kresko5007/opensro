@@ -38,12 +38,6 @@ const COL_ICON = 54;
 const COL_DROP_MODEL = 53;
 const COL_MAX_STACK = 57;
 
-const SLOT_BASE = {
-	Collar: value => `pet damage +${value}%`,
-	Harness: value => `pet defense +${value}%`,
-	Charm: value => `pet skill cooldowns -${value}%`
-};
-
 /*
 ================
 PORT_ITEMS
@@ -61,9 +55,7 @@ export const PORT_ITEMS = Object.freeze( design.gear.flatMap( degree =>
 		icon: `item\\pet\\${item.slot.toLowerCase()}_${String( degree.degree ).padStart( 2, "0" )}.ddj`,
 		price: 5000 * degree.degree * degree.degree,
 		name: `${item.name} (Degree ${degree.degree})`,
-		description: `Attack-pet gear (${item.slot}). Base: ${SLOT_BASE[item.slot]( item.implicit )}. ` +
-			`Needs pet level ${degree.minPetLevel}. Up to ${degree.maxBlues} blues. ` +
-			`Drag it onto the pet in Pet Info > Inventory.`
+		description: `Attack-pet gear (${item.slot}). Up to ${degree.maxBlues} blues.`
 	}) )
 ) );
 

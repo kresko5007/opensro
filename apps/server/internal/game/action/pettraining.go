@@ -199,6 +199,8 @@ func (rt *Runtime) petTrainingStateFrames(pet *domain.CharacterCOS, nowMs int64)
 		MagicDefensePercent: uint16(p.MagicDefensePercent * (100 + m.DefensePct) / 100),
 		MagicPrimary:        p.MagicPrimary,
 		Slotted:             t.Slotted,
+		GearStats:           [6]uint32{uint32(m.GearStats.PhysicalAttack), uint32(m.GearStats.MagicalAttack), uint32(m.GearStats.PhysicalDefense), uint32(m.GearStats.MagicalDefense), uint32(m.GearStats.HitRatio), uint32(m.GearStats.ParryRatio)},
+		CooldownPercent:     uint16(m.CooldownPct),
 	}
 	if ref, ok := rt.cosReference(pet); ok {
 		state.MaxHP = ref.MaxHP

@@ -33,8 +33,14 @@ export function petReference(
 	return {
 		...reference,
 		maxHp: training.stats.maxHp,
-		physicalDefence: Math.trunc( reference.physicalDefence * training.defensePercent / 100 ),
-		magicalDefence: Math.trunc( reference.magicalDefence * training.stats.magicDefensePercent / 100 )
+		physicalDefence: Math.trunc(
+			(reference.physicalDefence + (training.stats.gearStats?.[2] ?? 0)) * training.defensePercent / 100
+		),
+		magicalDefence: Math.trunc(
+			(reference.magicalDefence + (training.stats.gearStats?.[3] ?? 0)) * training.stats.magicDefensePercent / 100
+		),
+		hit: reference.hit + (training.stats.gearStats?.[4] ?? 0),
+		parry: reference.parry + (training.stats.gearStats?.[5] ?? 0)
 	};
 }
 
@@ -55,8 +61,16 @@ export function petAbilities(
 	const magic = ability.magical[1] === 0 && training.stats.magicPrimary ? ability.physical : ability.magical;
 	return {
 		...ability,
-		physical: training.stats.magicPrimary ? [ 0, 0 ] : scale( ability.physical, training.attackPercent ),
-		magical: scale( magic, training.stats.magicPercent )
+		physical: training.stats.magicPrimary ?
+			[ 0, 0 ] :
+			scale( [
+				ability.physical[0] + (training.stats.gearStats?.[0] ?? 0),
+				ability.physical[1] + (training.stats.gearStats?.[0] ?? 0)
+			], training.attackPercent ),
+		magical: scale( [
+			magic[0] + (training.stats.gearStats?.[1] ?? 0),
+			magic[1] + (training.stats.gearStats?.[1] ?? 0)
+		], training.stats.magicPercent )
 	};
 }
 

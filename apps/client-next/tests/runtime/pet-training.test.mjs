@@ -302,6 +302,26 @@ test("server combat profile updates HP, defenses and magical attack while legacy
 	assert.deepEqual( petAbilities( ability, state ).magical, [ 180, 360 ] );
 	assert.equal( petReference( reference, undefined ), reference );
 	assert.equal( petAbilities( ability, undefined ), ability );
+	const equippedTail = new Uint8Array( 36 );
+	equippedTail.set( tail );
+	equippedTail[0] = 2;
+	const equippedView = new DataView( equippedTail.buffer );
+	[ 10, 20, 30, 40, 5, 6 ].forEach( ( value, i ) => equippedView.setUint32( 10 + i * 4, value, true ) );
+	equippedView.setUint16( 34, 80, true );
+	training.receive( { opcode: OP_PET_TRAINING_STATE, payload: Uint8Array.from( [ ...base, ...equippedTail ] ) }, 1 );
+	const equipped = training.state();
+	assert.equal( equipped?.stats?.cooldownPercent, 80 );
+	assert.deepEqual( petAbilities( ability, equipped ).magical, [ 216, 396 ] );
+	assert.equal( petReference( reference, equipped )?.physicalDefence, 133 );
+	assert.equal( petReference( reference, equipped )?.hit, 105 );
+	assert.equal( petReference( reference, equipped )?.parry, 106 );
+	equippedView.setUint16( 34, 81, true );
+	assert.throws( () =>
+		training.receive(
+			{ opcode: OP_PET_TRAINING_STATE, payload: Uint8Array.from( [ ...base, ...equippedTail ] ) },
+			2
+		)
+	);
 	assert.throws( () =>
 		training.receive( { opcode: OP_PET_TRAINING_STATE, payload: Uint8Array.from( [ ...base, ...tail, 0 ] ) }, 0 )
 	);

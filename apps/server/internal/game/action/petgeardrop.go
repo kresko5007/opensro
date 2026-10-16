@@ -4,9 +4,9 @@
 petgeardrop.go - monsters drop attack-pet gear with rolled blue options
 
 Port-only, not native (companion/gear.go, SRO_ATTACK_PET_EXPANSION). Pet
-gear has no shop: a kill may drop one piece of its level band's degree
-(uniques one higher) at the degree's chance times the monster rank's
-multiplier. The killer's summoned pet raises the magic and rare odds with
+gear has no shop: actual normal equipment drops independently yield an
+extra same-degree pet item at the DB-configured factor. Native tables own
+the monster/degree/rank/level-gap probabilities. The summoned pet raises blue odds with
 Lucky Feather or "of Fortune" blues.
 
 ===========================================================================
@@ -21,7 +21,6 @@ import (
 	"opensro.online/server/internal/game/item/commerce"
 	"opensro.online/server/internal/game/item/grounditem"
 	"opensro.online/server/internal/game/item/inventory"
-	"opensro.online/server/internal/game/world/monster"
 	"opensro.online/server/internal/game/world/simulation"
 )
 
@@ -71,18 +70,22 @@ func (r dropRoller) Float() float64 {
 preparePetGearDrop
 ================
 */
-func (rt *Runtime) preparePetGearDrop(killer *enterworld.Character, mob monster.Instance, at simulation.Spawn, now time.Time) (grounditem.Item, bool) {
+func (rt *Runtime) preparePetGearDrop(killer *enterworld.Character, parent grounditem.Item, at simulation.Spawn, now time.Time) (grounditem.Item, bool) {
 	items := rt.deps.ItemReferences()
-	if !rt.AttackPetExpansion || items == nil {
+	if !rt.AttackPetExpansion || items == nil || rt.PetGearDropFactor <= 0 {
 		return grounditem.Item{}, false
 	}
-	unique := mob.Rarity()&0x0f == 3 || mob.Rarity()&0x0f == 8
-	degree, ok := companion.DegreeForLevel(mob.Ref.Level, unique)
-	if !ok {
+	parentRef, found := items.ItemRefByID(parent.RefObjID)
+	if !found || parentRef == nil || parentRef.TypeIDs[0] != 3 || parentRef.TypeIDs[1] != 1 {
 		return grounditem.Item{}, false
 	}
+	class := int(parentRef.NativeFields.Get("itemClass"))
+	if class < 1 || class > 27 {
+		return grounditem.Item{}, false
+	}
+	degree := companion.D.Gear[(class-1)/3]
 	roll := dropRoller{rt}
-	if roll.Float() >= companion.DropChance(degree, mob.Rarity()) {
+	if roll.Float() >= rt.PetGearDropFactor {
 		return grounditem.Item{}, false
 	}
 	find := 0.0
@@ -94,7 +97,11 @@ func (rt *Runtime) preparePetGearDrop(killer *enterworld.Character, mob monster.
 	if !found || ref == nil {
 		return grounditem.Item{}, false
 	}
+	affixes := rt.PetGearAffixes
+	if affixes == nil {
+		affixes = companion.D.Affixes
+	}
 	row := inventory.Item{RefObjID: ref.RefObjID, Codename: ref.Codename, TypeFlags: ref.TypeFlags(), Quantity: 1,
-		MagicOptions: companion.RollGear(degree, slot, find, roll)}
+		MagicOptions: companion.RollGearWithAffixes(degree, slot, find, roll, affixes)}
 	return PlanItemDrop(row, 1, at, killer.Name, now), true
 }

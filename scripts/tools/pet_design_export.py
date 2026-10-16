@@ -190,7 +190,15 @@ def main():
 				"name": g[slot + " base"],
 				"codename": g[slot + " codename"],
 				"id": number(g, slot + " ID", f"Gear D{d}"),
-				"implicit": number(g, ("Collar: damage +%", "Harness: defense +%", "Charm: cooldown -%")[k], f"Gear D{d}"),
+				# Port-only balance: flat stats scaled to the degree's level band.
+				"baseStats": {
+					"physicalAttack": (int(g["Min pet level"]) + 2) * (2 if k == 0 else 1 if k == 2 else 0),
+					"magicalAttack": (int(g["Min pet level"]) + 2) * (2 if k == 0 else 1 if k == 2 else 0),
+					"physicalDefense": (int(g["Min pet level"]) + 2) // (1 if k == 1 else 2) if k != 0 else 0,
+					"magicalDefense": (int(g["Min pet level"]) + 2) // (1 if k == 1 else 2) if k != 0 else 0,
+					"hitRatio": d * (2 if k == 0 else 1 if k == 2 else 0),
+					"parryRatio": d * (2 if k == 1 else 1 if k == 2 else 0),
+				},
 			} for k, slot in enumerate(SLOTS)],
 		})
 	affix_ids = set()

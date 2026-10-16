@@ -91,6 +91,8 @@ type PetTrainingState struct {
 	MaxHP                             uint32
 	MagicPercent, MagicDefensePercent uint16
 	MagicPrimary                      bool
+	GearStats                         [6]uint32
+	CooldownPercent                   uint16
 }
 
 /*
@@ -129,7 +131,7 @@ func EncodePetTrainingState(s PetTrainingState) []byte {
 		}
 	}
 	if s.MaxHP != 0 {
-		out = append(out, 1) // optional combat profile extension version
+		out = append(out, 2) // combat profile plus flat equipment stats and cooldown reduction
 		out = binary.LittleEndian.AppendUint32(out, s.MaxHP)
 		out = binary.LittleEndian.AppendUint16(out, s.MagicPercent)
 		out = binary.LittleEndian.AppendUint16(out, s.MagicDefensePercent)
@@ -138,6 +140,10 @@ func EncodePetTrainingState(s PetTrainingState) []byte {
 		} else {
 			out = append(out, 0)
 		}
+		for _, value := range s.GearStats {
+			out = binary.LittleEndian.AppendUint32(out, value)
+		}
+		out = binary.LittleEndian.AppendUint16(out, s.CooldownPercent)
 	}
 	return out
 }

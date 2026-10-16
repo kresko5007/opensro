@@ -74,6 +74,12 @@ func TestPointsLevelsAndSlots(t *testing.T) {
 	if TrainingPoints(&p) != 1 {
 		t.Fatal("level 1 earns one point")
 	}
+	for _, tc := range []struct{ level, points uint8 }{{2, 2}, {3, 2}, {4, 3}, {40, 21}, {90, 46}} {
+		p.Level = tc.level
+		if got := TrainingPoints(&p); got != int(tc.points) {
+			t.Fatalf("level %d: got %d points, want %d", tc.level, got, tc.points)
+		}
+	}
 	p.Level = uint8(D.Rules.PointsPerPetLevels) * 4
 	if TrainingPoints(&p) != 5 {
 		t.Fatalf("points %d", TrainingPoints(&p))
@@ -245,7 +251,7 @@ func TestModifiersSumGearAndPassives(t *testing.T) {
 	if physical <= basePhysical || magical != baseMagical {
 		t.Fatal("physical blue did not improve physical damage only")
 	}
-	if m.AttackPct != d.Items[0].Implicit+predator.ValueAt(2) || m.DefensePct != d.Items[1].Implicit || m.PhysicalPct != 7 {
+	if m.AttackPct != predator.ValueAt(2) || m.DefensePct != 0 || m.PhysicalPct != 7 || m.GearStats.PhysicalAttack != d.Items[0].BaseStats.PhysicalAttack || m.GearStats.PhysicalDefense != d.Items[1].BaseStats.PhysicalDefense {
 		t.Fatalf("modifiers %+v", m)
 	}
 	p.Training.Gear[0].RefObjID = d.Items[1].ID
