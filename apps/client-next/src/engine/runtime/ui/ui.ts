@@ -15746,8 +15746,8 @@ export function createUi(
 						page,
 						ox,
 						oy,
-						training ? setupControls : cosTab === 0 ?
-							hiddenInfo :
+						cosTab === 0 ? hiddenInfo : training ?
+							setupControls :
 							cosTab === 1 ?
 							(transport ?
 								[ COS_TRADE_STAR_FIRST, 27, 28, 29, COS_TRADE_STAR_LAST, COS_TRADE_SELL_ALL ] :
