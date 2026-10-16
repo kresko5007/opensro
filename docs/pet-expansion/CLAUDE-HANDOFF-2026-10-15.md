@@ -4,6 +4,15 @@ Updated 2026-10-15. Work ONLY in `E:/CodeProjects/opensro-lab`, branch `feat/Att
 
 ## Current level-90 checkpoint — read before historical notes
 
+**2026-10-16 count-overlay fix (uncommitted):** `item-count.ts` now uses the
+existing `isPetGearRef` predicate to suppress stack digits for pet equipment.
+Normal consumables still show quantities, including their final unit. Six
+count-rendering tests and client TypeScript check pass. Reloaded and logged
+back into LabPetTest; Chain Harness D5 visibly has no `1` in the player bag.
+Proof `pet-gear-no-count.png` in the evidence folder. User moved the character
+to Niya Remains X1568,Y2573 and changed the active pet to Bear; these were
+preserved. No equipment, item or server state was edited for this fix.
+
 **Latest degree balance and artwork checkpoint (2026-10-15):** see
 `PET-GEAR-DEGREES.md`. D1–D9 use character thresholds1/8/16/24/32/42/52/64/76,
 blue caps1/2/2/3/3/4/4/5/6 and increasing roll floors0–50%. D9 rare rolls
