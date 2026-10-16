@@ -2935,7 +2935,7 @@ export function createCharacterEffects(
 				}
 				// Attack pet Challenging Roar I / II / III (action 16 / 17 / 18 on COS):
 				// 0.0s -> 1.0s: progressively brightening golden-crimson aura glow and
-				// dynamic point light while the bear rears up on its hind legs ("attack1").
+				// Dynamic point light follows the dedicated pet-roar buildup.
 				// After 1s the ring expands to the tier's radius at its effective skill level.
 				// Only the server decides taunt victims.
 				roarAppearances.clear();

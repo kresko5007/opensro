@@ -194,8 +194,9 @@ export function createPresentationState() {
 					}
 					if ( entity.emote && entry.emoteRevision !== entity.emote.revision ) {
 						const roar = entity.kind === "cos" &&
+							/^COS_P_BEAR_/.test( resource.codename ) &&
 							(entity.emote.action === 16 || entity.emote.action === 17 || entity.emote.action === 18) &&
-							resource.clips.includes( "attack1" );
+							resources.duration( resource.glb, "pet-roar" ) > 0;
 						const action = roar ?
 							null :
 							emoteRoute(
@@ -210,7 +211,7 @@ export function createPresentationState() {
 						) {
 							entry.posture = {
 								kind: "emote",
-								clip: "attack1",
+								clip: "pet-roar",
 								started: simulationMs === undefined ?
 									seconds :
 									seconds + (entity.emote.atMs - simulationMs) / 1000

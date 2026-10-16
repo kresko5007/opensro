@@ -13,6 +13,7 @@ import {
 } from "@/engine/foundation/animation/character-budget";
 import { assetRequestBudget } from "@/engine/foundation/assets/asset-budget";
 import { decodeNativeClip } from "@/engine/foundation/animation/native-clip";
+import { withBearRoar } from "@/engine/foundation/animation/bear-roar";
 import type { AssetOwner } from "@/engine/contracts/assets";
 import type { CharacterModel } from "@/engine/contracts/character";
 import type { Renderer } from "@/engine/contracts/runtime";
@@ -505,16 +506,19 @@ export function createCharacterResources( assets: AssetOwner, renderer: Renderer
 					throw new Error( result.error );
 				}
 				if ( completed.model && result.kind === "character" ) {
+					const model = /\/npc\/cos\/p_bear0[12]\.glb$/i.test( completed.path ) ?
+						withBearRoar( result.model ) :
+						result.model;
 					try {
-						costs.set( completed.path, characterBytes( result.model, result.images ) );
+						costs.set( completed.path, characterBytes( model, result.images ) );
 					} catch ( error ) {
 						for ( const image of result.images ) if ( !("kind" in image) ) image.close();
 						throw error;
 					}
-					renderer.setCharacterModel( completed.path, result.model, result.images );
+					renderer.setCharacterModel( completed.path, model, result.images );
 					durations.set(
 						completed.path,
-						new Map( result.model.clips.map( clip => [ clip.name, clip.duration ] ) )
+						new Map( model.clips.map( clip => [ clip.name, clip.duration ] ) )
 					);
 					loaded.add( completed.path );
 					failures.delete( completed.path );

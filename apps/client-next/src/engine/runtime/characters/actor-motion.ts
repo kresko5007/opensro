@@ -655,11 +655,15 @@ export function createActorMotion( owner: ActorOwner ) {
 					posture.kind === "recover" ?
 					"wakeup" :
 					"down";
+				const duration = resources.duration( resource.glb, role );
 				const projected = bindLayers(
-					postureLayers( posture, seconds, resources.duration( resource.glb, role ) ),
+					postureLayers( posture, seconds, duration ),
 					"posture",
 					posture.started
-				).filter( layer => resource.clips.includes( layer.clip ) );
+				).filter( layer =>
+					resource.clips.includes( layer.clip ) ||
+					(layer.clip === "pet-roar" && role === "pet-roar" && duration > 0)
+				);
 				if ( posture.kind === "down" ) layers.splice( 0, layers.length, ...projected );
 				else layers.unshift( ...projected );
 			}
