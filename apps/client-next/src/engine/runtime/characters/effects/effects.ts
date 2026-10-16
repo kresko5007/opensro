@@ -16,6 +16,7 @@ lifecycles that belong in separate owners (see the size ledger).
 ===========================================================================
 */
 import { trimToEffectBudget } from "@/engine/foundation/animation/effect-room";
+import { petRoarRadius } from "@/engine/foundation/ui/pet-training";
 import { castResultAt } from "@/engine/foundation/gameplay/cast-results";
 import { questMarkerEffect } from "@/engine/foundation/gameplay/quest";
 import { createPresentationIds } from "@/engine/foundation/animation/presentation-ids";
@@ -78,7 +79,7 @@ does not require copying unrelated inventory windows, guild or quest state.
 */
 type EffectGameplay = Pick<
 	GameplayState,
-	"localGid" | "pose" | "casts" | "vitals" | "questMarkers" | "inventory" | "attachedEffects"
+	"localGid" | "pose" | "casts" | "vitals" | "questMarkers" | "inventory" | "attachedEffects" | "petTraining"
 >;
 // TID4 6 in the COS type word: the captured quest monster.
 const CAPTURED_MONSTER_TYPE = 6 << 11;
@@ -396,6 +397,30 @@ export function createCharacterEffects(
 	const hwan = new Map<
 		number,
 		{ active: boolean; from: number; value: number; progress: number; previous: number; revision: number; }
+	>();
+	const roars = new Map<
+		number,
+		{
+			revision: number;
+			action: number;
+			radiusMeters: number;
+			startedAt: number;
+			released: boolean;
+			originPose: CharacterActor["pose"];
+			auraBodyGid: number;
+			auraHeadGid: number;
+			shockPrimaryGid: number;
+			shockSecondaryGid: number;
+			shockCoreGid: number;
+		}
+	>();
+	const roarAppearances = new Map<
+		number,
+		{
+			pointLight?: NonNullable<CharacterActor["pointLight"]>;
+			materialTint?: readonly [number, number, number];
+			scale?: number;
+		}
 	>();
 	/*
 	================
@@ -2908,6 +2933,259 @@ export function createCharacterEffects(
 						result.push( { ...actor, pose: owner.pose, time: now - row.started } );
 					}
 				}
+				// Attack pet Challenging Roar I / II / III (action 16 / 17 / 18 on COS):
+				// 0.0s -> 1.0s: progressively brightening golden-crimson aura glow and
+				// dynamic point light while the bear rears up on its hind legs ("attack1").
+				// After 1s the ring expands to the tier's radius at its effective skill level.
+				// Only the server decides taunt victims.
+				roarAppearances.clear();
+				for ( const entity of entities ) {
+					if (
+						entity.kind === "cos" && entity.emote &&
+						(entity.emote.action === 16 || entity.emote.action === 17 || entity.emote.action === 18)
+					) {
+						const existing = roars.get( entity.gid );
+						if ( !existing || existing.revision !== entity.emote.revision ) {
+							const hostPose = presentation.get( entity.gid )?.pose ?? {
+								regionId: entity.regionId,
+								x: entity.x,
+								y: entity.y,
+								z: entity.z,
+								yaw: nativeHeadingYaw( entity.heading )
+							};
+							roars.set( entity.gid, {
+								revision: entity.emote.revision,
+								action: entity.emote.action,
+								radiusMeters: petRoarRadius(
+									entity.emote.action - 15,
+									gameplay?.petTraining?.gid === entity.gid ?
+										gameplay.petTraining.skills.find( skill => skill.id === entity.emote!.action )
+											?.effectiveLevel ?? 1 :
+										1
+								),
+								startedAt: now,
+								released: false,
+								originPose: { ...hostPose },
+								auraBodyGid: allocate(),
+								auraHeadGid: allocate(),
+								shockPrimaryGid: allocate(),
+								shockSecondaryGid: allocate(),
+								shockCoreGid: allocate()
+							} );
+						}
+					}
+				}
+				const auraModel = "/assets/effects/challenging-roar-aura",
+					shockwaveModel = "/assets/effects/challenging-roar-shockwave";
+				for ( const [gid, roar] of [ ...roars ] ) {
+					const host = presentation.get( gid );
+					const entity = byGid.get( gid );
+					if ( !entity || entity.emote?.revision !== roar.revision ) {
+						roars.delete( gid );
+						continue;
+					}
+					const bearPose = host?.pose ?? (entity ?
+						{
+							regionId: entity.regionId,
+							x: entity.x,
+							y: entity.y,
+							z: entity.z,
+							yaw: nativeHeadingYaw( entity.heading )
+						} :
+						roar.originPose);
+					const elapsed = Math.max( 0, now - roar.startedAt );
+					if ( elapsed >= 2.25 ) {
+						// Keep the consumed revision until the entity leaves or a new emote arrives.
+						continue;
+					}
+					const targetRadiusMeters = roar.radiusMeters;
+					const targetRadiusUnits = targetRadiusMeters * 10;
+					if ( elapsed < 1.0 ) {
+						// Phase 1 (0.0s -> 1.0s): glow gets progressively brighter over 1 second.
+						const p = Math.min( 1, elapsed / 1.0 );
+						const glow = p * (0.25 + 0.75 * p);
+						roar.originPose = { ...bearPose };
+						roarAppearances.set( gid, {
+							pointLight: {
+								pose: {
+									regionId: bearPose.regionId,
+									x: bearPose.x,
+									y: bearPose.y + 18,
+									z: bearPose.z
+								},
+								ambient: [ 1.95 * glow, 1.22 * glow, 0.38 * glow ],
+								diffuse: [ 2.85 * glow, 1.78 * glow, 0.56 * glow ],
+								range: 45 + 205 * glow,
+								attenuation: 0.35
+							},
+							materialTint: [
+								1.0,
+								1.0 - 0.08 * glow,
+								1.0 - 0.32 * glow
+							],
+							scale: 1.0 + 0.08 * Math.sin( p * Math.PI * 0.65 )
+						} );
+						if ( ready( auraModel ) ) {
+							result.push( {
+								gid: roar.auraBodyGid,
+								model: auraModel,
+								clip: "effect",
+								time: elapsed,
+								loop: true,
+								scale: 0.55 + 0.90 * glow,
+								absoluteEffectScale: true,
+								effectEntity: true,
+								pickable: false,
+								opacity: 0.03 + 0.22 * glow,
+								materialTint: [
+									0.85 + 0.15 * glow,
+									0.42 + 0.53 * glow,
+									0.12 + 0.66 * glow
+								],
+								effectRotation: { axis: "y", angle: radians( elapsed * 3.4 ) },
+								pose: bearPose,
+								attachment: { gid, bone: "", root: true, offset: [ 0, 0, 0 ], ground: true }
+							} );
+							result.push( {
+								gid: roar.auraHeadGid,
+								model: auraModel,
+								clip: "effect",
+								time: elapsed,
+								loop: true,
+								scale: 0.30 + 0.65 * glow,
+								absoluteEffectScale: true,
+								effectEntity: true,
+								pickable: false,
+								opacity: 0.02 + 0.12 * p * p,
+								materialTint: [ 1.0, 0.88 + 0.12 * p, 0.55 + 0.40 * p ],
+								effectRotation: { axis: "y", angle: radians( -elapsed * 5.2 ) },
+								pose: bearPose,
+								attachment: { gid, bone: "Bip01 Head", offset: [ 0, 0, 0 ], rootIfMissing: true }
+							} );
+						}
+					} else {
+						// Phase 2 (1.0s -> 2.25s): release the 25m (250-unit) shockwave!
+						if ( !roar.released ) {
+							roar.released = true;
+							roar.originPose = { ...bearPose };
+							cameraEvents.push( {
+								atMs: Math.trunc( now * 1000 ),
+								amplitude: roar.action === 18 ? 200 : 50,
+								durationMs: 500,
+								periodMs: roar.action === 18 ? 25 : 20
+							} );
+						}
+						const shockElapsed = elapsed - 1.0;
+						if ( shockElapsed < 0.65 ) {
+							const decay = Math.pow( 1 - shockElapsed / 0.65, 1.8 );
+							roarAppearances.set( gid, {
+								pointLight: {
+									pose: {
+										regionId: roar.originPose.regionId,
+										x: roar.originPose.x,
+										y: roar.originPose.y + 16,
+										z: roar.originPose.z
+									},
+									ambient: [ 2.60 * decay, 1.75 * decay, 0.68 * decay ],
+									diffuse: [ 3.40 * decay, 2.25 * decay, 0.90 * decay ],
+									range: 250 + 60 * (1 - decay),
+									attenuation: 0.30
+								},
+								materialTint: [
+									1.0,
+									1.0 - 0.06 * decay,
+									1.0 - 0.24 * decay
+								],
+								scale: 1.0 + 0.05 * decay
+							} );
+						}
+						if ( shockElapsed < 0.40 && ready( auraModel ) ) {
+							const burstU = shockElapsed / 0.40;
+							result.push( {
+								gid: roar.auraBodyGid,
+								model: auraModel,
+								clip: "effect",
+								time: elapsed,
+								loop: false,
+								scale: 1.45 + 0.85 * burstU,
+								absoluteEffectScale: true,
+								effectEntity: true,
+								pickable: false,
+								opacity: 0.12 * Math.pow( 1 - burstU, 1.6 ),
+								materialTint: [ 1.0, 0.92, 0.72 ],
+								effectRotation: { axis: "y", angle: radians( elapsed * 4.2 ) },
+								pose: roar.originPose
+							} );
+						}
+						if ( shockElapsed < 0.90 && ready( shockwaveModel ) ) {
+							const u1 = Math.min( 1, shockElapsed / 0.90 );
+							const ease1 = 1 - Math.pow( 1 - u1, 2.3 );
+							const primaryRadiusUnits = 6 + (targetRadiusUnits - 6) * ease1;
+							result.push( {
+								gid: roar.shockPrimaryGid,
+								model: shockwaveModel,
+								clip: "effect",
+								time: shockElapsed,
+								loop: false,
+								scale: primaryRadiusUnits,
+								absoluteEffectScale: true,
+								effectEntity: true,
+								pickable: false,
+								opacity: Math.max( 0, (1 - Math.pow( u1, 1.65 )) * 0.45 ),
+								materialTint: [
+									1.0,
+									0.96 - 0.22 * u1,
+									0.82 - 0.48 * u1
+								],
+								effectRotation: { axis: "y", angle: radians( shockElapsed * 2.2 ) },
+								pose: roar.originPose
+							} );
+						}
+						if ( shockElapsed >= 0.08 && shockElapsed < 1.03 && ready( shockwaveModel ) ) {
+							const u2 = Math.min( 1, (shockElapsed - 0.08) / 0.95 );
+							const ease2 = 1 - Math.pow( 1 - u2, 2.1 );
+							const secondaryRadiusUnits = 4 + (targetRadiusUnits - 4) * ease2;
+							result.push( {
+								gid: roar.shockSecondaryGid,
+								model: shockwaveModel,
+								clip: "effect",
+								time: shockElapsed - 0.08,
+								loop: false,
+								scale: secondaryRadiusUnits,
+								absoluteEffectScale: true,
+								effectEntity: true,
+								pickable: false,
+								opacity: Math.max( 0, (1 - Math.pow( u2, 1.45 )) * 0.30 ),
+								materialTint: [ 1.0, 0.62 - 0.18 * u2, 0.24 ],
+								effectRotation: { axis: "y", angle: radians( -shockElapsed * 1.8 ) },
+								pose: {
+									...roar.originPose,
+									y: roar.originPose.y + 0.6
+								}
+							} );
+						}
+						if ( shockElapsed < 0.45 && ready( shockwaveModel ) ) {
+							const uCore = shockElapsed / 0.45;
+							result.push( {
+								gid: roar.shockCoreGid,
+								model: shockwaveModel,
+								clip: "effect",
+								time: shockElapsed,
+								loop: false,
+								scale: 8 + 97 * (1 - Math.pow( 1 - uCore, 2.0 )),
+								absoluteEffectScale: true,
+								effectEntity: true,
+								pickable: false,
+								opacity: (1 - uCore) * 0.25,
+								materialTint: [ 1.0, 0.95, 0.80 ],
+								pose: {
+									...roar.originPose,
+									y: roar.originPose.y + 1.1
+								}
+							} );
+						}
+					}
+				}
 				hiddenWeapons.clear();
 				for ( const gid of weaponOwners.values() ) hiddenWeapons.add( gid );
 				budgetActors = result.length;
@@ -2999,12 +3277,14 @@ export function createCharacterEffects(
 		*/
 		appearance( gid: number ) {
 			const spineRotation = spineAims.rotation( gid );
+			const roar = roarAppearances.get( gid );
+			const pointLight = roar?.pointLight ?? hitLights.get( gid );
 			return {
-				...(hitLights.get( gid ) ? { pointLight: hitLights.get( gid ) } : {}),
+				...(pointLight ? { pointLight } : {}),
 				weaponHidden: hiddenWeapons.has( gid ),
 				...(spineRotation ? { boneRotation: { bone: SPINE_AIM_BONE, rotation: spineRotation } } : {}),
-				materialTint: materials.get( gid )?.color,
-				scale: hwan.get( gid )?.value ?? 1
+				materialTint: roar?.materialTint ?? materials.get( gid )?.color,
+				scale: (hwan.get( gid )?.value ?? 1) * (roar?.scale ?? 1)
 			};
 		},
 		/*
@@ -3164,6 +3444,8 @@ export function createCharacterEffects(
 			materials.clear();
 			materialOwners.clear();
 			hwan.clear();
+			roars.clear();
+			roarAppearances.clear();
 			statuses.clear();
 			cameraEvents.length = 0;
 			system.clear();
@@ -3202,6 +3484,8 @@ export function createCharacterEffects(
 			materials.clear();
 			materialOwners.clear();
 			hwan.clear();
+			roars.clear();
+			roarAppearances.clear();
 			statuses.clear();
 			cameraEvents.length = 0;
 			system.clear();

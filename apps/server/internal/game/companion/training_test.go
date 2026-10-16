@@ -277,3 +277,20 @@ func TestTrainingFlagDefaultsOff(t *testing.T) {
 		t.Fatal("explicit opt-in ignored")
 	}
 }
+
+/*
+================
+TestRoarRadiusMeters
+================
+*/
+func TestRoarRadiusMeters(t *testing.T) {
+	for _, row := range []struct {
+		tier  int
+		level uint8
+		want  float64
+	}{{1, 1, 10}, {1, 10, 19}, {2, 1, 12}, {3, 1, 30}, {3, 3, 32}, {3, 10, 39}} {
+		if got := (SkillDef{Option: row.tier}).RoarRadiusMeters(row.level); got != row.want {
+			t.Fatalf("tier%d level%d radius=%v want%v", row.tier, row.level, got, row.want)
+		}
+	}
+}

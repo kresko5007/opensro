@@ -102,6 +102,18 @@ export function petSkillDesign( id: number ): PetSkillDesign | undefined {
 
 /*
 ================
+petRoarRadius
+
+Matches companion.SkillDef.RoarRadiusMeters; includes effective skill bonuses.
+================
+*/
+export function petRoarRadius( tier: number, level: number ): number {
+	const steps = Math.max( 1, level ) - 1;
+	return tier === 1 ? 10 + steps : tier === 3 ? 30 + steps : 12 + steps * 0.4;
+}
+
+/*
+================
 petRows
 
 The pet's skills laid out by row (0-1 actions, 2-4 passives), each row in
@@ -190,10 +202,11 @@ export function petEffect( design: PetSkillDesign, value: number, effectiveLevel
 			(rank3 ? " Also attempts 2 s Myopia (50% attack-range reduction)." : "");
 	}
 	if ( design.family === "Challenging Roar" ) {
-		const radius = 8 + (design.option - 1) * 4 + (Math.max( 1, effectiveLevel ) - 1) * 0.4;
+		const radius = petRoarRadius( design.option, effectiveLevel );
 		return `Taunts up to ${design.option === 3 ? 6 : 3} monsters within ${formatValue( radius )} m. ` +
 			(design.option >= 2 ? "Party monsters allowed. " : "Party monsters require Tier II. ") +
-			"Unique monsters are immune. No damage.";
+			"Unique monsters are immune. Taunt applies after a 1 s cast. " +
+			"Can cast without targets. Cannot cast in town. No damage.";
 	}
 	const shown = value;
 	const effect = design.family === "Last Stand" && rank2 ?

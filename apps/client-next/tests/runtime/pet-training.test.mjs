@@ -25,6 +25,7 @@ const {
 	petAffixLine,
 	petRows,
 	petEffect,
+	petRoarRadius,
 	petCooldownQuads,
 	petRowCooldown,
 	PET_AFFIX_PARAM_BASE,
@@ -345,4 +346,23 @@ test("advanced tooltips include inherited proficiency in the current effect", ()
 	assert.match( petEffect( feathers, 10, 1 ), /up to 5 targets/ );
 	assert.match( petEffect( murder, 200, 1 ), /Every 8th damaging attack/ );
 	assert.match( petEffect( murder, 200, 1 ), /2 s Myopia/ );
+});
+
+/*
+================
+Roar range and cast rules
+================
+*/
+test("Roar I/III gain one metre per effective level and explain cast restrictions", () => {
+	assert.equal( petRoarRadius( 1, 1 ), 10 );
+	assert.equal( petRoarRadius( 1, 10 ), 19 );
+	assert.equal( petRoarRadius( 2, 1 ), 12 );
+	assert.equal( petRoarRadius( 3, 1 ), 30 );
+	assert.equal( petRoarRadius( 3, 3 ), 32 );
+	assert.equal( petRoarRadius( 3, 10 ), 39 );
+	const help = petEffect( petSkillDesign( 18 ), 0, 1 );
+	assert.match( help, /30 m/ );
+	assert.match( help, /1 s cast/ );
+	assert.match( help, /without targets/ );
+	assert.match( help, /Cannot cast in town/ );
 });

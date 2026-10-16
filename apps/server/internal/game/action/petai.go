@@ -70,6 +70,7 @@ type petSession struct {
 	// trained is the attack-pet expansion's unsaved combat memory
 	// (pettrained.go): attack counter and running self buffs.
 	trained petTrainedRuntime
+	roar    *petRoarCast
 	// combat is the attack pet's BATTLE state (petcombat.go); nil follows.
 	combat *petCombatIntent
 	// others holds kill-settlement frames for other characters (a party's
@@ -268,6 +269,7 @@ func (rt *Runtime) advancePet(key petOwnerKey, nowMs int64) (output []simulation
 		}
 	})
 	if snapshot == nil {
+		state.roar = nil
 		rt.cancelPetCombat(key, state, nowMs)
 		state.follower = nil
 		return nil
@@ -275,6 +277,7 @@ func (rt *Runtime) advancePet(key petOwnerKey, nowMs int64) (output []simulation
 	cos := snapshot.CompanionByGID(key.gid)
 	refs, ok := rt.deps.ItemReferences().(enterworld.CharacterRefSource)
 	if !ok || snapshot.DeletePending || enterworld.CurrentHP(snapshot) == 0 || cos == nil || !cos.Summoned || cos.Mounted || cos.CurrentHP == 0 {
+		state.roar = nil
 		// An unsummoned, dead or mounted pet leaves BATTLE; a later summon
 		// must not resume an old fight.
 		rt.cancelPetCombat(key, state, nowMs)
@@ -287,6 +290,7 @@ func (rt *Runtime) advancePet(key petOwnerKey, nowMs int64) (output []simulation
 	}
 	ref, found := refs.CharacterRefByCodename(cos.Codename)
 	if !found || ref == nil || ref.RefObjID != cos.RefObjID || ref.TidWord&0x7fe != 0x1c6 || !rt.companionFollows(ref.TidWord) {
+		state.roar = nil
 		state.follower = nil
 		if found && ref != nil && ref.RefObjID == cos.RefObjID && isVehicleCOS(ref.TidWord) {
 			// 4FD720: the first primary actor is a vehicle (CGObj_IsVehicleCOS
@@ -315,12 +319,14 @@ func (rt *Runtime) advancePet(key petOwnerKey, nowMs int64) (output []simulation
 		return rt.answerPetStuck(key, state, snapshot, cos, ref.TidWord, nowMs)
 	}
 	if state.displacement != nil {
+		state.roar = nil
 		if nowMs < state.displacement.untilMs {
 			return state.follower.Stop(nowMs)
 		}
 		state.displacement = nil
 	}
 	if rt.companionMovementBlocked(key.division, snapshot, cos) {
+		state.roar = nil
 		rt.cancelPetCombat(key, state, nowMs)
 		return state.follower.Stop(nowMs)
 	}
@@ -334,6 +340,9 @@ func (rt *Runtime) advancePet(key petOwnerKey, nowMs int64) (output []simulation
 		constraint = func(from, to simulation.Spawn) (simulation.Spawn, *simulation.MoveError) {
 			return rt.ConstrainMovement(snapshot.Name, from, to)
 		}
+	}
+	if rt.advancePetRoar(petCombatStep{key: key, state: state, snapshot: snapshot, pet: cos, ref: ref, nowMs: nowMs}) {
+		return state.follower.Stop(nowMs)
 	}
 	if frames, handled := rt.advancePetCombat(petCombatStep{key: key, state: state, snapshot: snapshot,
 		pet: cos, ref: ref, run: run, constraint: constraint, nowMs: nowMs}); handled {

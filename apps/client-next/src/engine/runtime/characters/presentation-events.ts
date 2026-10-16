@@ -268,6 +268,7 @@ export function createPresentationEvents() {
 					vitals: gameplay.vitals,
 					questMarkers: gameplay.questMarkers,
 					inventory: gameplay.inventory,
+					petTraining: gameplay.petTraining,
 					attachedEffects: gameplay.attachedEffects
 				} :
 				gameplay;

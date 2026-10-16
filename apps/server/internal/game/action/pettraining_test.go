@@ -424,17 +424,81 @@ TestManualRoarAddsPetThreatWithoutDamageOrTarget
 */
 func TestManualRoarAddsPetThreatWithoutDamageOrTarget(t *testing.T) {
 	rt, clock, c, mob := newPetCombatRuntime(t, 100000, attackPetBand)
-	makeTrainedPet(rt, c, "COS_P_BEAR_040", 40)
+	makeTrainedPet(rt, c, "COS_P_BEAR_090", 90)
+	mob = roarField(t, rt, c, clock)
 	rt.AttackPetExpansion = true
 	companion.UpgradeTree(c.ActiveCOS)
 	if msg := companion.Learn(c.ActiveCOS, 16); msg != "" {
 		t.Fatal(msg)
 	}
 	before, _ := rt.Monsters.Get(testDivision, mob.Gid)
-	rt.HandleCosCommand(testDivision, c, append(trainingCommand(c.ActiveCOS.GID, petTrainingUse, 16), 0, 0, 0, 0))
+	res := rt.HandleCosCommand(testDivision, c, append(trainingCommand(c.ActiveCOS.GID, petTrainingUse, 16), 0, 0, 0, 0))
+	clock.now = clock.now.Add(999 * time.Millisecond)
+	rt.TickHook()(clock.NowMs())
+	early, _ := rt.Monsters.Get(testDivision, mob.Gid)
+	if early.Opponents[0].GID != 0 {
+		t.Fatal("Roar taunted before its one-second cast completed")
+	}
+	clock.now = clock.now.Add(time.Millisecond)
+	rt.TickHook()(clock.NowMs())
 	after, _ := rt.Monsters.Get(testDivision, mob.Gid)
 	if companion.RowReady(&c.ActiveCOS.Training, 0, clock.NowMs()) || after.CurrentHP != before.CurrentHP || after.Opponents[0].GID != c.ActiveCOS.GID {
 		t.Fatalf("roar did not taunt without damage: HP %d/%d opponents %+v", before.CurrentHP, after.CurrentHP, after.Opponents)
+	}
+	if len(res.Broadcast) != 1 || res.Broadcast[0].Opcode != wire.OpActionEmote || len(res.Broadcast[0].Payload) != 5 || res.Broadcast[0].Payload[4] != 16 {
+		t.Fatalf("roar did not broadcast action emote 16: %+v", res.Broadcast)
+	}
+	for id := uint8(16); id <= 18; id++ {
+		for companion.Learn(c.ActiveCOS, id) == "" {
+		}
+	}
+	c.ActiveCOS.Training.Rows[0] = domain.PetRowCooldown{}
+	lease, ok := rt.casterPopulation(testDivision, c)
+	position := rt.petSessionFor(testDivision, c.Name, c.ActiveCOS.GID).follower.Position(clock.NowMs())
+	position.X += 290
+	if !ok || rt.Monsters.SpawnGMMonsters(simulation.GMMonsterSpawn{
+		Division: testDivision, Population: lease, RefObjID: mob.Ref.RefObjID,
+		Count: 1, Position: position, NowMs: clock.NowMs(),
+	}) != 1 {
+		t.Fatal("could not spawn the distant roar target")
+	}
+	far := rt.Monsters.CombatCandidatesInPopulation(testDivision, lease, position, 1, clock.NowMs(), false)
+	if len(far) != 1 {
+		t.Fatalf("distant roar target count = %d", len(far))
+	}
+	outsidePosition := position
+	outsidePosition.X += 30
+	if rt.Monsters.SpawnGMMonsters(simulation.GMMonsterSpawn{
+		Division: testDivision, Population: lease, RefObjID: mob.Ref.RefObjID,
+		Count: 1, Position: outsidePosition, NowMs: clock.NowMs(),
+	}) != 1 {
+		t.Fatal("could not spawn the out-of-range target")
+	}
+	outside := rt.Monsters.CombatCandidatesInPopulation(testDivision, lease, outsidePosition, 1, clock.NowMs(), false)
+	if len(outside) != 1 {
+		t.Fatalf("out-of-range target count = %d", len(outside))
+	}
+	res3 := rt.HandleCosCommand(testDivision, c, append(trainingCommand(c.ActiveCOS.GID, petTrainingUse, 18), 0, 0, 0, 0))
+	clock.now = clock.now.Add(time.Second)
+	rt.TickHook()(clock.NowMs())
+	farAfter, _ := rt.Monsters.Get(testDivision, far[0].Gid)
+	if farAfter.Opponents[0].GID != c.ActiveCOS.GID {
+		t.Fatalf("level1 Roar III did not taunt at29m (30m radius): %+v", farAfter.Opponents)
+	}
+	if len(res3.Broadcast) != 1 || res3.Broadcast[0].Opcode != wire.OpActionEmote || res3.Broadcast[0].Payload[4] != 18 {
+		t.Fatalf("Challenging Roar III did not broadcast action emote 18: %+v", res3.Broadcast)
+	}
+	outsideAfter, _ := rt.Monsters.Get(testDivision, outside[0].Gid)
+	if outsideAfter.Opponents[0].GID != 0 {
+		t.Fatal("level1 Roar III taunted a monster outside30m")
+	}
+	row := c.ActiveCOS.Training.Rows[0]
+	again := rt.HandleCosCommand(testDivision, c, append(trainingCommand(c.ActiveCOS.GID, petTrainingUse, 16), 0, 0, 0, 0))
+	if len(again.Broadcast) != 0 || c.ActiveCOS.Training.Rows[0] != row {
+		t.Fatal("another Roar book bypassed or restarted the shared cooldown")
+	}
+	if companion.RowReady(&c.ActiveCOS.Training, 0, row.ReadyAtMs-1) || !companion.RowReady(&c.ActiveCOS.Training, 0, row.ReadyAtMs) {
+		t.Fatal("Roar cooldown expiry is incorrect")
 	}
 }
 
@@ -529,5 +593,94 @@ func TestPetReceiptsFitTheChatLimit(t *testing.T) {
 	}
 	if len(result.Frames) < 2 || strings.Join(words, " ") != strings.Join(strings.Fields(message), " ") {
 		t.Fatalf("receipt split into %d lines lost text", len(result.Frames))
+	}
+}
+
+/*
+================
+roarField
+
+The shared combat fixture starts in town; admit an actual field target.
+================
+*/
+func roarField(t *testing.T, rt *Runtime, c *enterworld.Character, clock *fakeClock) monster.Instance {
+	t.Helper()
+	c.World.Spawn.RegionID = testInt64(0x62a6)
+	rt.Worlds.Forget(simulation.WorldKey(testDivision, c.Name))
+	at := rt.LiveSpawnFor(testDivision, c)
+	rt.petSessionFor(testDivision, c.Name, c.ActiveCOS.GID).follower = simulation.NewPetFollower(c.ActiveCOS.GID, at)
+	lease, ok := rt.casterPopulation(testDivision, c)
+	at.X += 30
+	if !ok || rt.Monsters.SpawnGMMonsters(simulation.GMMonsterSpawn{Division: testDivision, Population: lease, RefObjID: 1933, Count: 1, Position: at, NowMs: clock.NowMs()}) != 1 {
+		t.Fatal("no field target")
+	}
+	rows := rt.Monsters.CombatCandidatesInPopulation(testDivision, lease, at, 1, clock.NowMs(), true)
+	if len(rows) != 1 {
+		t.Fatal("field target not found")
+	}
+	return rows[0]
+}
+
+/*
+================
+TestManualRoarEmptyFieldAndTown
+================
+*/
+func TestManualRoarEmptyFieldAndTown(t *testing.T) {
+	for _, town := range []bool{false, true} {
+		t.Run(map[bool]string{false: "empty field", true: "town"}[town], func(t *testing.T) {
+			rt, clock, c, _ := newPetCombatRuntime(t, 100000, attackPetBand)
+			makeTrainedPet(rt, c, "COS_P_BEAR_090", 90)
+			rt.AttackPetExpansion = true
+			companion.UpgradeTree(c.ActiveCOS)
+			if !town {
+				roarField(t, rt, c, clock)
+			}
+			rt.Monsters = nil
+			if msg := companion.Learn(c.ActiveCOS, 16); msg != "" {
+				t.Fatal(msg)
+			}
+			res := rt.HandleCosCommand(testDivision, c, append(trainingCommand(c.ActiveCOS.GID, petTrainingUse, 16), 0, 0, 0, 0))
+			state := rt.petSessionFor(testDivision, c.Name, c.ActiveCOS.GID)
+			if town {
+				if len(res.Broadcast) != 0 || state.roar != nil || !companion.RowReady(&c.ActiveCOS.Training, 0, clock.NowMs()) {
+					t.Fatal("town cast animated or spent cooldown")
+				}
+			} else {
+				if len(res.Broadcast) != 1 || state.roar == nil || companion.RowReady(&c.ActiveCOS.Training, 0, clock.NowMs()) {
+					t.Fatal("empty field refused the cast")
+				}
+				clock.now = clock.now.Add(time.Second)
+				rt.advancePet(petOwnerKey{division: testDivision, name: strings.ToLower(c.Name), gid: c.ActiveCOS.GID}, clock.NowMs())
+				if state.roar != nil {
+					t.Fatal("empty cast did not complete")
+				}
+			}
+		})
+	}
+}
+
+/*
+================
+TestManualRoarCancelsOnTownEntry
+================
+*/
+func TestManualRoarCancelsOnTownEntry(t *testing.T) {
+	rt, clock, c, _ := newPetCombatRuntime(t, 100000, attackPetBand)
+	makeTrainedPet(rt, c, "COS_P_BEAR_090", 90)
+	rt.AttackPetExpansion = true
+	companion.UpgradeTree(c.ActiveCOS)
+	mob := roarField(t, rt, c, clock)
+	if msg := companion.Learn(c.ActiveCOS, 16); msg != "" {
+		t.Fatal(msg)
+	}
+	rt.HandleCosCommand(testDivision, c, append(trainingCommand(c.ActiveCOS.GID, petTrainingUse, 16), 0, 0, 0, 0))
+	c.World.Spawn.RegionID = testInt64(0x62a7)
+	rt.Worlds.Forget(simulation.WorldKey(testDivision, c.Name))
+	clock.now = clock.now.Add(time.Second)
+	rt.TickHook()(clock.NowMs())
+	live, _ := rt.Monsters.Get(testDivision, mob.Gid)
+	if rt.petSessionFor(testDivision, c.Name, c.ActiveCOS.GID).roar != nil || live.Opponents[0].GID != 0 {
+		t.Fatal("Roar released after its owner entered town")
 	}
 }

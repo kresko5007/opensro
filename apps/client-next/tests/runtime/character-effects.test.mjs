@@ -20,6 +20,7 @@ const { createPresentationRandom } = await import( "../../src/engine/runtime/ran
 const { createEffectPrograms } = await import( "../../src/engine/runtime/assets/worker/effects/program/program.ts" );
 const { createEffectDecoder } = await import( "../../src/engine/runtime/assets/worker/effects/effects.ts" );
 const { createCharacterEffects } = await import( "../../src/engine/runtime/characters/effects/effects.ts" );
+const { createCameraScripts } = await import( "../../src/engine/runtime/world/camera/camera.ts" );
 const { nativeHeadingYaw } = await import( "../../src/engine/foundation/math/angles.ts" );
 const encode = value => new TextEncoder().encode( JSON.stringify( value ) );
 function catalog() {
@@ -1593,4 +1594,100 @@ test("AT_TARGET_F shot stages anchor on the target exactly like AT_TARGET", () =
 	}
 	assert.deepEqual( born.AT_TARGET_F, born.AT_TARGET );
 	assert.equal( born.AT_TARGET_F.x, 40 );
+});
+
+/*
+================
+roarEffects
+
+An effect owner whose catalog and model manifest load empty, so only the
+attack-pet roar controller draws. Every model counts as ready.
+================
+*/
+function roarEffects() {
+	let id = 0;
+	const jobs = new Map();
+	return createCharacterEffects(
+		{
+			available: () => 4,
+			request( url, limit, decode ) {
+				jobs.set(
+					++id,
+					decode === "effects" ?
+						{ kind: "effects", catalog: {} } :
+						{ kind: "bytes", buffer: encode( { format: "sro-skill-stage-models", models: {} } ).buffer }
+				);
+				return id;
+			},
+			take( id ) {
+				const result = jobs.get( id );
+				jobs.delete( id );
+				return result;
+			},
+			cancel( id ) {
+				jobs.delete( id );
+			}
+		},
+		"http://localhost",
+		() => {},
+		createPresentationRandom( 1 )
+	);
+}
+test("challenging roar III glows brighter for one second, then releases a 30 m shockwave", () => {
+	const ROAR_AURA = "/assets/effects/challenging-roar-aura";
+	const ROAR_SHOCKWAVE = "/assets/effects/challenging-roar-shockwave";
+	const effects = roarEffects();
+	const bear = {
+			gid: 7,
+			kind: "cos",
+			regionId: 0x8001,
+			x: 0,
+			y: 0,
+			z: 0,
+			heading: 0,
+			emote: { action: 18, revision: 1, atMs: 0 }
+		},
+		near = { gid: 8, kind: "monster", regionId: 0x8001, x: 240, y: 0, z: 0, heading: 0 },
+		far = { gid: 9, kind: "monster", regionId: 0x8001, x: 400, y: 0, z: 0, heading: 0 },
+		gameplay = { casts: [] };
+	const step = now => effects.step( [ bear, near, far ], gameplay, now, () => true, () => 1, [] );
+	const aura = actors => actors.find( actor => actor.model === ROAR_AURA && actor.attachment?.root );
+	const waves = actors => actors.filter( actor => actor.model === ROAR_SHOCKWAVE );
+	// The roar clock starts on the first frame that sees the emote.
+	step( 0 );
+	let previousLight = 0, previousOpacity = 0, previousScale = 0;
+	for ( const now of [ 0.2, 0.5, 0.8, 0.95 ] ) {
+		const actors = step( now );
+		const glow = defined( aura( actors ) );
+		const light = defined( effects.appearance( bear.gid ).pointLight );
+		assert.ok( light.diffuse[0] > previousLight, `light brightens at ${now}s` );
+		assert.ok( glow.opacity > previousOpacity, `aura brightens at ${now}s` );
+		assert.ok( glow.scale > previousScale, `aura swells at ${now}s` );
+		assert.equal( waves( actors ).length, 0, "no shockwave before one second" );
+		previousLight = light.diffuse[0];
+		previousOpacity = glow.opacity;
+		previousScale = glow.scale;
+	}
+	effects.takeCameraScripts();
+	// Release at one second: the camera shakes once and the rings start.
+	assert.ok( waves( step( 1.0 ) ).length > 0 );
+	const shake = effects.takeCameraScripts();
+	assert.equal( shake.length, 1 );
+	const camera = createCameraScripts( createPresentationRandom( 1 ) );
+	assert.doesNotThrow( () => camera.step( 1000, shake ), "roar shake must satisfy the camera event contract" );
+	camera.dispose();
+	// Near the end of its expansion the ring approaches 300 units (30 m).
+	const late = waves( step( 1.88 ) );
+	const widest = Math.max( ...late.map( actor => actor.scale ) );
+	assert.ok( widest > 290 && widest <= 300, `primary ring reaches 30 m (${widest})` );
+	// Visuals do not guess which monsters the server actually taunted.
+	assert.ok( step( 1.9 ).every( actor => actor.model === ROAR_AURA || actor.model === ROAR_SHOCKWAVE ) );
+	// The sequence ends and leaves the bear's appearance untouched.
+	assert.equal( step( 2.4 ).filter( actor => actor.model === ROAR_SHOCKWAVE ).length, 0 );
+	assert.equal( effects.appearance( bear.gid ).pointLight, undefined );
+	assert.equal( effects.appearance( bear.gid ).scale, 1 );
+	assert.equal( step( 5 ).length, 0, "the persistent emote must not replay the finished roar" );
+	assert.equal( effects.takeCameraScripts().length, 0, "finished roars must not shake the camera again" );
+	assert.equal( effects.error(), null );
+	effects.dispose();
 });

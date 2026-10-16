@@ -38,35 +38,14 @@ func (rt *Runtime) manualPetSkill(division string, owner, snapshot *enterworld.C
 	skill, _ := companion.PetSkill(pet, id)
 	state := rt.petSessionFor(division, owner.Name, gid)
 	ref, found := rt.cosReference(pet)
-	if state == nil || !found {
+	if state == nil || state.follower == nil || !found {
 		return petTrainingReceipt("The pet is not ready.")
 	}
 	switch skill.EffectName() {
 	case "Challenging Roar":
 		level := companion.EffectiveLevel(pet, skill, companion.ModifiersFor(pet))
-		at := state.follower.Position(now)
-		// Tier II admits party spawns; Tier III raises the target count.
-		radius := float64(8+(skill.Option-1)*4) + float64(level-1)*0.4
-		limit := 3
-		if skill.Option == 3 {
-			limit = 6
-		}
-		var victims []uint32
-		if lease, ok := rt.casterPopulation(division, snapshot); ok && rt.Monsters != nil {
-			for _, mob := range rt.Monsters.CombatCandidatesInPopulation(division, lease, at, radius*petAreaPerMeter, now, false) {
-				if mob.Rarity()&0x0f == 3 || mob.Rarity()&0x0f == 8 || skill.Option == 1 && mob.Rarity()&0x10 != 0 {
-					continue
-				}
-				if target, valid := rt.resolvePetCombatTarget(petCombatStep{key: petOwnerKey{division: division}, snapshot: snapshot, pet: pet, ref: ref, nowMs: now}, mob.Gid); valid && target.monster != nil {
-					victims = append(victims, mob.Gid)
-					if len(victims) == limit {
-						break
-					}
-				}
-			}
-		}
-		if len(victims) == 0 {
-			return petTrainingReceipt("No eligible monsters are in roar range.")
+		if rt.inTown(division, snapshot) || townRegion(state.follower.Position(now).RegionID) {
+			return petTrainingReceipt("Challenging Roar cannot be cast in town.")
 		}
 		if !rt.deps.Update(owner, "pet-manual-roar", func() bool {
 			live := owner.CompanionByGID(gid)
@@ -79,10 +58,17 @@ func (rt *Runtime) manualPetSkill(division string, owner, snapshot *enterworld.C
 		}) {
 			return petTrainingReceipt("The roar could not be applied.")
 		}
-		for _, victim := range victims {
-			rt.commitAggression(division, victim, simulation.HostilityEvent{Attacker: gid, Aggression: 1000000}, now)
+		state.roar = &petRoarCast{skill: skill, level: level, releaseAtMs: now + petRoarCastMs}
+		var public []wire.Frame
+		for _, frame := range state.follower.Stop(now) {
+			public = append(public, wire.Frame{Opcode: frame.Opcode, Payload: frame.Payload})
 		}
-		return OpResult{Frames: rt.petTrainingStateFrames(owner.CompanionByGID(gid), now)}
+		public = append(public, wire.Frame{Opcode: wire.OpActionEmote,
+			Payload: wire.ActionEmotePush{Gid: gid, Action: skill.ID}.Encode()})
+		return OpResult{
+			Frames:    append(append([]wire.Frame{}, public...), rt.petTrainingStateFrames(owner.CompanionByGID(gid), now)...),
+			Broadcast: public,
+		}
 	case "Iron Hide", "Frenzy", "Mend", "Retribution":
 		step := petCombatStep{key: petOwnerKey{division: division, name: strings.ToLower(owner.Name), gid: gid}, state: state, snapshot: snapshot, pet: pet, ref: ref, nowMs: now}
 		strike := &petTrainedStrike{mods: companion.ModifiersFor(pet), passive: -1}
@@ -124,4 +110,66 @@ func (rt *Runtime) manualPetSkill(division string, owner, snapshot *enterworld.C
 		order.Frames = append(order.Frames, rt.petTrainingStateFrames(owner.CompanionByGID(gid), now)...)
 		return order
 	}
+}
+
+// Port-only: match the one-second visual charge before applying aggression.
+const petRoarCastMs int64 = 1000
+
+/*
+================
+petRoarCast
+================
+*/
+type petRoarCast struct {
+	skill       companion.SkillDef
+	level       uint8
+	releaseAtMs int64
+}
+
+/*
+================
+advancePetRoar
+
+The existing pet tick owns the windup; no background timer or delayed write.
+================
+*/
+func (rt *Runtime) advancePetRoar(step petCombatStep) bool {
+	cast := step.state.roar
+	if cast == nil {
+		return false
+	}
+	if rt.inTown(step.key.division, step.snapshot) || townRegion(step.state.follower.Position(step.nowMs).RegionID) {
+		step.state.roar = nil
+		return false
+	}
+	if step.nowMs < cast.releaseAtMs {
+		return true
+	}
+	step.state.roar = nil
+	if !petAttackBodyAllowed(step.pet, combatTarget{}) || rt.Monsters == nil {
+		return true
+	}
+	lease, ok := rt.casterPopulation(step.key.division, step.snapshot)
+	if !ok {
+		return true
+	}
+	at := step.state.follower.Position(step.nowMs)
+	limit := 3
+	if cast.skill.Option == 3 {
+		limit = 6
+	}
+	count := 0
+	for _, mob := range rt.Monsters.CombatCandidatesInPopulation(step.key.division, lease, at, cast.skill.RoarRadiusMeters(cast.level)*petAreaPerMeter, step.nowMs, false) {
+		if mob.Rarity()&0x0f == 3 || mob.Rarity()&0x0f == 8 || cast.skill.Option == 1 && mob.Rarity()&0x10 != 0 {
+			continue
+		}
+		if target, valid := rt.resolvePetCombatTarget(step, mob.Gid); valid && target.monster != nil {
+			rt.commitAggression(step.key.division, mob.Gid, simulation.HostilityEvent{Attacker: step.pet.GID, Aggression: 1000000}, step.nowMs)
+			count++
+			if count == limit {
+				break
+			}
+		}
+	}
+	return true
 }
