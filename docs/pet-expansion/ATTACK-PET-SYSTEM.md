@@ -77,6 +77,15 @@ still needed.
 | Penguin | Magic/control; lower HP | Frost Nova; Deep Freeze | Cold Mastery; Static Feathers; Frost Armor |
 | Three Footed Crow | Owner support | Mend; Mark Prey | Carrion Feast; Swift Wings; Murder of Crows |
 
+Bear **Crushing Paw** now retaliates after every ten landed physical or spell
+impacts taken. Tier I counts hits on the bear; tier II adds a separate owner
+counter. Tier III also rolls a 50% stun chance per other monster within 8 m of
+the hit recipient. The tenth hit's attacker always receives the stun attempt;
+native status resistance/immunity still applies. Duration scales with learned
+rank as before. Shielded hits count; blocked hits and periodic damage do not.
+This deals no damage, affects no players or unique monsters, and is disabled
+in town. Counters are transient and reset on resummon/relog.
+
 Each row has three successive books: I starts at pet level 10, II at 40, III at
 90. Each has ten ranks; max the previous book before learning the next.
 Rank requirements progress to levels 40/90/120 respectively. Free points are

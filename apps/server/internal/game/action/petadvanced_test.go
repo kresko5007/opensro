@@ -62,7 +62,6 @@ func TestAdvancedPetPassivesCommitTheirStatuses(t *testing.T) {
 		id         uint8
 		status     abnormal.Status
 	}{
-		{"crushing-paw-III", "COS_P_BEAR_040", 30, abnormal.Stun},
 		{"static-feathers-III", "COS_P_PENGUIN_040", 42, abnormal.ElectricShock},
 		{"murder-of-crows-III", "COS_P_RAVEN_040", 60, abnormal.Myopia},
 	} {

@@ -342,8 +342,33 @@ test("advanced tooltips include inherited proficiency in the current effect", ()
 	assert.match( petEffect( howl, 5, 1 ), /9 m for 4 s/ );
 	const paw = petSkillDesign( 30 ), feathers = petSkillDesign( 42 ), murder = petSkillDesign( 60 );
 	assert.ok( paw && feathers && murder );
-	assert.match( petEffect( paw, 2, 1 ), /Every 5th damaging attack/ );
-	assert.match( petEffect( paw, 2, 1 ), /5 targets within 3 m/ );
+	assert.match( petEffect( paw, 2, 1 ), /Every 10 landed physical or spell hits taken/ );
+	assert.match( petEffect( paw, 2, 1 ), /8 m.*50% chance/ );
+	assert.match( petEffect( paw, 2, 1 ), /owner has a separate 10-hit counter/ );
+	const firstPaw = petSkillDesign( 28 );
+	assert.ok( firstPaw );
+	assert.doesNotMatch( petEffect( firstPaw, 10, 1 ), /owner has|50% chance/ );
+	assert.doesNotMatch(
+		petSkillHelp(
+			firstPaw,
+			{
+				id: 28,
+				level: 10,
+				effectiveLevel: 12,
+				nextPetLevel: 0,
+				action: false,
+				queued: false,
+				learnable: false,
+				live: true,
+				slotted: true,
+				value: 2.12,
+				nextValue: 2.12
+			},
+			90,
+			15
+		),
+		/Proficiency/
+	);
 	assert.match( petEffect( feathers, 10, 1 ), /up to 5 targets/ );
 	assert.match( petEffect( murder, 200, 1 ), /Every 8th damaging attack/ );
 	assert.match( petEffect( murder, 200, 1 ), /2 s Myopia/ );

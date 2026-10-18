@@ -514,3 +514,98 @@ Owner reported the shield below the character was too wide/thick. Inspected nati
 Added a0.95s retail explosion cue (usk_warlock_blood_explosion_bomb.wav) at each authoritative tierIII burst position, gain0.35 to soften overlapping owner/bear/party detonations. Gated by the existing one-shot burst latch; partial absorption, cancellation, depletion and repeated render frames do not trigger it. Added it to bear audio preparation so first burst is already decoded. No asset files/PK2 or server edits. Tests cover preload, positional burst cue and once-only dispatch. Also completed missing identity/shield types in the touched effects test fixtures instead of adding test debt.
 
 44focused UI/shield/effects/audio-preparation tests PASS; production TS, capability check and test-type ratchet PASS (no new errors); diff check PASS. Reloaded localhost and cast Iron HideIII: pet gray segment visibly matches the thin HP fill; full shield/expiry sequence completed without a crash or browser warning/error. Evidence E:/CodeProjects/SRO/outputs/pet-design-codex/shield-live/thin-pet-bar-2.png; no speaker-volume listening claim. Browser remains open/full13226HP, quickslots unchanged. Prior gray/activation audio work plus this follow-up remain uncommitted/unpushed.
+### Crushing Paw incoming-hit redesign (2026-10-18)
+
+Owner requested replacing the bear's last passive across its three books.
+Removed the outgoing every-fifth/sixth-attack proc. The new post-hit owner
+`action/petcounter.go` is called from the actual monster-to-player and
+monster-to-COS hit doors after their transactions. Every ten landed damage
+impacts (physical or magical, including fully shielded hits) attempts the
+existing duration-scaled native stun on the attacker. Tier I protects only
+the bear; II/III add an independent owner counter. III also rolls 50% separately
+for each other eligible monster within a strict 8 m center radius around the
+hit recipient. No damage is dealt. Blocks/misses/status-only casts/periodic
+damage do not count. Unique monsters, PvP/companion attackers, town and existing
+expansion-excluded contexts remain excluded. Counters are transient pet-session
+state, not saved ranks or points. Retained skill IDs, names and duration values.
+
+Updated the design exporter (same explicit tree override pattern as Iron Hide),
+regenerated all three matching data outputs, current-effect tooltips, user guide
+and website passive summary. The workbook still contains the preserved legacy
+template; the exporter override defines the approved sequential-tree behavior.
+No workbook, DB, gear, point, PK2 or drop-rate changes.
+
+Verification: full action+companion Go packages and scoped go vet PASS; new tests
+exercise both real monster hit doors for all tiers and both damage schools,
+fully absorbed hits, tenth-hit timing, owner exclusion at I, separate counters,
+zero damage, 7.9 m/8.1 m boundary, 49.99%/50% RNG boundary and native-off behavior.
+All nine pet-training client tests, production TS, capabilities, test-type
+ratchet (no new errors), source encoding and diff checks PASS. verify:quick
+still fails the same five existing ownership findings in viewer-camera,
+pet-design-data and pet-training; no new findings.
+
+Deployed from opensro-lab through the existing Nomad CLI/state directory:
+Agent v1 and GameWorld v4 healthy; GameWorld deployment
+d47172a4-fa48-1114-5f5b-15da2a3baf48 successful, allocation
+4584d207-8ae9-8fc9-7e06-169e116063d8. Client source is served by existing Vite;
+reload browser to display new tooltips/reconnect. No manual live combat test
+performed for this passive yet. Changes are uncommitted/unpushed.
+
+### Crushing Paw live acceptance and summon lookup fix (2026-10-18)
+
+Supersedes the earlier no-live-test deployment checkpoint above. Found and fixed
+an actual runtime issue: retail attack pets are bag-backed summon records, not
+`ActiveCOS` (legacy/transport). `petCounterStun` now resolves the canonical
+summoned bear through `owner.Companions()`. The real-hit regression fixtures now
+use bag slot 13 and clear ActiveCOS, exercising all three books, both recipients
+and physical/magic hit flags 5/9. Removed misleading generic proficiency-5/10
+trailers from this sequential-family tooltip. Added a throttled tenth-impact
+release diagnostic using the existing helper (its generic message says "attack
+pet did not fight"; inspect reason/tier/hits/stun_applied instead).
+
+Live PASS on LabPetTest/LabBear90 with weak native monsters: books I/II/III each
+stunned after incoming bear impacts on Lv2 Small-eyed Ghosts; screenshots show
+multiple simultaneous stuns for III. With Lv20 Chakji attacking both recipients,
+I produced bear releases and no owner release; II and III each produced an
+independent owner release at ten impacts. No outgoing attack needed. The native
+stun animation is visible. Exact strict-8m/50% boundaries and magical/fully
+shielded admission are deterministic regression checks, not claimed as a live
+spell test or probability-distribution survey.
+
+Evidence outside Git: E:/CodeProjects/SRO/outputs/pet-design-codex/counter-live/.
+`before-test.db` is a verified SQLite backup; `tier3-bear-04.png` (also 05/06/17/18/19)
+shows simultaneous nearby Ghost stuns. `tier2-owner.png` and
+`tier3-owner-area.png` are current Chakji test captures. Earlier
+`tier1-owner-no-proc.png` predates the summon lookup fix and is NOT acceptance.
+Ghost log allocation e151a6af-ad54-ee48-b85d-1c94c10c1a5e:
+15:55:31 tier I, 15:57:19 tier II, 15:59:10 tier III, stun_applied=true.
+Current allocation e0b8b207-c597-5d80-c56e-5ad63649befb, gameworld.stdout.0:
+19:56:14/19:56:50 bear I; 19:57:09.530 owner II; 19:57:27.330 bear III;
+19:57:41.230 owner III; each hits=10 and stun_applied=true (local +02:00).
+
+The whole local stack had disappeared between sessions; no cause established.
+Restarted the existing pinned Nomad via sro-nomad dev-agent with the SAME worktree
+data directory, then reconciled Agent/GameWorld using explicit
+SRO_ATTACK_PET_EXPANSION=on and the existing hub cluster state. Both are healthy
+version0 on the restarted development agent (versions reset with dev-agent).
+Agent allocation693b163f-ba1f-7e00-e6aa-12f8c9ce7f7b; GameWorld allocation above.
+Vite restarted on127.0.0.1:5180 from opensro-lab. No new GM privileges, drop rates
+or feature defaults changed. An earlier deployment without the explicit pet flag
+was corrected before these successful tests.
+
+Only LabPetTest was repositioned using the guarded ignored counterfield helper
+while authority was stopped. It selects a real native Lv20 aggressive Chakji
+nest and only changes spawn/move segment. LabBlader is outside that helper's
+scope. Test bow was temporarily unequipped through inventory, then re-equipped;
+Crushing Paw III restored. No points/ranks/gear blues were changed for testing.
+Normal combat/potion/return-scroll consumption and HP/position changes remain.
+
+Full action+companion tests and scoped go vet PASS again; all9 pet-training
+client tests PASS. Prior production TS/capabilities/type-ratchet/encoding checks
+remain as recorded above; existing five ownership findings remain unresolved.
+Changes are uncommitted/unpushed; no media belongs in Git.
+
+Final live state: returned normally to Hotan Kingdom (X113/Y15), full13226HP,
+bear summoned, original bow equipped, Crushing Paw III selected. Return Scroll
+completed normally; final-safe-town.png records this. Read-only comparison of
+LabBlader character record against before-test.db is byte-identical.

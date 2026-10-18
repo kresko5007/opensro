@@ -180,6 +180,16 @@ def main():
 					rank2="Tier II also shields party members within 20 m.",
 					rank3="Tier III detonates each recipient's remaining shield (including the bear) after 5 s for 50% of its remaining value within 8 m.",
 				)
+			if s["family"] == "Crushing Paw":
+				s.update(
+					status="Implemented", trigger="Hits taken", cooldown=None, cooldownUnit="", cooldownPerLevel=None,
+					effect="Every 10 landed physical or spell hits taken by the bear stuns its attacker for {v} s."
+						+ (" The owner has a separate 10-hit counter." if tier >= 2 else "")
+						+ (" Other monsters within 8 m of the hit recipient each have a 50% chance to be stunned." if tier == 3 else "")
+						+ " Blocked hits and periodic damage do not count. Unique monsters are immune.",
+					rank2="Tier II gives the owner a separate incoming-hit counter.",
+					rank3="Tier III also rolls a 50% stun chance per other monster within 8 m of the hit recipient.",
+				)
 			design["treeSkills"].append(s)
 	degrees = {int(d["Degree"]): d for d in table(wb["Degrees"])}
 	for g in table(wb["Gear"]):

@@ -55,6 +55,7 @@ Nth-attack passive, and the self buffs in force.
 */
 type petTrainedRuntime struct {
 	attacks       int
+	counterHits   [2]int // Port-only: bear and owner count incoming impacts separately.
 	frenzyUntil   int64
 	frenzyPercent float64
 	frenzyCrit    float64
@@ -399,13 +400,6 @@ func (rt *Runtime) petApplyPassives(step petCombatStep, skill *enterworld.SkillR
 			if ready && hpPercent < 30 {
 				ts.petHeal += v
 				ts.passive, ts.passiveMs = row, step.nowMs+int64(s.CooldownAt(lvl)*1000)
-			}
-		case "Crushing Paw":
-			if every(6, 5) {
-				setPetStatus(skill, tagStun, [6]uint32{uint32(v * 1000), 100, petStatusGrade})
-				if rank3 {
-					setPetArea(skill, petAreaAroundTarget, 3, 5, 0)
-				}
 			}
 		case "Shatter":
 			ts.shatter = v

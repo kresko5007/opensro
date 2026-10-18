@@ -162,6 +162,9 @@ func (rt *Runtime) monsterStrikePlayer(in monsterStrikeInput, character, snapsho
 		rt.bindResidentRegion(simulation.WorldKey(divisionID, character.Name), nowMs)
 	}
 	public, private := rt.playerStruckFrames(divisionID, character, struck, nowMs)
+	public = append(public, rt.petCounterStun(petCounterHit{division: divisionID, owner: character,
+		victim: enterworld.ObjectIDForCharacter(snapshot), attacker: instance.Gid,
+		formulas: strike.formulas[:len(struck.impacts)], now: nowMs})...)
 	// 5A0C2D ran inside the hit outcome, before the hit landed, so a fatal
 	// hit still returns its share; the attacker takes it afterwards.
 	returned := rt.returnDamageToMonster(divisionID, character, instance, in.from, skill.ID, defender, strike.formulas[:len(struck.impacts)], nowMs)
@@ -266,6 +269,8 @@ func (rt *Runtime) monsterStrikeCOS(in monsterStrikeInput, owner *enterworld.Cha
 		return out
 	}
 	out.strike, out.committed, out.alive = rt.publishCOSHit(&hit), true, !hit.strike.fatal
+	out.strike.public = append(out.strike.public, rt.petCounterStun(petCounterHit{division: divisionID, owner: owner,
+		victim: pet.GID, attacker: instance.Gid, formulas: formulas[:len(hit.strike.impacts)], now: nowMs})...)
 	return out
 }
 

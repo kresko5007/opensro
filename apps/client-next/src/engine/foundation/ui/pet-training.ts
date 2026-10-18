@@ -187,8 +187,14 @@ export function petEffect( design: PetSkillDesign, value: number, effectiveLevel
 			(rank3 ? " Bleeding non-unique targets below 30% HP are executed on a damaging hit." : "");
 	}
 	if ( design.family === "Crushing Paw" ) {
-		return `Every ${rank2 ? 5 : 6}th damaging attack attempts a ${formatValue( value )} s stun` +
-			(rank3 ? " on up to 5 targets within 3 m." : " on the target.");
+		return `Every 10 landed physical or spell hits taken by the bear stuns its attacker for ${
+			formatValue( value )
+		} s.` +
+			(design.option >= 2 ? " The owner has a separate 10-hit counter." : "") +
+			(design.option === 3 ?
+				" Other monsters within 8 m of the hit recipient each have a 50% chance to be stunned." :
+				"") +
+			" Blocked hits and periodic damage do not count. Shielded hits count. Unique monsters are immune.";
 	}
 	if ( design.family === "Static Feathers" ) {
 		return `${formatValue( value )}% chance per attack to spread that strike to up to ${
@@ -308,7 +314,7 @@ export function petSkillHelp(
 		lines.push( `Base recharge: ${formatValue( shown )} ${design.cooldownUnit} before gear bonuses.` );
 		if ( skill.action ) lines.push( "Using this skill locks every active in this row." );
 	}
-	if ( design.family !== "Challenging Roar" && design.family !== "Iron Hide" ) {
+	if ( design.family !== "Challenging Roar" && design.family !== "Iron Hide" && design.family !== "Crushing Paw" ) {
 		lines.push( `Proficiency ${rules.rank2Level}: ${design.rank2}` );
 		lines.push( `Proficiency ${rules.rank3Level}: ${design.rank3}` );
 	}
