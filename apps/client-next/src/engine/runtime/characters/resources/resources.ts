@@ -438,7 +438,42 @@ function createIronHideShieldResource(): { model: CharacterModel; images: Native
 	} );
 }
 
+/*
+================
+createPetCounterRippleResource
+
+A soft, unit-radius ground annulus without the roar's walls or bright spokes.
+================
+*/
+function createPetCounterRippleResource(): { model: CharacterModel; images: NativeTexture[]; } {
+	const positions: number[] = [], normals: number[] = [], uvs: number[] = [], indices: number[] = [];
+	for ( let i = 0; i <= 64; i++ ) {
+		const angle = i / 64 * Math.PI * 2;
+		for ( const radius of [ .96, 1 ] ) {
+			positions.push( Math.cos( angle ) * radius, .025, Math.sin( angle ) * radius );
+			normals.push( 0, 1, 0 );
+			uvs.push( .5, radius === 1 ? 1 : 0 );
+		}
+		if ( i < 64 ) {
+			const a = i * 2;
+			indices.push( a, a + 2, a + 1, a + 1, a + 2, a + 3 );
+		}
+	}
+	const pixels = new Uint8Array( 16 * 4 );
+	for ( let i = 0; i < 16; i++ ) {
+		pixels.set( [ 220, 220, 220, Math.round( Math.sin( i / 15 * Math.PI ) * 255 ) ], i * 4 );
+	}
+	return buildProceduralEffectModel( positions, normals, uvs, indices, {
+		kind: "native-texture",
+		width: 1,
+		height: 16,
+		format: "bgra8unorm",
+		levels: [ pixels ]
+	} );
+}
+
 const PROCEDURAL_EFFECT_MODELS = new Map<string, () => { model: CharacterModel; images: NativeTexture[]; }>( [
+	[ "/assets/effects/pet-counter-ripple", createPetCounterRippleResource ],
 	[ "/assets/effects/iron-hide-shield", createIronHideShieldResource ],
 	[ "/assets/effects/challenging-roar-aura", createChallengingRoarAuraResource ],
 	[ "/assets/effects/challenging-roar-shockwave", createChallengingRoarShockwaveResource ]

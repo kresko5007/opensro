@@ -20,6 +20,7 @@ import (
 
 const petCounterHits = 10
 const petCounterRange = 8 * petAreaPerMeter
+const petCounterPulseOpcode uint16 = 0x3fb3 // Port-only: [u32 hit-recipient gid], cosmetic ground pulse.
 
 /*
 ================
@@ -91,7 +92,8 @@ func (rt *Runtime) petCounterStun(hit petCounterHit) []wire.Frame {
 	}
 	level := companion.EffectiveLevel(pet, skill, companion.ModifiersFor(pet))
 	row := enterworld.SkillRow{}
-	setPetStatus(&row, tagStun, [6]uint32{uint32(skill.ValueAt(level) * 1000), 100, petStatusGrade})
+	// Grade zero derives stun strength from the bear's level, not a fixed level-30 grade.
+	setPetStatus(&row, tagStun, [6]uint32{uint32(skill.ValueAt(level) * 1000), 100, 0})
 	step := petCombatStep{key: petOwnerKey{division: hit.division}, snapshot: owner, pet: pet, ref: ref, state: state, nowMs: hit.now}
 	var frames []wire.Frame
 	for _, formula := range hit.formulas {
@@ -105,27 +107,35 @@ func (rt *Runtime) petCounterStun(hit petCounterHit) []wire.Frame {
 		state.trained.counterHits[index] = 0
 		stunned := rt.applyPetCounterStun(step, row, hit.attacker)
 		frames = append(frames, stunned...)
+		nearby, areaStunned := 0, 0
+		if skill.Option == 3 {
+			frames = append(frames, wire.Frame{Opcode: petCounterPulseOpcode, Payload: wire.NewWriter(4).U32(hit.victim).Payload()})
+			if lease, ok := rt.casterPopulation(hit.division, owner); ok {
+				for _, mob := range rt.Monsters.CombatCandidatesInPopulation(hit.division, lease, at, petCounterRange, hit.now, false) {
+					// Discovery includes body radius; the aura uses strict center distance.
+					target, found := rt.resolvePetCombatTarget(step, mob.Gid)
+					if !found || mob.Gid == hit.attacker || !samePlaneAdjacent(at, target.at) || areaDistance(at, target.at) > petCounterRange {
+						continue
+					}
+					nearby++
+					if rt.petChance(50) {
+						extra := rt.applyPetCounterStun(step, row, mob.Gid)
+						frames = append(frames, extra...)
+						if len(extra) > 0 {
+							areaStunned++
+						}
+					}
+				}
+			}
+		}
 		reason := "bear retaliation counter triggered"
 		if index == 1 {
 			reason = "owner retaliation counter triggered"
 		}
 		rt.petDiagnostic(hit.division, owner.Name, pet.GID, reason, log.Fields{
-			"tier": skill.Option, "hits": petCounterHits, "victim": hit.victim, "attacker": hit.attacker, "stun_applied": len(stunned) > 0,
+			"tier": skill.Option, "hits": petCounterHits, "victim": hit.victim, "attacker": hit.attacker,
+			"stun_applied": len(stunned) > 0, "area_in_range": nearby, "area_stunned": areaStunned,
 		})
-		if skill.Option != 3 {
-			continue
-		}
-		lease, ok := rt.casterPopulation(hit.division, owner)
-		if !ok {
-			continue
-		}
-		for _, mob := range rt.Monsters.CombatCandidatesInPopulation(hit.division, lease, at, petCounterRange, hit.now, false) {
-			// Candidate discovery includes body radius; the authored aura is a strict center distance.
-			target, found := rt.resolvePetCombatTarget(step, mob.Gid)
-			if found && mob.Gid != hit.attacker && samePlaneAdjacent(at, target.at) && areaDistance(at, target.at) <= petCounterRange && rt.petChance(50) {
-				frames = append(frames, rt.applyPetCounterStun(step, row, mob.Gid)...)
-			}
-		}
 	}
 	return frames
 }

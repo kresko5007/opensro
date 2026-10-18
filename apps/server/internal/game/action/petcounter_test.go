@@ -6,14 +6,107 @@ petcounter_test.go - bear retaliation hit doors, tier ownership and area rolls
 package action
 
 import (
+	"encoding/binary"
 	"fmt"
 	"testing"
 
 	"opensro.online/server/internal/game/abnormal"
 	"opensro.online/server/internal/game/combat"
 	"opensro.online/server/internal/game/enterworld"
+	"opensro.online/server/internal/game/world/monster"
 	"opensro.online/server/internal/game/world/simulation"
 )
+
+// All attackers charge one owner counter; the tenth can be a first-time hitter.
+func TestPetCounterGroupedOwner(t *testing.T) {
+	for _, draw := range []uint32{4999, 5000, 0} {
+		t.Run(fmt.Sprint(draw), func(t *testing.T) {
+			rt, clock, c, original := newPetCombatRuntime(t, 100000, attackPetBand)
+			makeTrainedPet(rt, c, "COS_P_BEAR_090", 90)
+			rt.AttackPetExpansion = true
+			ref := original.Ref
+			ref.Level = 90
+			rt.Monsters = simulation.NewMonsterState(monster.TemplateFromParts(map[uint32]monster.MonsterRef{ref.RefObjID: ref}, nil))
+			rt.Monsters.SetAbnormalContext(monsterAbnormalContext{rt})
+			rt.Monsters.SetTimeSource(clock.Now)
+			rt.Monsters.StartDivision(testDivision)
+			first := roarField(t, rt, c, clock)
+			learnPetBook(t, c, 30)
+			at := rt.LiveSpawnFor(testDivision, c)
+			lease, _ := rt.casterPopulation(testDivision, c)
+			gids := []uint32{first.Gid}
+			for _, distance := range []float64{40, 50, 60, 70, 81} {
+				point := at
+				point.X += distance
+				rt.Monsters.SpawnGMMonsters(simulation.GMMonsterSpawn{Division: testDivision, Population: lease, RefObjID: ref.RefObjID, Count: 1, Position: point, NowMs: clock.NowMs()})
+				rows := rt.Monsters.CombatCandidatesInPopulation(testDivision, lease, point, 1, clock.NowMs(), true)
+				if len(rows) != 1 {
+					t.Fatal("missing group fixture")
+				}
+				gids = append(gids, rows[0].Gid)
+			}
+			state := rt.petSessionFor(testDivision, c.Name, c.ActiveCOS.GID)
+			bearAt := at
+			bearAt.X += 300
+			state.follower = simulation.NewPetFollower(c.ActiveCOS.GID, bearAt)
+			c.MissionInventory = []enterworld.InventoryRow{{Slot: 13, Summon: c.ActiveCOS}}
+			c.ActiveCOS = nil
+			rolls := 0
+			rt.CombatRoll = func() (uint32, error) {
+				rolls++
+				if draw == 0 && rolls%2 == 0 {
+					return 9999, nil
+				}
+				return draw, nil
+			}
+			hit := petCounterHit{division: testDivision, owner: c, victim: enterworld.ObjectIDForCharacter(c), formulas: []combat.Result{{Damage: 1}}, now: clock.NowMs()}
+			for i := 0; i < 9; i++ {
+				hit.attacker = gids[i%4]
+				rt.petCounterStun(hit)
+			}
+			for _, gid := range gids {
+				mob, _ := rt.Monsters.Get(testDivision, gid)
+				if mob.Abnormal != nil && mob.Abnormal.Slots[abnormal.Stun].Active {
+					t.Fatal("stunned before ten combined hits")
+				}
+			}
+			hit.attacker = gids[4]
+			pet := c.MissionInventory[0].Summon
+			petRef, _ := rt.cosReference(pet)
+			step := petCombatStep{key: petOwnerKey{division: testDivision}, snapshot: c, pet: pet, ref: petRef, state: state, nowMs: clock.NowMs()}
+			if _, ok := rt.resolvePetCombatTarget(step, hit.attacker); !ok {
+				t.Fatal("cannot resolve grouped attacker")
+			}
+			frames := rt.petCounterStun(hit)
+			pulses := 0
+			for _, frame := range frames {
+				if frame.Opcode == petCounterPulseOpcode {
+					pulses++
+					if len(frame.Payload) != 4 || binary.LittleEndian.Uint32(frame.Payload) != hit.victim {
+						t.Fatal("pulse not centered on hit recipient")
+					}
+				}
+			}
+			if pulses != 1 {
+				t.Fatalf("got %d pulse cues, want one", pulses)
+			}
+			for i, gid := range gids {
+				mob, _ := rt.Monsters.Get(testDivision, gid)
+				stunned := mob.Abnormal != nil && mob.Abnormal.Slots[abnormal.Stun].Active
+				want := i == 4 || i < 4 && (draw == 4999 || draw == 0 && i%2 == 0)
+				if stunned != want {
+					t.Fatalf("monster%d draw%d stunned=%v want=%v petLevel=%d mobLevel=%d", i, draw, stunned, want, c.MissionInventory[0].Summon.Level, mob.Ref.Level)
+				}
+			}
+			if rolls != 4 {
+				t.Fatalf("aura made %d rolls, want one per nearby extra", rolls)
+			}
+			if state.trained.counterHits != [2]int{} {
+				t.Fatal("counter did not reset")
+			}
+		})
+	}
+}
 
 /*
 ================

@@ -710,6 +710,21 @@ export function createEntities(
 		================
 		*/
 		receive( frame: WireFrame, now = 0 ) {
+			// Port-only retaliation cue; separate from emotes so it cannot interrupt a cast.
+			if ( frame.opcode === 0x3fb3 ) {
+				const p = frame.payload;
+				if ( p.length !== 4 ) throw Error( "Invalid pet counter pulse length" );
+				const gid = new DataView( p.buffer, p.byteOffset, p.byteLength ).getUint32( 0, true );
+				if ( !gid ) throw Error( "Invalid pet counter pulse recipient" );
+				const entity = entities.get( gid );
+				if ( entity ) {
+					samplePose( {
+						...entity,
+						petCounterPulse: { revision: (entity.petCounterPulse?.revision ?? 0) + 1, atMs: now }
+					} );
+				}
+				return;
+			}
 			// Port-only absorption is separate from native health and max-health packets.
 			if ( frame.opcode === 0x3fb2 ) {
 				const p = frame.payload;

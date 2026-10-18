@@ -71,6 +71,7 @@ family's catalog identity. Skill objects resolve appearance by skill ID.
 ================
 */
 export interface EntityState {
+	readonly petCounterPulse?: { readonly revision: number; readonly atMs: number; };
 	readonly shield?: {
 		readonly amount: number;
 		readonly maxHp: number;

@@ -609,3 +609,89 @@ Final live state: returned normally to Hotan Kingdom (X113/Y15), full13226HP,
 bear summoned, original bow equipped, Crushing Paw III selected. Return Scroll
 completed normally; final-safe-town.png records this. Read-only comparison of
 LabBlader character record against before-test.db is byte-identical.
+
+### Crushing Paw high-level stun reliability correction (2026-10-18)
+
+Owner reported five attackers but usually only one visible stun. Shared owner
+counting was already correct: all ordinary monster impacts on the owner charge
+one counter, independent of attacker identity; the tenth hitter is the primary.
+III separately rolls each other monster within8m around the hit recipient.
+Found an actual reliability defect: the authored fixed stun grade3 feeds native
+level-delta scaling. Against Lv45/90 mobs it reduces nominal100% primary and
+secondary stun applications (in addition to the authored50% aura roll). Earlier
+Lv2/20 live tests never exposed this. Switched only this passive's stun argument
+to grade0, the native derive-from-caster-level mode. Bear90 now casts grade9;
+native higher-level/immunity/replacement restrictions otherwise remain intact.
+Added area_in_range/area_stunned to the existing throttled release diagnostic.
+
+New TestPetCounterGroupedOwner uses six Lv90 monsters and a bag-backed bear90:
+nine owner impacts alternate four attackers, the tenth is a previously unused
+fifth attacker; bear is30m away. Primary must stun, four in-range extras each
+roll once, the8.1m monster never rolls. Tests cover all-success/all-fail50%
+boundaries and alternating independent success/failure. Confirmed this test
+fails with the old fixed grade and passes with level-derived grade. Full action
+and companion tests plus scoped go vet PASS; focused counter tests PASS after
+adding the mixed draws. No player/gear/skill-rank/database changes.
+
+Built/reconciled with explicit pet expansion ON; Agent/GameWorld version1
+healthy, GameWorld allocation5b55af37-cc5a-104c-deec-667c9556cf0d,
+deployment51a1166d. Additional fix is uncommitted/unpushed.
+
+Post-deploy: reopened the existing LabPlayer/LabPetTest session successfully.
+The Bunwang pack had dispersed; no grouped post-fix live proc was captured in
+this run. Do not relabel the earlier low-level screenshots as proof of this
+high-level correction. New acceptance evidence here is the real-runtime grouped
+Lv90 regression, including old-code failure and corrected-code success.
+
+### Subtle retaliation III radius cue (2026-10-18)
+
+Added one faint muted gray-gold ground ripple at the hit recipient when its
+third-tier ten-hit counter releases. Expands to8m and fades over0.55s; max
+opacity0.09. No sound, camera shake, character animation or attack interruption.
+Reuses the existing procedural roar shockwave resource; no assets/PK2 changed.
+Port-only broadcast0x3FB3 carries exactly[u32 recipientGID], separate from emotes
+so a passive cannot overwrite an ongoing roar. Decoder validates length/nonzero
+GID and retains a cosmetic revision; effects freeze the origin and never replay
+an expired revision. Emit even if every secondary stun roll fails, since the
+radius roll still occurred. Entity despawn/disposal clears the small visual map.
+
+Tests: grouped server counter asserts exactly one correctly-addressed pulse;
+36 client effects/shield-state tests PASS including8m extent, faint fade,
+stationary origin, expiry/no replay, silent/no-shake and independent emotes.
+Full action+companion tests and scoped go vet PASS; production TS/capabilities
+PASS, test-type debt unchanged2785, source encoding/diff PASS. verify:quick
+still reports the same five existing ownership findings. Built/deployed
+GameWorld version2, allocationf599f88f-3885-755d-b7b6-c591b9cdea68.
+Live visual appearance still needs an actual grouped proc; tests validate the
+renderer output, not a screenshot of combat. Changes remain uncommitted.
+
+### Retaliation live combat / ripple refinement (2026-10-18)
+
+Tested against native Lv20 Chakji with LabPetTest/LabBear90. Repositioned only
+LabPetTest with the existing guarded counterfield helper while authority was
+stopped. Current healthy GameWorld version4, allocation
+8dfc8409-eea1-4f19-e470-db54378b8d06. Fresh gameworld.stdout.0 confirms both
+recipient counters plus primary+secondary stuns in the same release:
+21:09:29.438 bear, 21:10:04.940 bear, 21:10:19.442 owner,
+21:11:05.841 owner, 21:14:05.338 owner: area_in_range=1,
+area_stunned=1, stun_applied=true. The owner also produced a failed secondary
+roll at21:09:46.943, as expected. This is a two-monster in-range live sample,
+not a five-monster statistical probability survey. Primary and secondary native
+stun markers are both visible in ripple-live/second-279.png and gray-122.png.
+
+Refined the cosmetic to a dedicated procedural thin gray annulus instead of
+the busy roar mesh. Unit radius1, soft grayscale1x16 texture, no walls/spokes;
+max opacity0.22 with a smooth sine fade over0.55s. Existing8m expansion and
+silent/no-camera/no-posture behavior remain. No PK2 or external asset changed.
+Explicitly reload the client to load source updates. Captured the refined
+ripple growing and disappearing in live combat on a bear release at21:17:39.832:
+E:/CodeProjects/SRO/outputs/pet-design-codex/counter-live/ripple-live/
+fresh-438.png through fresh-447.png; fresh-442.png shows the clear thin ring
+and stunned Chakji. Full screenshots and timestamp JSONs stay outside Git;
+contact sheets are inspection aids, not substitute acceptance screenshots.
+
+59 effects/resource/packet tests PASS; production TS PASS; test-type debt stays
+2785 (no new errors); diff check PASS. Earlier full Go checks still apply since
+this refinement changes only the client resource/effect and its test. Test owner
+remains alive with full13226HP in the field; no skill rank/point/gear changes.
+The user approved the live appearance and requested commit/push.

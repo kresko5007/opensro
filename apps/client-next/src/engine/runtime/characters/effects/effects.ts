@@ -432,6 +432,10 @@ export function createCharacterEffects(
 			shook: boolean;
 		}
 	>();
+	const counterPulses = new Map<
+		number,
+		{ revision: number; gid: number; started: number; pose: CharacterActor["pose"]; }
+	>();
 	const roarAppearances = new Map<
 		number,
 		{
@@ -1968,6 +1972,47 @@ export function createCharacterEffects(
 					}
 				}
 				const result: CharacterActor[] = [];
+				// Port-only: a quiet, fixed-origin 8 m ripple when the server releases retaliation III.
+				for ( const entity of byGid.values() ) {
+					if ( !entity.petCounterPulse ) continue;
+					let pulse = counterPulses.get( entity.gid );
+					if ( !pulse || pulse.revision !== entity.petCounterPulse.revision ) {
+						pulse = {
+							revision: entity.petCounterPulse.revision,
+							gid: allocate(),
+							started: now,
+							pose: {
+								...(presentation.get( entity.gid )?.pose ??
+									{
+										regionId: entity.regionId,
+										x: entity.x,
+										y: entity.y,
+										z: entity.z,
+										yaw: nativeHeadingYaw( entity.heading )
+									})
+							}
+						};
+						counterPulses.set( entity.gid, pulse );
+					}
+					const age = now - pulse.started, u = Math.min( 1, age / .55 );
+					if ( age >= 0 && u < 1 && ready( "/assets/effects/pet-counter-ripple" ) ) {
+						result.push( {
+							gid: pulse.gid,
+							model: "/assets/effects/pet-counter-ripple",
+							clip: "effect",
+							time: age,
+							loop: false,
+							pose: pulse.pose,
+							scale: 2 + 78 * (1 - Math.pow( 1 - u, 2 )),
+							absoluteEffectScale: true,
+							effectEntity: true,
+							pickable: false,
+							opacity: .22 * Math.sin( Math.PI * u ),
+							materialTint: [ .85, .85, .82 ]
+						} );
+					}
+				}
+				for ( const gid of counterPulses.keys() ) if ( !byGid.has( gid ) ) counterPulses.delete( gid );
 				// Port-only world-size shells follow each recipient pose, without inheriting model/root transforms.
 				for ( const entity of byGid.values() ) {
 					const shield = entity.shield;
@@ -3706,6 +3751,7 @@ export function createCharacterEffects(
 			roars.clear();
 			roarAppearances.clear();
 			shields.clear();
+			counterPulses.clear();
 			statuses.clear();
 			cameraEvents.length = 0;
 			system.clear();

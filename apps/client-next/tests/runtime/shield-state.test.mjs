@@ -84,3 +84,25 @@ test("shield segments use a light-gray HP-style highlight without changing their
 	}
 	assert.deepEqual( shieldGaugeFill( [ 0, 0, 0, 8 ], clip ), [] );
 });
+
+test("retaliation pulse validates its recipient and leaves emotes independent", () => {
+	const entities = createEntities();
+	entities.bootstrap( {
+		protocolVersion: 2,
+		nativeResult: 1,
+		refObjSnapshot: [],
+		localPlayerEntry: { modelRef: 1933, startProfile: { regionId: 257, x: 1, y: 2, z: 3, angle: 0 } }
+	} );
+	entities.receive( { opcode: 0x32a6, payload: Buffer.from( [ 7, 0, 0, 0, 0, 0, 0, 0 ] ) }, 0 );
+	entities.receive( { opcode: 0x324b, payload: Buffer.from( [ 7, 0, 0, 0, 18 ] ) }, 10 );
+	const emote = defined( entities.read( 7 ) ).emote;
+	const packet = { opcode: 0x3fb3, payload: Buffer.from( [ 7, 0, 0, 0 ] ) };
+	entities.receive( packet, 100 );
+	entities.receive( packet, 200 );
+	assert.deepEqual( defined( entities.read( 7 ) ).petCounterPulse, { revision: 2, atMs: 200 } );
+	assert.deepEqual( defined( entities.read( 7 ) ).emote, emote );
+	for ( const payload of [ Buffer.alloc( 0 ), Buffer.alloc( 3 ), Buffer.alloc( 5 ), Buffer.alloc( 4 ) ] ) {
+		assert.throws( () => entities.receive( { opcode: 0x3fb3, payload }, 0 ), /Invalid pet counter pulse/ );
+	}
+	entities.dispose();
+});

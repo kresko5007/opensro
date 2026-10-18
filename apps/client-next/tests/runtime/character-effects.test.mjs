@@ -1846,3 +1846,38 @@ test("pet skill audio is positional, once per cast and synchronized to the roar 
 	assert.ok( played[3].gain < played[1].gain, "simultaneous recipient bursts use a softer mix" );
 	effects.dispose();
 });
+
+test("retaliation III draws one faint 8m ground ripple without sound or camera shake", () => {
+	const played = [], effects = roarEffects( event => played.push( event ) );
+	const owner = {
+		gid: 11,
+		refObjId: 11,
+		name: "Owner",
+		kind: "local-player",
+		regionId: 0x8001,
+		x: 20,
+		y: 0,
+		z: 30,
+		heading: 0,
+		petCounterPulse: { revision: 1, atMs: 0 }
+	};
+	const step = now => effects.step( [ owner ], null, now, () => true, () => 1, [] );
+	const ring = defined( step( 0 )[0] );
+	assert.equal( ring.model, "/assets/effects/pet-counter-ripple" );
+	assert.equal( ring.opacity, 0 );
+	const peak = defined( step( .275 )[0] );
+	assert.ok( defined( peak.opacity ) > 0 && defined( peak.opacity ) <= .22 );
+	owner.x = 100;
+	const late = defined( step( .52 )[0] );
+	assert.equal( late.gid, ring.gid );
+	assert.equal( late.pose.x, 20, "pulse stays at its release position" );
+	assert.ok( late.scale > 79 && late.scale <= 80 );
+	assert.ok( defined( late.opacity ) < defined( peak.opacity ) );
+	assert.equal( step( .6 ).length, 0 );
+	assert.equal( step( 2 ).length, 0, "finished pulses never replay" );
+	assert.equal( played.length, 0 );
+	assert.equal( effects.takeCameraScripts().length, 0 );
+	owner.petCounterPulse = { revision: 2, atMs: 2100 };
+	assert.notEqual( defined( step( 2.1 )[0] ).gid, ring.gid );
+	effects.dispose();
+});
