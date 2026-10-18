@@ -710,6 +710,34 @@ export function createEntities(
 		================
 		*/
 		receive( frame: WireFrame, now = 0 ) {
+			// Port-only absorption is separate from native health and max-health packets.
+			if ( frame.opcode === 0x3fb2 ) {
+				const p = frame.payload;
+				if ( p.length !== 21 ) throw Error( "Invalid shield state length" );
+				const v = new DataView( p.buffer, p.byteOffset, p.byteLength );
+				const gid = v.getUint32( 0, true ),
+					amount = v.getUint32( 4, true ),
+					maxHp = v.getUint32( 8, true ),
+					duration = v.getUint32( 12, true );
+				if (
+					!gid || !maxHp || amount > maxHp || duration > 5000 || p[20]! > 1 || (p[20] && (amount || duration))
+				) throw Error( "Invalid shield state" );
+				const entity = entities.get( gid );
+				if ( entity ) {
+					samplePose( {
+						...entity,
+						shield: {
+							amount,
+							maxHp,
+							atMs: now,
+							untilMs: now + duration,
+							revision: (entity.shield?.revision ?? 0) + 1,
+							burst: p[20] === 1
+						}
+					} );
+				}
+				return;
+			}
 			receivedAt = now;
 			// Any frame but the dead monster's own drops ends its publication.
 			const followsDeath = dropSource;

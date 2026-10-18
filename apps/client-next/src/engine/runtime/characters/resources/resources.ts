@@ -345,7 +345,101 @@ function createChallengingRoarShockwaveResource(): { model: CharacterModel; imag
 	} );
 }
 
+/*
+================
+createIronHideShieldResource
+
+Port-only crystalline-cyan ward: a translucent barrier dome with a hexagonal
+energy lattice, glowing meridian/latitude ribs and interlocking equatorial rings.
+================
+*/
+function createIronHideShieldResource(): { model: CharacterModel; images: NativeTexture[]; } {
+	const positions: number[] = [], normals: number[] = [], uvs: number[] = [], indices: number[] = [];
+	const columns = 32, rows = 18;
+	for ( let y = 0; y <= rows; y++ ) {
+		const v = y / rows;
+		const theta = v * Math.PI * 0.88;
+		const sinT = Math.sin( theta ), cosT = Math.cos( theta );
+		for ( let x = 0; x <= columns; x++ ) {
+			const u = x / columns;
+			const phi = u * Math.PI * 2;
+			const nx = sinT * Math.cos( phi ), ny = cosT, nz = sinT * Math.sin( phi );
+			positions.push( nx, ny * 0.95 + 0.95, nz );
+			normals.push( nx, ny, nz );
+			uvs.push( u, v );
+			if ( x < columns && y < rows ) {
+				const i = y * (columns + 1) + x;
+				indices.push( i, i + 1, i + columns + 1, i + 1, i + columns + 2, i + columns + 1 );
+			}
+		}
+	}
+	const ringConfigs = [
+		{ tiltX: 0.24, tiltZ: -0.18, radius: 1.08, halfH: 0.12, centerY: 0.95 },
+		{ tiltX: -0.22, tiltZ: 0.24, radius: 1.05, halfH: 0.10, centerY: 0.95 },
+		{ tiltX: 0, tiltZ: 0, radius: 1.04, halfH: 0.08, centerY: 0.10 }
+	];
+	for ( const cfg of ringConfigs ) {
+		const baseVertex = positions.length / 3;
+		const cX = Math.cos( cfg.tiltX ), sX = Math.sin( cfg.tiltX );
+		const cZ = Math.cos( cfg.tiltZ ), sZ = Math.sin( cfg.tiltZ );
+		for ( let r = 0; r <= 2; r++ ) {
+			const v = 0.35 + (r / 2) * 0.30;
+			const ly = (r / 2 - 0.5) * 2 * cfg.halfH;
+			for ( let s = 0; s <= columns; s++ ) {
+				const u = s / columns;
+				const phi = u * Math.PI * 2;
+				const lx = Math.cos( phi ) * cfg.radius, lz = Math.sin( phi ) * cfg.radius;
+				const y1 = ly * cX - lz * sX, z1 = ly * sX + lz * cX;
+				const x2 = lx * cZ - y1 * sZ, y2 = lx * sZ + y1 * cZ + cfg.centerY;
+				positions.push( x2, y2, z1 );
+				normals.push( Math.cos( phi ), 0, Math.sin( phi ) );
+				uvs.push( u, v );
+			}
+		}
+		for ( let r = 0; r < 2; r++ ) {
+			for ( let s = 0; s < columns; s++ ) {
+				const i0 = baseVertex + r * (columns + 1) + s, i1 = i0 + 1;
+				const i2 = i0 + (columns + 1), i3 = i2 + 1;
+				indices.push( i0, i2, i1, i1, i2, i3 );
+			}
+		}
+	}
+	const size = 128, pixels = new Uint8Array( size * size * 4 );
+	for ( let y = 0; y < size; y++ ) {
+		const v = (y + 0.5) / size;
+		const eqBand = Math.exp( -Math.pow( (v - 0.50) / 0.09, 2 ) );
+		const baseBand = Math.exp( -Math.pow( (v - 0.92) / 0.045, 2 ) );
+		const crownBand = Math.exp( -Math.pow( (v - 0.14) / 0.06, 2 ) );
+		const latRib = Math.pow( Math.max( 0, Math.cos( v * Math.PI * 10 ) ), 16 );
+		const shellFade = Math.sin( v * Math.PI );
+		for ( let x = 0; x < size; x++ ) {
+			const u = (x + 0.5) / size;
+			const lonRib = Math.pow( Math.max( 0, Math.cos( u * Math.PI * 14 ) ), 18 );
+			const hexA = Math.pow( Math.max( 0, Math.cos( (u * 10 + v * 6) * Math.PI * 2 ) ), 16 );
+			const hexB = Math.pow( Math.max( 0, Math.cos( (u * 10 - v * 6) * Math.PI * 2 ) ), 16 );
+			const lattice = Math.min( 1, Math.max( latRib, lonRib * 0.85, (hexA + hexB) * 0.65 ) );
+			const energy = Math.min(
+				1,
+				0.04 * shellFade + 0.58 * lattice * shellFade + 0.34 * eqBand + 0.52 * baseBand + 0.24 * crownBand
+			);
+			const idx = (y * size + x) * 4;
+			pixels[idx] = Math.min( 255, Math.round( 255 * Math.min( 1, energy * 1.35 ) ) );
+			pixels[idx + 1] = Math.min( 255, Math.round( 245 * Math.min( 1, Math.pow( energy, 1.15 ) * 1.12 ) ) );
+			pixels[idx + 2] = Math.min( 255, Math.round( 180 * Math.min( 1, Math.pow( energy, 1.75 ) * 0.85 ) ) );
+			pixels[idx + 3] = Math.min( 255, Math.round( 230 * Math.pow( energy, 1.12 ) ) );
+		}
+	}
+	return buildProceduralEffectModel( positions, normals, uvs, indices, {
+		kind: "native-texture",
+		width: size,
+		height: size,
+		format: "bgra8unorm",
+		levels: [ pixels ]
+	} );
+}
+
 const PROCEDURAL_EFFECT_MODELS = new Map<string, () => { model: CharacterModel; images: NativeTexture[]; }>( [
+	[ "/assets/effects/iron-hide-shield", createIronHideShieldResource ],
 	[ "/assets/effects/challenging-roar-aura", createChallengingRoarAuraResource ],
 	[ "/assets/effects/challenging-roar-shockwave", createChallengingRoarShockwaveResource ]
 ] );

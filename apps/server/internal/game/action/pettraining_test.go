@@ -401,18 +401,21 @@ pushes the reduced count, including the final ready state.
 func TestManualPetBuffCastsWithoutAttack(t *testing.T) {
 	rt, clock, c, _ := newPetCombatRuntime(t, 100000, attackPetBand)
 	makeTrainedPet(rt, c, "COS_P_BEAR_040", 40)
+	roarField(t, rt, c, clock)
+	c.MissionInventory = nil
 	rt.AttackPetExpansion = true
 	skill := learn(t, rt, c, "Iron Hide", 1)
 	command := append(trainingCommand(c.ActiveCOS.GID, petTrainingUse, skill.ID), 0, 0, 0, 0)
 	result := rt.HandleCosCommand(testDivision, c, command)
 	state := rt.petSessionFor(testDivision, c.Name, c.ActiveCOS.GID)
-	if len(result.Frames) == 0 || state == nil || state.trained.ironHideUntil <= clock.NowMs() ||
+	key := petShieldKey{testDivision, c.ActiveCOS.GID}
+	if len(result.Frames) == 0 || state == nil || rt.petShields.rows[key].until <= clock.NowMs() ||
 		companion.RowReady(&c.ActiveCOS.Training, skill.Row, clock.NowMs()) || c.ActiveCOS.Training.Queued != 0 {
 		t.Fatal("manual buff did not apply and spend cooldown without an attack")
 	}
-	until := state.trained.ironHideUntil
+	until := rt.petShields.rows[key].until
 	rt.HandleCosCommand(testDivision, c, command)
-	if state.trained.ironHideUntil != until {
+	if rt.petShields.rows[key].until != until {
 		t.Fatal("cooldown allowed a second manual cast")
 	}
 }

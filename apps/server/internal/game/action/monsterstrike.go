@@ -319,6 +319,7 @@ func (rt *Runtime) applyCOSHitInDoor(divisionID string, hit *cosHit, nowMs int64
 	}
 	for _, formula := range hit.formulas {
 		hit.context.Magical = hit.context.Magical || formula.MagicalDamage != 0
+		formula.Damage = rt.absorbPetShield(divisionID, pet.GID, formula.Damage, nowMs)
 		live.CurrentHP -= vitals.HitDebit(live.CurrentHP, formula.Damage)
 		strike.fatal = live.CurrentHP == 0
 		strike.impacts = append(strike.impacts, wire.SkillCastTargetImpact{Damage: formula.Damage,

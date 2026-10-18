@@ -71,6 +71,14 @@ family's catalog identity. Skill objects resolve appearance by skill ID.
 ================
 */
 export interface EntityState {
+	readonly shield?: {
+		readonly amount: number;
+		readonly maxHp: number;
+		readonly atMs: number;
+		readonly untilMs: number;
+		readonly revision: number;
+		readonly burst: boolean;
+	};
 	readonly gid: number;
 	readonly refObjId: number;
 	readonly kind: string;

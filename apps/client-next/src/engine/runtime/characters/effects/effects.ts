@@ -414,6 +414,19 @@ export function createCharacterEffects(
 			shockCoreGid: number;
 		}
 	>();
+	const shields = new Map<
+		number,
+		{
+			revision: number;
+			gid: number;
+			innerGid: number;
+			ringGid: number;
+			at: number;
+			until: number;
+			burst: boolean;
+			shook: boolean;
+		}
+	>();
 	const roarAppearances = new Map<
 		number,
 		{
@@ -1057,7 +1070,16 @@ export function createCharacterEffects(
 				// bone-less victims, returns and chain hops) need the live pose.
 				const local = gameplay?.localGid ? byGid.get( gameplay.localGid ) : undefined;
 				if ( local && gameplay?.pose ) {
-					byGid.set( local.gid, { ...local, ...gameplay.pose, heading: gameplay.pose.angle } );
+					// The movement snapshot may retain old entity metadata; only its coordinates own this anchor.
+					const pose = gameplay.pose;
+					byGid.set( local.gid, {
+						...local,
+						regionId: pose.regionId,
+						x: pose.x,
+						y: pose.y,
+						z: pose.z,
+						heading: pose.angle
+					} );
 				}
 				hitLights.step( now, new Set( byGid.keys() ) );
 				const wantedPersistent = new Set<string>(),
@@ -1941,6 +1963,160 @@ export function createCharacterEffects(
 					}
 				}
 				const result: CharacterActor[] = [];
+				// Port-only world-size shells follow each recipient pose, without inheriting model/root transforms.
+				for ( const entity of byGid.values() ) {
+					const shield = entity.shield;
+					if ( !shield ) continue;
+					let visual = shields.get( entity.gid );
+					const nextUntil = now + (shield.untilMs - shield.atMs) / 1000;
+					if ( !visual ) {
+						visual = {
+							revision: shield.revision,
+							gid: allocate(),
+							innerGid: allocate(),
+							ringGid: allocate(),
+							at: now,
+							until: nextUntil,
+							burst: shield.burst,
+							shook: false
+						};
+						shields.set( entity.gid, visual );
+					} else if ( visual.revision !== shield.revision ) {
+						visual.revision = shield.revision;
+						if ( shield.burst ) {
+							if ( !visual.burst ) {
+								visual.at = now;
+								visual.shook = false;
+							}
+							visual.burst = true;
+							visual.until = nextUntil;
+						} else if ( !visual.burst && shield.amount > 0 && now < visual.until ) {
+							// Periodic 500ms server sync or partial absorption: keep visual.at so the
+							// barrier rotation and pulse continue smoothly without restarting.
+							visual.until = nextUntil;
+						} else {
+							visual.at = now;
+							visual.until = nextUntil;
+							visual.burst = false;
+							visual.shook = false;
+						}
+					}
+					const age = Math.max( 0, now - visual.at );
+					const burst = visual.burst && age < 0.75;
+					const activeShield = shield.amount > 0 && now < visual.until;
+					if ( !burst && !activeShield ) continue;
+					const pose = presentation.get( entity.gid )?.pose ?? {
+						regionId: entity.regionId,
+						x: entity.x,
+						y: entity.y,
+						z: entity.z,
+						yaw: nativeHeadingYaw( entity.heading )
+					};
+					const baseScale = entity.kind === "cos" ? 26 : 15;
+					if ( burst ) {
+						if ( !visual.shook ) {
+							visual.shook = true;
+							cameraEvents.push( {
+								atMs: Math.trunc( now * 1000 ),
+								amplitude: 50,
+								durationMs: 500,
+								periodMs: 20
+							} );
+						}
+						const u = Math.min( 1, age / 0.75 );
+						const ease = 1 - Math.pow( 1 - u, 2.2 );
+						if ( ready( "/assets/effects/challenging-roar-shockwave" ) ) {
+							result.push( {
+								gid: visual.gid,
+								model: "/assets/effects/challenging-roar-shockwave",
+								clip: "effect",
+								time: age,
+								loop: false,
+								pose,
+								scale: 6 + 74 * ease,
+								absoluteEffectScale: true,
+								effectEntity: true,
+								pickable: false,
+								opacity: (1 - Math.pow( u, 1.5 )) * 0.20,
+								materialTint: [ 0.62, 0.92, 1.0 ],
+								effectRotation: { axis: "y", angle: radians( age * 2.8 ) }
+							} );
+							if ( age >= 0.06 ) {
+								const u2 = Math.min( 1, (age - 0.06) / 0.69 );
+								const ease2 = 1 - Math.pow( 1 - u2, 2.0 );
+								result.push( {
+									gid: visual.ringGid,
+									model: "/assets/effects/challenging-roar-shockwave",
+									clip: "effect",
+									time: age - 0.06,
+									loop: false,
+									pose,
+									scale: 4 + 76 * ease2,
+									absoluteEffectScale: true,
+									effectEntity: true,
+									pickable: false,
+									opacity: (1 - Math.pow( u2, 1.4 )) * 0.12,
+									materialTint: [ 1.0, 0.88, 0.52 ],
+									effectRotation: { axis: "y", angle: radians( -age * 2.2 ) }
+								} );
+							}
+						}
+						if ( age < 0.45 && ready( "/assets/effects/iron-hide-shield" ) ) {
+							const su = age / 0.45;
+							result.push( {
+								gid: visual.innerGid,
+								model: "/assets/effects/iron-hide-shield",
+								clip: "effect",
+								time: age,
+								loop: false,
+								pose,
+								scale: baseScale + (80 - baseScale) * (1 - Math.pow( 1 - su, 2.0 )),
+								absoluteEffectScale: true,
+								effectEntity: true,
+								pickable: false,
+								opacity: (1 - su) * 0.16,
+								materialTint: [ 0.78, 0.95, 1.0 ],
+								effectRotation: { axis: "y", angle: radians( age * 4.5 ) }
+							} );
+						}
+					} else if ( ready( "/assets/effects/iron-hide-shield" ) ) {
+						const flash = Math.max( 0, 1 - age / 0.45 );
+						const pulse = 1 + 0.04 * Math.sin( age * 6 );
+						result.push( {
+							gid: visual.gid,
+							model: "/assets/effects/iron-hide-shield",
+							clip: "effect",
+							time: age,
+							loop: true,
+							pose,
+							scale: baseScale * pulse,
+							absoluteEffectScale: true,
+							effectEntity: true,
+							pickable: false,
+							opacity: 0.12 + 0.08 * flash,
+							materialTint: [ 0.58 + 0.32 * flash, 0.86 + 0.14 * flash, 1.0 ],
+							effectRotation: { axis: "y", angle: radians( age * 1.6 ) }
+						} );
+						result.push( {
+							gid: visual.innerGid,
+							model: "/assets/effects/iron-hide-shield",
+							clip: "effect",
+							time: age,
+							loop: true,
+							pose,
+							scale: baseScale * 0.88 * (2 - pulse),
+							absoluteEffectScale: true,
+							effectEntity: true,
+							pickable: false,
+							opacity: 0.06 + 0.04 * flash,
+							materialTint: [ 0.85, 0.96, 1.0 ],
+							effectRotation: { axis: "y", angle: radians( -age * 2.3 ) }
+						} );
+					}
+				}
+				for ( const gid of shields.keys() ) {
+					if ( !byGid.has( gid ) ) shields.delete( gid );
+				}
 				// 74F540 / 854410: external item producers retain their own
 				// captured host; they never borrow a combat cast or its lifetime.
 				for ( const [id, row] of external ) {
@@ -3186,6 +3362,49 @@ export function createCharacterEffects(
 						}
 					}
 				}
+				for ( const [gid, visual] of shields ) {
+					if ( roarAppearances.has( gid ) ) continue;
+					const entity = byGid.get( gid );
+					if ( !entity?.shield ) continue;
+					const age = Math.max( 0, now - visual.at );
+					const burst = visual.burst && age < 0.75;
+					const activeShield = entity.shield.amount > 0 && now < visual.until;
+					if ( !burst && !activeShield ) continue;
+					const pose = presentation.get( gid )?.pose ?? {
+						regionId: entity.regionId,
+						x: entity.x,
+						y: entity.y,
+						z: entity.z,
+						yaw: nativeHeadingYaw( entity.heading )
+					};
+					if ( burst ) {
+						const decay = Math.pow( Math.max( 0, 1 - age / 0.75 ), 1.6 );
+						roarAppearances.set( gid, {
+							pointLight: {
+								pose: { regionId: pose.regionId, x: pose.x, y: pose.y + 15, z: pose.z },
+								ambient: [ 0.12 * decay, 0.22 * decay, 0.28 * decay ],
+								diffuse: [ 0.18 * decay, 0.30 * decay, 0.36 * decay ],
+								range: 140 + 80 * (1 - decay),
+								attenuation: 0.32
+							},
+							materialTint: [ 1.0 - 0.12 * decay, 1.0, 1.0 ],
+							scale: 1.0 + 0.04 * decay
+						} );
+					} else {
+						const pulse = 0.85 + 0.15 * Math.sin( age * 6 );
+						roarAppearances.set( gid, {
+							pointLight: {
+								pose: { regionId: pose.regionId, x: pose.x, y: pose.y + 15, z: pose.z },
+								ambient: [ 0.04 * pulse, 0.10 * pulse, 0.14 * pulse ],
+								diffuse: [ 0.07 * pulse, 0.15 * pulse, 0.20 * pulse ],
+								range: 95,
+								attenuation: 0.38
+							},
+							materialTint: [ 0.90, 0.98, 1.0 ],
+							scale: 1.0
+						} );
+					}
+				}
 				hiddenWeapons.clear();
 				for ( const gid of weaponOwners.values() ) hiddenWeapons.add( gid );
 				budgetActors = result.length;
@@ -3446,6 +3665,7 @@ export function createCharacterEffects(
 			hwan.clear();
 			roars.clear();
 			roarAppearances.clear();
+			shields.clear();
 			statuses.clear();
 			cameraEvents.length = 0;
 			system.clear();
@@ -3486,6 +3706,7 @@ export function createCharacterEffects(
 			hwan.clear();
 			roars.clear();
 			roarAppearances.clear();
+			shields.clear();
 			statuses.clear();
 			cameraEvents.length = 0;
 			system.clear();

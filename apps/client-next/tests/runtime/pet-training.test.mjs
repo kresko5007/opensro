@@ -13,6 +13,7 @@ design workbook's generated module.
 import "../helpers/native-source-loader.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { defined } from "../helpers/defined.mjs";
 const { createPetTraining, OP_PET_TRAINING_STATE } = await import(
 	"../../src/engine/runtime/simulation/worker/session/world/gameplay/pet-training/pet-training.ts"
 );
@@ -360,9 +361,63 @@ test("Roar I/III gain one metre per effective level and explain cast restriction
 	assert.equal( petRoarRadius( 3, 1 ), 30 );
 	assert.equal( petRoarRadius( 3, 3 ), 32 );
 	assert.equal( petRoarRadius( 3, 10 ), 39 );
-	const help = petEffect( petSkillDesign( 18 ), 0, 1 );
+	const help = petEffect( defined( petSkillDesign( 18 ) ), 0, 1 );
 	assert.match( help, /30 m/ );
 	assert.match( help, /1 s cast/ );
 	assert.match( help, /without targets/ );
 	assert.match( help, /Cannot cast in town/ );
+});
+
+test("Iron Hide tooltips and shieldGauge scale health + shield like League of Legends", async () => {
+	const { shieldGauge } = await import( "../../src/engine/foundation/ui/shield-gauge.ts" );
+	const t1 = petEffect( defined( petSkillDesign( 19 ) ), 30, 1 );
+	const t2 = petEffect( defined( petSkillDesign( 20 ) ), 55, 1 );
+	const t3 = petEffect( defined( petSkillDesign( 21 ) ), 80, 1 );
+	assert.match( t1, /Shields the bear and its owner for 30% of maximum HP for 5 s\./ );
+	assert.doesNotMatch( t1, /party members/ );
+	assert.match( t2, /Also shields party members within 20 m\./ );
+	assert.doesNotMatch( t2, /explodes/ );
+	assert.match( t3, /explodes within 8 m for 50% of its remaining value/ );
+	for ( const id of [ 19, 20, 21 ] ) {
+		const design = petSkillDesign( id );
+		assert.ok( design );
+		assert.equal( design.valueUnit, "% max HP" );
+		const fullHelp = petSkillHelp(
+			design,
+			{
+				id,
+				level: 1,
+				effectiveLevel: 1,
+				nextPetLevel: 90,
+				action: true,
+				queued: false,
+				learnable: false,
+				live: true,
+				slotted: false,
+				value: 30,
+				nextValue: 32
+			},
+			90,
+			1
+		);
+		assert.doesNotMatch( fullHelp, /Proficiency:|Planned/ );
+	}
+	// When HP (50%) + Shield (30%) <= 100%, health stays 0.5 and shield appends 0.3 beside it.
+	const partial = shieldGauge(
+		{ shield: { amount: 300, maxHp: 1000, atMs: 0, untilMs: 5000, revision: 1, burst: false } },
+		0.5,
+		1000
+	);
+	assert.equal( partial.health, 0.5 );
+	assert.equal( partial.start, 0.5 );
+	assert.equal( partial.shield, 0.3 );
+	assert.equal( partial.amount, 300 );
+	// When HP (80%) + Shield (45%) > 100%, both compress proportionally to fit the bar.
+	const overflow = shieldGauge(
+		{ shield: { amount: 450, maxHp: 1000, atMs: 0, untilMs: 5000, revision: 1, burst: false } },
+		0.8,
+		1000
+	);
+	assert.ok( Math.abs( overflow.health + overflow.shield - 1 ) < 1e-9 );
+	assert.equal( overflow.start, overflow.health );
 });

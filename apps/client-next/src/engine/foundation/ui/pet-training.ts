@@ -208,6 +208,14 @@ export function petEffect( design: PetSkillDesign, value: number, effectiveLevel
 			"Unique monsters are immune. Taunt applies after a 1 s cast. " +
 			"Can cast without targets. Cannot cast in town. No damage.";
 	}
+	if ( design.family === "Iron Hide" ) {
+		return `Shields the bear and its owner for ${formatValue( Math.min( 100, value ) )}% of maximum HP for 5 s.` +
+			(design.option >= 2 ? " Also shields party members within 20 m." : "") +
+			(design.option === 3 ?
+				" After 5 s, each recipient's remaining shield (including the bear) explodes within 8 m for 50% of its remaining value as damage to monsters." :
+				"") +
+			" Cannot cast in town.";
+	}
 	const shown = value;
 	const effect = design.family === "Last Stand" && rank2 ?
 		design.effect.replace( "30% HP", "40% HP" ) :
@@ -300,7 +308,7 @@ export function petSkillHelp(
 		lines.push( `Base recharge: ${formatValue( shown )} ${design.cooldownUnit} before gear bonuses.` );
 		if ( skill.action ) lines.push( "Using this skill locks every active in this row." );
 	}
-	if ( design.family !== "Challenging Roar" ) {
+	if ( design.family !== "Challenging Roar" && design.family !== "Iron Hide" ) {
 		lines.push( `Proficiency ${rules.rank2Level}: ${design.rank2}` );
 		lines.push( `Proficiency ${rules.rank3Level}: ${design.rank3}` );
 	}

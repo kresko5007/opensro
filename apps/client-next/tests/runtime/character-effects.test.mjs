@@ -1691,3 +1691,94 @@ test("challenging roar III glows brighter for one second, then releases a 30 m s
 	assert.equal( effects.error(), null );
 	effects.dispose();
 });
+
+test("iron hide draws a 5 s barrier dome on bear and players, then detonates an 8 m burst on tier III expiry", () => {
+	const SHIELD_DOME = "/assets/effects/iron-hide-shield";
+	const SHOCKWAVE = "/assets/effects/challenging-roar-shockwave";
+	const effects = roarEffects();
+	const bear = {
+			gid: 10,
+			kind: "cos",
+			regionId: 0x8001,
+			x: 0,
+			y: 0,
+			z: 0,
+			heading: 0,
+			shield: { amount: 400, maxHp: 1000, atMs: 0, untilMs: 5000, revision: 1, burst: false }
+		},
+		owner = {
+			gid: 11,
+			kind: "local-player",
+			regionId: 0x8001,
+			x: 20,
+			y: 0,
+			z: 0,
+			heading: 0,
+			shield: { amount: 600, maxHp: 1200, atMs: 0, untilMs: 5000, revision: 1, burst: false }
+		},
+		gameplay = {
+			casts: [],
+			localGid: 11,
+			pose: {
+				...owner,
+				angle: 0,
+				shield: { amount: 0, maxHp: 1200, atMs: -1000, untilMs: -1000, revision: 99, burst: false }
+			}
+		};
+	const step = now => effects.step( [ bear, owner ], gameplay, now, () => true, () => 1, [] );
+	const activeActors = step( 0.2 );
+	assert.equal( activeActors.filter( a => a.model === SHIELD_DOME && a.pose.x === bear.x ).length, 2 );
+	assert.equal( activeActors.filter( a => a.model === SHIELD_DOME && a.pose.x === owner.x ).length, 2 );
+	assert.ok(
+		activeActors.every( actor => actor.attachment === undefined ),
+		"world-size wards must not inherit character root transforms"
+	);
+	assert.ok( effects.appearance( owner.gid ).pointLight );
+	// Periodic 500 ms server updates increment revision without resetting the barrier animation clock.
+	owner.shield = { amount: 500, maxHp: 1200, atMs: 500, untilMs: 5000, revision: 2, burst: false };
+	const midActors = step( 0.7 ).filter( a => a.model === SHIELD_DOME && a.pose.x === owner.x );
+	assert.equal( midActors.length, 2 );
+	assert.ok( Math.abs( midActors[0].time - 0.5 ) < 1e-6, "periodic shield sync must not reset animation age" );
+	gameplay.pose.x = 80;
+	const moved = step( 1.0 ).filter( a => a.model === SHIELD_DOME );
+	assert.equal(
+		moved.filter( a => a.pose.x === 80 ).length,
+		2,
+		"owner ward follows live movement independently of bear and wire pose"
+	);
+	assert.equal( moved.filter( a => a.pose.x === 0 ).length, 2 );
+	gameplay.pose.x = 20;
+	// At t = 5.0 s, Tier III shield expires with remaining absorption and bursts (8 m = 80 units).
+	bear.shield = { amount: 0, maxHp: 1000, atMs: 5000, untilMs: 5000, revision: 2, burst: true };
+	owner.shield = { amount: 0, maxHp: 1200, atMs: 5000, untilMs: 5000, revision: 3, burst: true };
+	const burstStart = step( 5.0 );
+	assert.ok( burstStart.some( a => a.model === SHOCKWAVE && a.pose.x === owner.x ) );
+	assert.ok(
+		burstStart.some( a => a.model === SHOCKWAVE && a.pose.x === bear.x ),
+		"bear explosion is anchored to its own position"
+	);
+	assert.ok( effects.appearance( owner.gid ).pointLight );
+	const shieldShake = effects.takeCameraScripts();
+	assert.equal( shieldShake.length, 2 );
+	const shieldCamera = createCameraScripts( createPresentationRandom( 1 ) );
+	assert.doesNotThrow( () => shieldCamera.step( 5000, shieldShake ) );
+	shieldCamera.dispose();
+	assert.ok( activeActors.every( actor => actor.opacity <= 0.20 ), "barriers must not obscure their characters" );
+	const burstLate = step( 5.72 ).filter( a => a.model === SHOCKWAVE && a.pose.x === owner.x );
+	const maxScale = Math.max( ...burstLate.map( a => a.scale ) );
+	assert.ok( maxScale > 75 && maxScale <= 80, `tier III shield burst reaches 8 m (${maxScale})` );
+	assert.equal( step( 6.0 ).length, 0 );
+	owner.shield = { amount: 600, maxHp: 1200, atMs: 8000, untilMs: 13000, revision: 4, burst: false };
+	assert.equal(
+		step( 8.0 ).filter( a => a.model === SHIELD_DOME ).length,
+		2,
+		"a new cast rearms after a finished burst"
+	);
+	owner.shield = { amount: 0, maxHp: 1200, atMs: 13000, untilMs: 13000, revision: 5, burst: true };
+	assert.ok(
+		step( 13.0 ).some( a => a.model === SHOCKWAVE && a.pose.x === owner.x ),
+		"subsequent casts burst again"
+	);
+	assert.equal( step( 14.0 ).length, 0 );
+	effects.dispose();
+});

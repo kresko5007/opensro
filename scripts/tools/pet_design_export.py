@@ -170,6 +170,16 @@ def main():
 			if s["family"] == "Challenging Roar":
 				s.update(status="Implemented", value=3 if tier < 3 else 6, valuePerLevel=0,
 					effect="Taunts up to {v} monsters. Radius grows with proficiency; party monsters require Tier II. No damage.")
+			if s["family"] == "Iron Hide":
+				s.update(
+					status="Implemented",
+					valueUnit="% max HP",
+					effect="Shields the bear and its owner for {v}% of maximum HP for 5 s."
+						+ (" Also shields party members within 20 m." if tier >= 2 else "")
+						+ (" On expiry, each recipient's remaining shield (including the bear) explodes within 8 m for 50% of its remaining value as damage to monsters." if tier == 3 else ""),
+					rank2="Tier II also shields party members within 20 m.",
+					rank3="Tier III detonates each recipient's remaining shield (including the bear) after 5 s for 50% of its remaining value within 8 m.",
+				)
 			design["treeSkills"].append(s)
 	degrees = {int(d["Degree"]): d for d in table(wb["Degrees"])}
 	for g in table(wb["Gear"]):

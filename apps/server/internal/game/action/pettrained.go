@@ -58,8 +58,6 @@ type petTrainedRuntime struct {
 	frenzyUntil   int64
 	frenzyPercent float64
 	frenzyCrit    float64
-	ironHideUntil int64
-	ironHidePct   float64
 	retribution   int64 // window end; 0 when not storing
 	retribStored  float64
 	retribPercent float64
@@ -320,7 +318,7 @@ func (rt *Runtime) petApplyAction(step petCombatStep, skill *enterworld.SkillRow
 		}
 		run.retribution, run.retribStored, run.retribPercent, run.retribStun = step.nowMs+10000, 0, v, rank3
 	case "Iron Hide":
-		run.ironHideUntil, run.ironHidePct = step.nowMs+6000, v
+		return false // Port-only shields are explicitly cast, not an attack proc.
 	case "Frost Nova":
 		radius := 5.0
 		if rank2 {
@@ -645,8 +643,7 @@ func (rt *Runtime) petOwnerHeal(division string, owner *enterworld.Character, pe
 ================
 petTrainingDefense
 
-The pet's defense against a monster: its gear and passives, Last Stand
-below 30% HP and a running Iron Hide.
+The pet's defense against a monster: its gear and passives, including Last Stand.
 ================
 */
 func (rt *Runtime) petTrainingDefense(owner *enterworld.Character, pet *domain.CharacterCOS, maxHP uint32, stats combat.Stats) combat.Stats {
@@ -678,8 +675,8 @@ func (rt *Runtime) petTrainingDefense(owner *enterworld.Character, pet *domain.C
 ================
 petTrainedDamageTaken
 
-A monster's hit on a trained pet: Iron Hide reduces it, Retribution
-stores it. Returns the damage the pet takes.
+A monster's hit on a trained pet: Retribution stores it. Iron Hide absorption
+belongs to the recipient's hit door, separately from HP and defense.
 ================
 */
 func (rt *Runtime) petTrainedDamageTaken(division string, owner *enterworld.Character, pet *domain.CharacterCOS, damage uint32, nowMs int64) uint32 {
@@ -691,9 +688,6 @@ func (rt *Runtime) petTrainedDamageTaken(division string, owner *enterworld.Char
 		return damage
 	}
 	run := &state.trained
-	if run.ironHideUntil > nowMs {
-		damage = uint32(float64(damage) * max(0, 100-run.ironHidePct) / 100)
-	}
 	if run.retribution > nowMs {
 		run.retribStored += float64(min(damage, pet.CurrentHP))
 	}

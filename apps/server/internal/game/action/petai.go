@@ -160,6 +160,7 @@ advancePets
 ================
 */
 func (rt *Runtime) advancePets(nowMs int64) []simulation.DivisionFrames {
+	shieldFrames := rt.advancePetShields(nowMs)
 	rt.petMu.Lock()
 	keys := make([]petOwnerKey, 0, len(rt.petSessions))
 	for key, state := range rt.petSessions {
@@ -221,7 +222,7 @@ func (rt *Runtime) advancePets(nowMs int64) []simulation.DivisionFrames {
 	if rt.Worlds != nil {
 		rt.Worlds.ReplaceTethers(tethers)
 	}
-	return out
+	return append(shieldFrames, out...)
 }
 
 /*

@@ -69,7 +69,9 @@ func (rt *Runtime) manualPetSkill(division string, owner, snapshot *enterworld.C
 			Frames:    append(append([]wire.Frame{}, public...), rt.petTrainingStateFrames(owner.CompanionByGID(gid), now)...),
 			Broadcast: public,
 		}
-	case "Iron Hide", "Frenzy", "Mend", "Retribution":
+	case "Iron Hide":
+		return rt.castPetShield(division, owner, snapshot, pet, skill, now)
+	case "Frenzy", "Mend", "Retribution":
 		step := petCombatStep{key: petOwnerKey{division: division, name: strings.ToLower(owner.Name), gid: gid}, state: state, snapshot: snapshot, pet: pet, ref: ref, nowMs: now}
 		strike := &petTrainedStrike{mods: companion.ModifiersFor(pet), passive: -1}
 		level := companion.EffectiveLevel(pet, skill, strike.mods)

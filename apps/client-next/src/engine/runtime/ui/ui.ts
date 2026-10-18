@@ -412,6 +412,7 @@ import {
 } from "@/engine/foundation/gameplay/party-matching";
 import { createSkillGauge, createGaugePresentation } from "./hud/progression-bars";
 import { experienceBar, EXPERIENCE_BAR, gaugeFill } from "@/engine/foundation/ui/progression-bars";
+import { shieldGauge } from "@/engine/foundation/ui/shield-gauge";
 import { createRegionBanner } from "./hud/region-banner";
 import { regionBannerQuads } from "@/engine/foundation/ui/region-banner";
 import { buffTooltip } from "@/engine/foundation/ui/buff-tooltip";
@@ -8650,9 +8651,14 @@ export function createUi(
 					image( r, chrome.frame );
 					const icon = iconPath( reference?.icon );
 					if ( icon ) image( [ x + 6, y + 7, 32, 32 ], icon );
-					const ratios = cosStatusRatios( record, reference );
+					const ratios = cosStatusRatios( record, reference ),
+						protection = shieldGauge(
+							next.entities.find( e => e.gid === record.gid ),
+							ratios.hp ?? 0,
+							next.simulationTimeMs ?? 0
+						);
 					const gauges = [
-						[ chrome.showHp, ratios.hp, "am_hp", 47 ],
+						[ chrome.showHp, ratios.hp === null ? null : protection.health, "am_hp", 47 ],
 						[ chrome.showHgp, ratios.hgp, "am_hgp", 56 ]
 					] as const;
 					for ( const [shown, ratio, name, dy] of gauges ) {
@@ -8662,6 +8668,17 @@ export function createUi(
 						paths.push( path );
 						if ( size ) {
 							image( [ x + 4, y + dy, size[0] * ratio, size[1] ], path, white, [ 0, 0, ratio, 1 ] );
+							if ( name === "am_hp" && protection.shield > 0 ) {
+								rect(
+									[
+										x + 4 + size[0] * protection.start,
+										y + dy,
+										size[0] * protection.shield,
+										size[1]
+									],
+									[ .88, .95, 1, 1 ]
+								);
+							}
 						}
 					}
 					blocks.push( r );
@@ -9841,13 +9858,18 @@ export function createUi(
 				if ( hudData ) {
 					const hpMax = game?.progression?.stats?.maxHp ?? local?.maxHp ?? character?.maxHp,
 						mpMax = game?.progression?.stats?.maxMp ?? local?.maxMp ?? character?.maxMp;
+					const protection = shieldGauge(
+						next.entities.find( e => e.gid === game?.localGid ),
+						(local?.hp ?? 0) / Math.max( 1, hpMax ?? 1 ),
+						next.simulationTimeMs ?? 0
+					);
 					const warning = (options.hpWarning && vitalWarning( local?.hp, hpMax )) ||
 						(options.mpWarning && vitalWarning( local?.mp, mpMax ));
 					cautionVisible = !!warning;
 					const hpGauge = gauges.read(
 							"mini-hp",
 							game?.localGid ?? 0,
-							(local?.hp ?? 0) / Math.max( 1, hpMax ?? 1 ),
+							protection.health,
 							"empty"
 						),
 						mpGauge = gauges.read(
@@ -9869,6 +9891,8 @@ export function createUi(
 						options.mpWarning,
 						warning ? Math.floor( now / 100 ) % 8 : -1,
 						local?.hp,
+						protection.amount,
+						protection.shield,
 						local?.mp,
 						hpMax,
 						mpMax,
@@ -9932,12 +9956,25 @@ export function createUi(
 										)
 									);
 								}
-								authoredText(
-									p["GDR_PMI_TXT_" + vital]!,
-									px,
-									py,
-									`${Math.max( 0, Math.min( current, max ) )} / ${max}`
-								);
+								if ( vital === "HP" && protection.shield > 0 ) {
+									const r = authoredRect( node, px, py );
+									rect( [ r[0] + r[2] * protection.start, r[1], r[2] * protection.shield, r[3] ], [
+										.88,
+										.95,
+										1,
+										1
+									] );
+								}
+								const hpText = `${Math.max( 0, Math.min( current, max ) )} / ${max}`;
+								if ( vital === "HP" && protection.shield > 0 ) {
+									authoredText(
+										{ ...p["GDR_PMI_TXT_HP"]!, color: [ 0, 0, 0, 1 ] },
+										px + 1,
+										py + 1,
+										hpText
+									);
+								}
+								authoredText( p["GDR_PMI_TXT_" + vital]!, px, py, hpText );
 							}
 						}
 						// Native caution atlas: eight 128x32 cells, four columns, 100ms per cell.
@@ -10127,7 +10164,12 @@ export function createUi(
 						hgpPath = ROOT + "interface/playerminiinfo/pmi_pet_hgp.png",
 						facePath = ROOT + "interface/playerminiinfo/pmi_pet_face.png",
 						icon = iconPath( pet.icon ),
-						hpGauge = gauges.read( "pet-mini-hp", pet.gid, pet.hp ?? 0, "empty" ),
+						protection = shieldGauge(
+							next.entities.find( e => e.gid === pet.gid ),
+							pet.hp ?? 0,
+							next.simulationTimeMs ?? 0
+						),
+						hpGauge = gauges.read( "pet-mini-hp", pet.gid, protection.health, "empty" ),
 						hgpGauge = gauges.read( "pet-mini-hgp", pet.gid, pet.hgp, "empty" ),
 						cautionFrame = pet.caution ? Math.floor( now / 100 ) % 8 : -1;
 					retainedHud( petLayoutCache, [
@@ -10136,6 +10178,8 @@ export function createUi(
 						pet.gid,
 						pet.name,
 						pet.level,
+						protection.amount,
+						protection.shield,
 						icon,
 						hpGauge.current,
 						hpGauge.target,
@@ -10183,6 +10227,14 @@ export function createUi(
 							quads.push(
 								...gaugeFill( [ gx, gy, gw, gh ], node.uv, path, value.current, value.target, full )
 							);
+							if ( path === hpPath && protection.shield > 0 ) {
+								rect( [ gx + gw * protection.start, gy, gw * protection.shield, gh ], [
+									.88,
+									.95,
+									1,
+									1
+								] );
+							}
 						}
 						// Native caution atlas: eight 128x32 cells, four columns, 100ms per cell.
 						const caution = petLayout.GDR_PET_MINI_EFFECT_HP!;
@@ -10294,14 +10346,24 @@ export function createUi(
 						// as row backing so selecting a member cannot cover their data.
 						if ( row.entity && row.entity.gid === game.target ) authoredImage( slot.GDR_QPS_SELECT!, x, y );
 						authoredText( slot.GDR_QPS_TXT_ID!, x, y, row.member.name );
+						const protection = shieldGauge( row.entity, row.hp, next.simulationTimeMs ?? 0 );
 						authoredGauge(
 							"quick-party-hp:" + row.member.id,
 							row.member.id,
 							slot.GDR_QPS_GAUGE_HP!,
 							x,
 							y,
-							row.hp
+							protection.health
 						);
+						if ( protection.shield > 0 ) {
+							const r = authoredRect( slot.GDR_QPS_GAUGE_HP!, x, y );
+							rect( [ r[0] + r[2] * protection.start, r[1], r[2] * protection.shield, r[3] ], [
+								.88,
+								.95,
+								1,
+								1
+							] );
+						}
 						authoredGauge(
 							"quick-party-mp:" + row.member.id,
 							row.member.id,
@@ -10591,9 +10653,20 @@ export function createUi(
 						}
 						for ( const image of output.images ) {
 							if (
-								image.fraction !== undefined && (target.kind === "monster" || target.kind === "cos")
-							) authoredGauge( "target-hp", target.gid, image.node, tx, ty, image.fraction );
-							else authoredImage( image.node, tx, ty, undefined, image.fraction );
+								image.fraction !== undefined &&
+								(target.kind === "monster" || target.kind === "cos" || target.kind === "player" ||
+									target.kind === "local-player")
+							) {
+								const protection = shieldGauge( target, image.fraction, next.simulationTimeMs ?? 0 );
+								authoredGauge( "target-hp", target.gid, image.node, tx, ty, protection.health );
+								if ( protection.shield > 0 ) {
+									const r = authoredRect( image.node, tx, ty );
+									rect(
+										[ r[0] + r[2] * protection.start, r[1], r[2] * protection.shield, r[3] ],
+										[ .88, .95, 1, 1 ]
+									);
+								}
+							} else authoredImage( image.node, tx, ty, undefined, image.fraction );
 						}
 						for ( const row of output.texts ) {
 							if ( !compactOutput ) authoredText( row.node, tx, ty, row.value );
@@ -15829,10 +15902,28 @@ export function createUi(
 							authoredLabeledButton( nameButton, ox, oy, "cos-name", hudCopy( nameButton.text ), busy );
 						}
 						if ( sections.hp ) {
-							const ratio = cosStatusRatios( record, reference ).hp ?? 1;
-							texts.push( [ 41, cosHpText( record, reference ) ] );
+							const ratio = cosStatusRatios( record, reference ).hp ?? 1,
+								protection = shieldGauge(
+									next.entities.find( e => e.gid === record.gid ),
+									ratio,
+									next.simulationTimeMs ?? 0
+								);
+							texts.push( [
+								41,
+								cosHpText( record, reference ) +
+								(protection.amount ? " (+" + protection.amount + ")" : "")
+							] );
 							const gauge = node( 35 );
-							if ( gauge ) authoredGauge( "cos-info-hp", record.gid, gauge, ox, oy, ratio );
+							if ( gauge ) {
+								authoredGauge( "cos-info-hp", record.gid, gauge, ox, oy, protection.health );
+								if ( protection.shield > 0 ) {
+									const r = authoredRect( gauge, ox, oy );
+									rect(
+										[ r[0] + r[2] * protection.start, r[1], r[2] * protection.shield, r[3] ],
+										[ .88, .95, 1, 1 ]
+									);
+								}
+							}
 						}
 						if ( sections.rentTime ) {
 							// 6A4FD0 reads the rent left on the companion's summoner item.

@@ -47,6 +47,29 @@ Server flag: `SRO_ATTACK_PET_EXPANSION=on`. Client setting:
 **Experimental → Game → Attack-pet training**. Both must be enabled.
 Open pet information with **Insert**.
 
+### Bear: Iron Hide shields
+
+Iron Hide now grants absorption separately from HP for **5 seconds**. Tier I
+protects the Bear and its owner; Tier II also protects living party members
+within **20 m of the owner**. Each recipient's shield scales from their own
+maximum HP and the effective skill rank (including gear bonuses), capped at
+100% of maximum HP. Shields do not stack: an existing stronger shield keeps
+its amount and original expiry; an equal or stronger new cast replaces it.
+
+Damage consumes the shield before HP, including damage over time. Healing
+restores HP, never absorption. The pale segment beside HP shows the remaining
+shield, with a cyan barrier around protected characters. At full HP the health
+and shield portions scale together to fit the existing bar; actual HP and max HP
+stay unchanged.
+
+Tier III retains the party protection. On natural expiry, each protected
+**player and the Bear** with shield remaining releases an **8 m** burst, dealing **50% of
+that remaining shield** to monsters in range. Each explosion is centred on that recipient. Depleting a shield, death, unsummoning, logout, town or instance entry
+cancel it without a burst. No player-versus-player splash damage is added.
+Iron Hide cannot be cast in town and retains the second active row's shared
+cooldown. Current balance uses the existing Iron Hide rank values; tuning is
+still needed.
+
 | Pet | Role | Active families | Passive families |
 | --- | --- | --- | --- |
 | Bear | High HP/defense; lower attack | Challenging Roar; Iron Hide | Thick Hide; Last Stand; Crushing Paw |

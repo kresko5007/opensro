@@ -513,6 +513,7 @@ func (o *playerAbnormalOwner) Hit(source uint32, credited bool, damage uint32, r
 		return
 	}
 	remaining := int64(o.CurrentHP())
+	damage = o.rt.absorbPetShield(o.division, enterworld.ObjectIDForCharacter(o.c), damage, o.now)
 	debit := int64(vitals.HitDebit(uint32(remaining), damage))
 	remaining -= debit
 	o.c.CurrentHP = &remaining

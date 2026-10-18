@@ -189,13 +189,16 @@ export function createPresentationState() {
 								at: hit.downAt,
 								recoveryMs
 							} );}
-					} else if ( entry.posture?.kind === "emote" && (moving || castByActor.has( entity.gid ) || hit) ) {
+					} else if (
+						entry.posture?.kind === "emote" &&
+						(moving || castByActor.has( entity.gid ) || hit)
+					) {
 						entry.posture = transitionPosture( entry.posture, { kind: "cancel" } );
 					}
 					if ( entity.emote && entry.emoteRevision !== entity.emote.revision ) {
 						const roar = entity.kind === "cos" &&
 							/^COS_P_BEAR_/.test( resource.codename ) &&
-							(entity.emote.action === 16 || entity.emote.action === 17 || entity.emote.action === 18) &&
+							entity.emote.action >= 16 && entity.emote.action <= 18 &&
 							resources.duration( resource.glb, "pet-roar" ) > 0;
 						const action = roar ?
 							null :
