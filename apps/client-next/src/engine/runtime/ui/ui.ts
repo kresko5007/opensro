@@ -412,7 +412,7 @@ import {
 } from "@/engine/foundation/gameplay/party-matching";
 import { createSkillGauge, createGaugePresentation } from "./hud/progression-bars";
 import { experienceBar, EXPERIENCE_BAR, gaugeFill } from "@/engine/foundation/ui/progression-bars";
-import { shieldGauge } from "@/engine/foundation/ui/shield-gauge";
+import { shieldGauge, shieldGaugeFill } from "@/engine/foundation/ui/shield-gauge";
 import { createRegionBanner } from "./hud/region-banner";
 import { regionBannerQuads } from "@/engine/foundation/ui/region-banner";
 import { buffTooltip } from "@/engine/foundation/ui/buff-tooltip";
@@ -8669,15 +8669,12 @@ export function createUi(
 						if ( size ) {
 							image( [ x + 4, y + dy, size[0] * ratio, size[1] ], path, white, [ 0, 0, ratio, 1 ] );
 							if ( name === "am_hp" && protection.shield > 0 ) {
-								rect(
-									[
-										x + 4 + size[0] * protection.start,
-										y + dy,
-										size[0] * protection.shield,
-										size[1]
-									],
-									[ .88, .95, 1, 1 ]
-								);
+								quads.push( ...shieldGaugeFill( [
+									x + 4 + size[0] * protection.start,
+									y + dy,
+									size[0] * protection.shield,
+									size[1]
+								], full ) );
 							}
 						}
 					}
@@ -9958,12 +9955,14 @@ export function createUi(
 								}
 								if ( vital === "HP" && protection.shield > 0 ) {
 									const r = authoredRect( node, px, py );
-									rect( [ r[0] + r[2] * protection.start, r[1], r[2] * protection.shield, r[3] ], [
-										.88,
-										.95,
-										1,
-										1
-									] );
+									quads.push(
+										...shieldGaugeFill( [
+											r[0] + r[2] * protection.start,
+											r[1],
+											r[2] * protection.shield,
+											r[3]
+										], full )
+									);
 								}
 								const hpText = `${Math.max( 0, Math.min( current, max ) )} / ${max}`;
 								if ( vital === "HP" && protection.shield > 0 ) {
@@ -10228,12 +10227,13 @@ export function createUi(
 								...gaugeFill( [ gx, gy, gw, gh ], node.uv, path, value.current, value.target, full )
 							);
 							if ( path === hpPath && protection.shield > 0 ) {
-								rect( [ gx + gw * protection.start, gy, gw * protection.shield, gh ], [
-									.88,
-									.95,
-									1,
-									1
-								] );
+								quads.push(
+									...shieldGaugeFill(
+										[ gx + gw * protection.start, gy, gw * protection.shield, gh ],
+										// Retail 112x8 texture: 3px transparent padding plus a 1px black frame.
+										[ gx + 1, gy + 1, gw - 5, gh - 5 ]
+									)
+								);
 							}
 						}
 						// Native caution atlas: eight 128x32 cells, four columns, 100ms per cell.
@@ -10357,12 +10357,14 @@ export function createUi(
 						);
 						if ( protection.shield > 0 ) {
 							const r = authoredRect( slot.GDR_QPS_GAUGE_HP!, x, y );
-							rect( [ r[0] + r[2] * protection.start, r[1], r[2] * protection.shield, r[3] ], [
-								.88,
-								.95,
-								1,
-								1
-							] );
+							quads.push(
+								...shieldGaugeFill( [
+									r[0] + r[2] * protection.start,
+									r[1],
+									r[2] * protection.shield,
+									r[3]
+								], full )
+							);
 						}
 						authoredGauge(
 							"quick-party-mp:" + row.member.id,
@@ -10661,9 +10663,13 @@ export function createUi(
 								authoredGauge( "target-hp", target.gid, image.node, tx, ty, protection.health );
 								if ( protection.shield > 0 ) {
 									const r = authoredRect( image.node, tx, ty );
-									rect(
-										[ r[0] + r[2] * protection.start, r[1], r[2] * protection.shield, r[3] ],
-										[ .88, .95, 1, 1 ]
+									quads.push(
+										...shieldGaugeFill( [
+											r[0] + r[2] * protection.start,
+											r[1],
+											r[2] * protection.shield,
+											r[3]
+										], full )
 									);
 								}
 							} else authoredImage( image.node, tx, ty, undefined, image.fraction );
@@ -15918,9 +15924,13 @@ export function createUi(
 								authoredGauge( "cos-info-hp", record.gid, gauge, ox, oy, protection.health );
 								if ( protection.shield > 0 ) {
 									const r = authoredRect( gauge, ox, oy );
-									rect(
-										[ r[0] + r[2] * protection.start, r[1], r[2] * protection.shield, r[3] ],
-										[ .88, .95, 1, 1 ]
+									quads.push(
+										...shieldGaugeFill( [
+											r[0] + r[2] * protection.start,
+											r[1],
+											r[2] * protection.shield,
+											r[3]
+										], full )
 									);
 								}
 							}

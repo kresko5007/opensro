@@ -369,3 +369,18 @@ test("UI and world preparation share a bounded cache without permanently pinning
 	assert.equal( state.started.length, 1 );
 	assert.equal( state.audio.error(), null );
 });
+
+test("bear skill cues are warmed before their first cast", () => {
+	const { assets, documents } = fixture();
+	Object.assign( documents["/assets/npc/manifest.json"].models.auxiliary, {
+		refObjId: 2,
+		soundProfileName: "COS_P_BEAR2"
+	} );
+	const owner = createSoundPreparation( assets, ROOT );
+	for ( let i = 0; i < 8; i++ ) owner.step( gameplay, [ ...entities, { refObjId: 2 } ] );
+	assert.equal( owner.error(), null );
+	assert.ok( owner.paths().includes( "/assets/audio/sfx/prim/snd/cos/cos_bear2_shout1.wav" ) );
+	assert.ok( owner.paths().includes( "/assets/audio/sfx/prim/snd/skill2/usk_warrior_guard_phyfence_a.wav" ) );
+	assert.ok( owner.paths().includes( "/assets/audio/sfx/prim/snd/skill2/usk_warlock_blood_explosion_bomb.wav" ) );
+	owner.dispose();
+});

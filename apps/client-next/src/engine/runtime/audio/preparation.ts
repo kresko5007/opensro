@@ -14,7 +14,12 @@ import { effectRecordAlias, resolveEffectRecordAliases } from "@/engine/foundati
 import type { AssetOwner } from "@/engine/contracts/assets";
 import type { GameplayState } from "@/engine/contracts/gameplay";
 import type { EntityState } from "@/engine/contracts/world";
-import { skillSoundRoots } from "@/engine/foundation/animation/sound-selectors";
+import {
+	skillSoundRoots,
+	PET_ROAR_SOUND,
+	PET_SHIELD_SOUND,
+	PET_SHIELD_BURST_SOUND
+} from "@/engine/foundation/animation/sound-selectors";
 
 /*
 ================
@@ -222,6 +227,9 @@ export function createSoundPreparation( assets: AssetOwner, origin: string ) {
 		const groups = new Set<string>( [ "-" ] );
 		for ( const id of ids ) for ( const name of skills?.get( id ) ?? [] ) groups.add( name );
 		const wanted = new Set<string>();
+		if ( wantedProfiles.has( "COS_P_BEAR" ) || wantedProfiles.has( "COS_P_BEAR2" ) ) {
+			for ( const path of [ PET_ROAR_SOUND, PET_SHIELD_SOUND, PET_SHIELD_BURST_SOUND ] ) wanted.add( path );
+		}
 		for ( const row of rules ) {
 			if ( !row.publicPath ) continue;
 			if ( row.object === "PLAYER" ? groups.has( row.skillId ?? "-" ) : wantedProfiles.has( row.object ) ) {

@@ -10,7 +10,7 @@ import { defined } from "../helpers/defined.mjs";
 const { createEntities } = await import(
 	"../../src/engine/runtime/simulation/worker/session/world/entities/entities.ts"
 );
-const { shieldGauge } = await import( "../../src/engine/foundation/ui/shield-gauge.ts" );
+const { shieldGauge, shieldGaugeFill } = await import( "../../src/engine/foundation/ui/shield-gauge.ts" );
 
 /*
 ================
@@ -66,4 +66,21 @@ test("shield decoder rejects oversized, truncated and inconsistent updates", () 
 		assert.throws( () => entities.receive( { ...packet, payload: Buffer.alloc( length ) }, 0 ), /Invalid shield/ );
 	}
 	entities.dispose();
+});
+
+test("shield segments use a light-gray HP-style highlight without changing their bounds", () => {
+	/** @type {import("../../src/engine/contracts/ui.ts").UiRect} */
+	const clip = [ 0, 0, 200, 100 ];
+	const rows = shieldGaugeFill( [ 40, 20, 50, 7.5 ], clip );
+	assert.equal( rows.length, 8 );
+	assert.ok( rows[3].color[0] > rows[0].color[0] );
+	assert.ok( rows[3].color[0] > rows[7].color[0] );
+	for ( const row of rows ) {
+		assert.equal( row.color[0], row.color[1] );
+		assert.equal( row.color[1], row.color[2] );
+		assert.ok( row.color[0] >= .55 && row.color[0] < .9 );
+		assert.ok( row.rect[1] + row.rect[3] <= 27.5 );
+		assert.deepEqual( row.clip, clip );
+	}
+	assert.deepEqual( shieldGaugeFill( [ 0, 0, 0, 8 ], clip ), [] );
 });

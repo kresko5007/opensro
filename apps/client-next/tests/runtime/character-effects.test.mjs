@@ -1604,12 +1604,17 @@ An effect owner whose catalog and model manifest load empty, so only the
 attack-pet roar controller draws. Every model counts as ready.
 ================
 */
-function roarEffects() {
+function roarEffects( play = _event => {} ) {
 	let id = 0;
 	const jobs = new Map();
 	return createCharacterEffects(
 		{
 			available: () => 4,
+			progress: () => null,
+			health: () => ({ phase: "running" }),
+			install() {},
+			textureFeatures() {},
+			dispose() {},
 			request( url, limit, decode ) {
 				jobs.set(
 					++id,
@@ -1629,7 +1634,7 @@ function roarEffects() {
 			}
 		},
 		"http://localhost",
-		() => {},
+		play,
 		createPresentationRandom( 1 )
 	);
 }
@@ -1639,6 +1644,8 @@ test("challenging roar III glows brighter for one second, then releases a 30 m s
 	const effects = roarEffects();
 	const bear = {
 			gid: 7,
+			refObjId: 7,
+			name: "Bear",
 			kind: "cos",
 			regionId: 0x8001,
 			x: 0,
@@ -1647,8 +1654,8 @@ test("challenging roar III glows brighter for one second, then releases a 30 m s
 			heading: 0,
 			emote: { action: 18, revision: 1, atMs: 0 }
 		},
-		near = { gid: 8, kind: "monster", regionId: 0x8001, x: 240, y: 0, z: 0, heading: 0 },
-		far = { gid: 9, kind: "monster", regionId: 0x8001, x: 400, y: 0, z: 0, heading: 0 },
+		near = { gid: 8, refObjId: 8, name: "Near", kind: "monster", regionId: 0x8001, x: 240, y: 0, z: 0, heading: 0 },
+		far = { gid: 9, refObjId: 9, name: "Far", kind: "monster", regionId: 0x8001, x: 400, y: 0, z: 0, heading: 0 },
 		gameplay = { casts: [] };
 	const step = now => effects.step( [ bear, near, far ], gameplay, now, () => true, () => 1, [] );
 	const aura = actors => actors.find( actor => actor.model === ROAR_AURA && actor.attachment?.root );
@@ -1698,6 +1705,8 @@ test("iron hide draws a 5 s barrier dome on bear and players, then detonates an 
 	const effects = roarEffects();
 	const bear = {
 			gid: 10,
+			refObjId: 10,
+			name: "Bear",
 			kind: "cos",
 			regionId: 0x8001,
 			x: 0,
@@ -1708,6 +1717,8 @@ test("iron hide draws a 5 s barrier dome on bear and players, then detonates an 
 		},
 		owner = {
 			gid: 11,
+			refObjId: 11,
+			name: "Owner",
 			kind: "local-player",
 			regionId: 0x8001,
 			x: 20,
@@ -1763,7 +1774,10 @@ test("iron hide draws a 5 s barrier dome on bear and players, then detonates an 
 	const shieldCamera = createCameraScripts( createPresentationRandom( 1 ) );
 	assert.doesNotThrow( () => shieldCamera.step( 5000, shieldShake ) );
 	shieldCamera.dispose();
-	assert.ok( activeActors.every( actor => actor.opacity <= 0.20 ), "barriers must not obscure their characters" );
+	assert.ok(
+		activeActors.every( actor => (actor.opacity ?? 1) <= 0.20 ),
+		"barriers must not obscure their characters"
+	);
 	const burstLate = step( 5.72 ).filter( a => a.model === SHOCKWAVE && a.pose.x === owner.x );
 	const maxScale = Math.max( ...burstLate.map( a => a.scale ) );
 	assert.ok( maxScale > 75 && maxScale <= 80, `tier III shield burst reaches 8 m (${maxScale})` );
@@ -1780,5 +1794,55 @@ test("iron hide draws a 5 s barrier dome on bear and players, then detonates an 
 		"subsequent casts burst again"
 	);
 	assert.equal( step( 14.0 ).length, 0 );
+	effects.dispose();
+});
+
+test("pet skill audio is positional, once per cast and synchronized to the roar release", () => {
+	const played = [], effects = roarEffects( event => played.push( event ) );
+	const bear = {
+		gid: 7,
+		refObjId: 7,
+		name: "Bear",
+		kind: "cos",
+		regionId: 0x8001,
+		x: 10,
+		y: 5,
+		z: 20,
+		heading: 0,
+		emote: { action: 18, revision: 1, atMs: 0 },
+		shield: /** @type {import("../../src/engine/contracts/world.ts").EntityState["shield"]} */ (undefined)
+	};
+	const step = now => effects.step( [ bear ], { casts: [] }, now, () => true, () => 1, [] );
+	step( 0 );
+	step( .9 );
+	assert.equal( played.length, 0 );
+	step( 1 );
+	step( 1.1 );
+	assert.equal( played.length, 1 );
+	assert.match( played[0].path, /cos_bear2_shout1.wav$/ );
+	assert.equal( played[0].x, 1930 );
+	assert.equal( played[0].y, 5 );
+	assert.equal( played[0].z, 245780 );
+	bear.shield = { amount: 400, maxHp: 1000, atMs: 2000, untilMs: 7000, revision: 1, burst: false };
+	step( 2 );
+	step( 2.1 );
+	bear.shield = { ...bear.shield, amount: 300, atMs: 2500, revision: 2 };
+	step( 2.5 );
+	step( 7.1 );
+	step( 7.2 );
+	assert.equal( played.length, 2, "partial absorption, expiry and stale snapshots must not replay the ward sound" );
+	assert.match( played[1].path, /usk_warrior_guard_phyfence_a.wav$/ );
+	assert.notEqual( played[0].id, played[1].id );
+	bear.shield = { amount: 400, maxHp: 1000, atMs: 8000, untilMs: 13000, revision: 3, burst: false };
+	step( 8 );
+	assert.equal( played.length, 3, "the next accepted shield cast sounds again" );
+	bear.shield = { amount: 0, maxHp: 1000, atMs: 13000, untilMs: 13000, revision: 4, burst: true };
+	step( 13 );
+	step( 13.1 );
+	step( 14 );
+	assert.equal( played.length, 4, "expiry plays one explosion sound, never one per frame" );
+	assert.match( played[3].path, /usk_warlock_blood_explosion_bomb.wav$/ );
+	assert.equal( played[3].x, 1930 );
+	assert.ok( played[3].gain < played[1].gain, "simultaneous recipient bursts use a softer mix" );
 	effects.dispose();
 });

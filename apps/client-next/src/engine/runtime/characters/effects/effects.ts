@@ -15,6 +15,11 @@ lifecycles that belong in separate owners (see the size ledger).
 
 ===========================================================================
 */
+import {
+	PET_ROAR_SOUND,
+	PET_SHIELD_SOUND,
+	PET_SHIELD_BURST_SOUND
+} from "@/engine/foundation/animation/sound-selectors";
 import { trimToEffectBudget } from "@/engine/foundation/animation/effect-room";
 import { petRoarRadius } from "@/engine/foundation/ui/pet-training";
 import { castResultAt } from "@/engine/foundation/gameplay/cast-results";
@@ -1968,6 +1973,21 @@ export function createCharacterEffects(
 					const shield = entity.shield;
 					if ( !shield ) continue;
 					let visual = shields.get( entity.gid );
+					const newWard = !visual || visual.burst || now >= visual.until;
+					if (
+						newWard && (!visual || visual.revision !== shield.revision) && entity.kind === "cos" &&
+						shield.amount > 0 && shield.untilMs - shield.atMs >= 4750
+					) {
+						play( {
+							id: `pet-shield:${entity.gid}:${shield.revision}:${shield.atMs}`,
+							path: PET_SHIELD_SOUND,
+							gain: .65,
+							x: (entity.regionId & 255) * 1920 + entity.x,
+							y: entity.y,
+							z: (entity.regionId >>> 8) * 1920 + entity.z,
+							expires: now + .25
+						} );
+					}
 					const nextUntil = now + (shield.untilMs - shield.atMs) / 1000;
 					if ( !visual ) {
 						visual = {
@@ -2016,6 +2036,15 @@ export function createCharacterEffects(
 					if ( burst ) {
 						if ( !visual.shook ) {
 							visual.shook = true;
+							play( {
+								id: `pet-shield-burst:${entity.gid}:${shield.revision}:${shield.atMs}`,
+								path: PET_SHIELD_BURST_SOUND,
+								gain: .35,
+								x: (pose.regionId & 255) * 1920 + pose.x,
+								y: pose.y,
+								z: (pose.regionId >>> 8) * 1920 + pose.z,
+								expires: now + .25
+							} );
 							cameraEvents.push( {
 								atMs: Math.trunc( now * 1000 ),
 								amplitude: 50,
@@ -3244,6 +3273,17 @@ export function createCharacterEffects(
 						if ( !roar.released ) {
 							roar.released = true;
 							roar.originPose = { ...bearPose };
+							if ( elapsed - 1 < .25 ) {
+								play( {
+									id: `pet-roar:${gid}:${roar.revision}`,
+									path: PET_ROAR_SOUND,
+									gain: .8,
+									x: (bearPose.regionId & 255) * 1920 + bearPose.x,
+									y: bearPose.y,
+									z: (bearPose.regionId >>> 8) * 1920 + bearPose.z,
+									expires: now + .25
+								} );
+							}
 							cameraEvents.push( {
 								atMs: Math.trunc( now * 1000 ),
 								amplitude: roar.action === 18 ? 200 : 50,
