@@ -36,12 +36,14 @@ import (
 // unlistedSettings are the shard settings the rules page leaves out, each
 // with the reason; every other setting is a rule (public_rules_test.go).
 var unlistedSettings = map[string]string{
-	action.EnvGMSetSpeed: "a GM command, not a rule players meet",
+	action.EnvGMSetSpeed:            "a GM command, not a rule players meet",
+	simulation.EnvBetaUniqueRespawn: "unique monster spawn timing is not published",
 	// The tunables a rule's own text shows (game/tunables).
 	"SRO_MOST_WANTED_TEST_KILLS":      "shown in the Most Wanted test pacing rule",
 	"SRO_MOST_WANTED_TEST_BOUNTY":     "shown in the Most Wanted test pacing rule",
 	"SRO_JOB_KILL_NOTICES_PER_MINUTE": "shown in the job-kill repeat rule",
 	"SRO_JOB_KILL_REPEAT_MINUTES":     "shown in the job-kill repeat rule",
+	"SRO_SOX_NOTICE_MIN_DEGREE":       "shown in the seal-drop notice rule",
 	// Client presentation values (uiTuning): the Short notices row is a
 	// player's own Experimental choice, and the chat wait is the port's.
 	"SRO_SHORT_NOTICE_SHOW_MS":           "timing of a player's own Experimental Short notices row",
@@ -125,11 +127,11 @@ func publicRules() publicstats.RulesResponse {
 				Why:    "Testers can try every mastery tree on one character."},
 			{Flag: progression.EnvBetaSealRates, On: progression.BetaSealRatesFromEnv().Enabled(),
 				Native: "Each Seal of Star, Moon and Sun drops at the rare rate, and degree-9 Star and Moon only from monsters of level 76 to 85.",
-				Now:    "Seals of degrees 1 to 8 drop three times as often; at degree 9 Star drops three times and Moon five times as often, Sun as before, and Star and Moon also from monsters of level 86 to 94.",
+				Now:    "Seals of degrees 1 to 8 drop three times as often; at degree 9 Star drops three times and Moon twice as often, Sun as before, and Star and Moon also from monsters of level 86 to 94.",
 				Why:    "Beta balance, so testers can try seal gear."},
 			{Flag: progression.EnvSunEventOnly, On: progression.SunEventOnlyFromEnv().Enabled(),
 				Native: "Degree-9 Seal of Sun gear drops from monsters, and the honor shop lists it.",
-				Now:    "Degree-9 Seal of Sun gear neither drops nor is sold; it comes back only as an event reward. Sun gear you already own is kept, and every other drop keeps its chance.",
+				Now:    "Degree-9 Seal of Sun gear drops only from unique monsters and is not sold; Sun gear you already own is kept, and every other drop keeps its chance.",
 				Why:    "Requested for the beta, to keep the top seal rare; the original returns with one setting."},
 			{Flag: progression.EnvBetaShopOnlyDegree9, On: progression.BetaShopOnlyDegree9FromEnv().Enabled(),
 				Native: "Monsters drop magic stones and attribute stones of every degree; Lucky Powder never drops.",
@@ -277,11 +279,12 @@ func publicRules() publicstats.RulesResponse {
 				Why:    "Requested for the beta; the original speed returns with one setting."},
 			{Flag: action.EnvAnnounceSoxDrop, On: action.AnnouncementsFromEnv().SoxDrop,
 				Native: "A Seal of Star, Moon or Sun drop is not announced.",
-				Now:    "Everyone sees \"<player> has dropped <item> (<seal>) from <monster>\".",
-				Why:    "Requested for the beta; the original quiet drop returns with one setting."},
+				Now: fmt.Sprintf("Everyone sees \"<player> has dropped <item> (<seal>) from <monster>\" for degree %d and above.",
+					settings.Int(tunables.SoxNoticeMinDegree)),
+				Why: "Requested for the beta; the original quiet drop returns with one setting."},
 			{Flag: action.EnvAnnouncePlus, On: action.AnnouncementsFromEnv().Plus,
 				Native: "Reinforcement results are private.",
-				Now:    "Everyone sees \"<player> advanced <item> (<seal>) to +N\" for +8 to +11.",
+				Now:    "Everyone sees \"<player> advanced <item> (<seal>) to +N\" for +7 and above.",
 				Why:    "Requested for the beta; the original returns with one setting."},
 			{Flag: action.EnvAnnounceJobKill, On: action.AnnouncementsFromEnv().JobKill,
 				Native: "Job kills are not announced.",

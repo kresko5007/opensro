@@ -93,7 +93,7 @@ var Settings = []Setting{
 	{Env: "SRO_MALL_TRANSPORT_SPEED", NomadVar: "mall_transport_speed", Default: "on"},
 	// Owner, 2026-10-15: Item Mall vehicles and pets move 30% faster.
 	{Env: "SRO_MALL_RIDE_SPEED", NomadVar: "mall_ride_speed", Default: "on"},
-	// Owner, 2026-10-14: shard notices for seal drops, +8..+11 and job kills.
+	// Owner, 2026-10-14: shard notices for seal drops, +7 and above, and job kills.
 	{Env: "SRO_ANNOUNCE_SOX_DROP", NomadVar: "announce_sox_drop", Default: "on"},
 	{Env: "SRO_ANNOUNCE_PLUS", NomadVar: "announce_plus", Default: "on"},
 	{Env: "SRO_ANNOUNCE_JOB_KILL", NomadVar: "announce_job_kill", Default: "on"},
@@ -103,6 +103,7 @@ var Settings = []Setting{
 	{Env: "SRO_JOB_KILL_NOTICES_PER_MINUTE", NomadVar: "job_kill_notices_per_minute", Default: "6"},
 	{Env: "SRO_MOST_WANTED_NOTICES_PER_MINUTE", NomadVar: "most_wanted_notices_per_minute", Default: "6"},
 	{Env: "SRO_JOB_KILL_REPEAT_MINUTES", NomadVar: "job_kill_repeat_minutes", Default: "10"},
+	{Env: "SRO_SOX_NOTICE_MIN_DEGREE", NomadVar: "sox_notice_min_degree", Default: "6"},
 	// F10 uiTuning: the client values sent at world entry (game/tunables).
 	{Env: "SRO_SHORT_NOTICE_SHOW_MS", NomadVar: "short_notice_show_ms", Default: "5000"},
 	{Env: "SRO_SHORT_NOTICE_FADE_MS", NomadVar: "short_notice_fade_ms", Default: "1000"},
@@ -151,13 +152,19 @@ var Settings = []Setting{
 	// Owner, 2026-10-14: alchemy materials no longer drop; "off" is native.
 	{Env: "SRO_ALCHEMY_MATERIAL_DROPS_OFF", NomadVar: "alchemy_material_drops_off", Default: "on", Catalogue: true},
 	{Env: "SRO_BETA_DROP_CAP", NomadVar: "beta_drop_cap", Default: "16", Catalogue: true},
-	{Env: "SRO_BETA_GOLD_RATE", NomadVar: "beta_gold_rate", Default: "250", Catalogue: true},
+	// Owner, 2026-10-19: gold falls at 100 times retail (was 250).
+	{Env: "SRO_BETA_GOLD_RATE", NomadVar: "beta_gold_rate", Default: "100", Catalogue: true},
 	{Env: "SRO_INSTANT_INVENTORY_EXPANSION", NomadVar: "instant_inventory_expansion", Default: "on"},
 	{Env: "SRO_BETA_RARE_RATE", NomadVar: "beta_rare_rate", Default: "5", Catalogue: true},
 	{Env: "SRO_BETA_SHOP_ONLY_DEGREE9", NomadVar: "beta_shop_only_degree9", Default: "on", Catalogue: true},
 	{Env: "SRO_BETA_SEAL_RATES", NomadVar: "beta_seal_rates", Default: "on", Catalogue: true},
-	// Owner, 2026-10-14: degree-9 Sun gear only from events (no drop, no shop).
+	// Owner, 2026-10-14 (narrowed 2026-10-18): degree-9 Sun gear drops only
+	// from unique monsters and is withheld from NPC shops.
 	{Env: "SRO_SUN_EVENT_ONLY", NomadVar: "sun_event_only", Default: "on", Catalogue: true},
+	// Owner, 2026-10-18: respawning unique nests draw over 45-90 minutes
+	// instead of the operator backup's 20-36 minute rows. "off" keeps the
+	// authored row.
+	{Env: "SRO_BETA_UNIQUE_RESPAWN", NomadVar: "beta_unique_respawn", Default: "on"},
 	// Owner, 2026-10-13 (F7): Lucky Powder stacks to 500; 2026-10-14:
 	// arrows and bolts stack to 2500. "off" is native.
 	{Env: "SRO_STACK_SIZES", NomadVar: "stack_sizes", Default: "arrow=2500,bolt=2500,luckypowder=500", Source: Built},

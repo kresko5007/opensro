@@ -141,9 +141,11 @@ func Build(deps *Deps, request BootstrapRequest) *BootstrapResult {
 	if deps.RestoreEntryEffects != nil {
 		deps.RestoreEntryEffects(divisionID, character.Name)
 	}
-	// Admission can retire an expired item-owned summon. Serialize the committed
-	// inventory and companion state, not the snapshot taken before restoration.
-	character = readCharacterSnapshot(deps, divisionID, liveCharacter)
+	if deps.PrepareEntry != nil || deps.RestoreEntryEffects != nil {
+		// Admission can retire an expired item-owned summon. Serialize the committed
+		// inventory and companion state, not the snapshot taken before restoration.
+		character = readCharacterSnapshot(deps, divisionID, liveCharacter)
+	}
 	if deps.NormalizeEntryQuests != nil {
 		if err := deps.NormalizeEntryQuests(character); err != nil {
 			return Failure(nativeErrorInvalidRequest, "invalidQuestState: "+err.Error())
@@ -156,10 +158,13 @@ func Build(deps *Deps, request BootstrapRequest) *BootstrapResult {
 	// an expansion quest paid become usable here (inventory_capacity.go).
 	presented := character.PresentInventoryExpansion()
 	result := buildCharacterProjection(deps, divisionID, character)
-	if presented && result.NativeResult == nativeResultSuccess {
-		// Browser admission still has to encode this projection. Retain the
-		// authority handle so only a successfully encoded entry adopts it.
-		result.inventoryOwner = liveCharacter
+	if result.NativeResult == nativeResultSuccess {
+		result.liveOwner = liveCharacter
+		if presented {
+			// Browser admission still has to encode this projection. Retain the
+			// authority handle so only a successfully encoded entry adopts it.
+			result.inventoryOwner = liveCharacter
+		}
 	}
 	return result
 }

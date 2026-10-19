@@ -65,11 +65,16 @@ export interface ExperimentalOptions {
 	// (the owner's choice, 2026-10-15); off hides them from the banner and
 	// the chat log.
 	readonly jobKillNotices: boolean;
-	// Port-only, not native: the shard's seal-drop and +8..+11 announcements
-	// (their own 0x3667 channel, server wire.DropPlusNoticeChannel). On unless
-	// turned off (the owner's choice, 2026-10-15); off hides them from the
-	// banner and the chat log.
+	// Port-only, not native: the shard's seal-drop and +8-and-above
+	// announcements (their own 0x3667 channel, server
+	// wire.DropPlusNoticeChannel). On unless turned off (the owner's
+	// choice, 2026-10-15); off hides them from the banner and the chat log.
 	readonly dropPlusNotices: boolean;
+	// Port-only, not native: the shard's +7 announcements, their own bucket
+	// and 0x3667 channel apart from the drop/plus channel, so this row never
+	// widens that one. On unless turned off (the owner's choice,
+	// 2026-10-19); off hides them from the banner and the chat log.
+	readonly plusSevenNotices: boolean;
 	// Port-only, not native: holding V (UIIT_STT_USER_MOSTER_BLIND) also
 	// hides other players' pets and transports. The original hides only
 	// monsters and players (8602C0, 85E550): a COS draws through its owner
@@ -153,7 +158,7 @@ experimentalOptions
 
 Only an explicit true enables a toggle, except smoothCamera, enchantSparks,
 compressedTextures, sharedActorRoom, greyDisabledTabs, jobKillNotices, dropPlusNotices,
-fitWindowLabels, dropOnBagTab, noticeLinks, shortNotices, confirmGuildBan and
+plusSevenNotices, fitWindowLabels, dropOnBagTab, noticeLinks, shortNotices, confirmGuildBan and
 petClickOpensWindow, which only an explicit false turns off.
 Missing or invalid render scales restore full resolution; legacy Video
 settings cannot enable scaling. Keys of retired rows (terrainRelief and texturedHorizon, removed at the owner's
@@ -186,6 +191,7 @@ export function experimentalOptions( value: unknown = null ): ExperimentalOption
 		greyDisabledTabs: record.greyDisabledTabs !== false,
 		jobKillNotices: record.jobKillNotices !== false,
 		dropPlusNotices: record.dropPlusNotices !== false,
+		plusSevenNotices: record.plusSevenNotices !== false,
 		vHidesCompanions: enabled( "vHidesCompanions" ),
 		fitWindowLabels: record.fitWindowLabels !== false,
 		dropOnBagTab: record.dropOnBagTab !== false,
@@ -280,6 +286,7 @@ export interface ExperimentalGameplay {
 	readonly predictedRunUp: boolean;
 	readonly jobKillNotices: boolean;
 	readonly dropPlusNotices: boolean;
+	readonly plusSevenNotices: boolean;
 	readonly homingProjectiles?: boolean;
 }
 
@@ -293,6 +300,7 @@ export function experimentalGameplay( options: ExperimentalOptions ): Experiment
 		predictedRunUp: options.predictedRunUp,
 		jobKillNotices: options.jobKillNotices,
 		dropPlusNotices: options.dropPlusNotices,
+		plusSevenNotices: options.plusSevenNotices,
 		homingProjectiles: options.homingProjectiles
 	};
 }

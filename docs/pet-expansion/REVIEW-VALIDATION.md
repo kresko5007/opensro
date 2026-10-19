@@ -3,6 +3,8 @@
 Port-only, not native. Both the server opt-in `SRO_ATTACK_PET_EXPANSION=on`
 and client Experimental > Pets > Attack-pet training are required.
 
+Merged upstream through `bc6bb61ece9765a622c939a03be70ec416e47245` (2026-10-19).
+
 ## Changes
 
 - Merge upstream native client/server changes without losing the pet tabs,
@@ -40,8 +42,7 @@ and client Experimental > Pets > Attack-pet training are required.
 | Go vet: action, companion, store | Passed |
 | Portable source pipeline, all 14 tasks | Passed |
 | Client typecheck, ownership, capabilities, execution map | Passed |
-| Focused pet, shield, resource/effects and audio tests | 96 passed |
-| Merged options/native material/published character checks | 37 passed |
+| Focused pet, shield, resources/effects, audio, merged options/material/model checks | 134 passed on latest merge |
 | Procedural icon and collar asset tests | Passed; 27 unique icons, valid GLB/atlas |
 | Offline local upgrade and backend restart | Passed; backup retained |
 | Live level-90 bear inventory, learned tiers, shield/roar and shared cooldown | Passed smoke test against weak Chakji |
@@ -50,7 +51,7 @@ and client Experimental > Pets > Attack-pet training are required.
 | Every advanced skill/proc and two real party clients | Not re-certified; required before full acceptance |
 
 The broad client run initially reported 21 failures among 4,240 tests. The
-options overflow and custom-collar assumptions were corrected (37 relevant
+options overflow and custom-collar assumptions were corrected (134 focused
 checks now pass), and the server item projection was rebuilt. Other failures
 involve published/native effect schedules (including rotation assignments),
 item-use effects and the Magic Pang panel sweep. The rotation-program source
