@@ -326,8 +326,9 @@ TestPetShieldRetributionStoresOnlyHPDamage
 ================
 */
 func TestPetShieldRetributionStoresOnlyHPDamage(t *testing.T) {
-	rt, clock, c, mob := newPetCombatRuntime(t, 100000, attackPetBand)
+	rt, clock, c, _ := newPetCombatRuntime(t, 100000, attackPetBand)
 	makeTrainedPet(rt, c, "COS_P_BEAR_090", 90)
+	mob := roarField(t, rt, c, clock)
 	c.MissionInventory = nil
 	rt.AttackPetExpansion = true
 	state := rt.petSessionFor(testDivision, c.Name, c.ActiveCOS.GID)
@@ -338,10 +339,14 @@ func TestPetShieldRetributionStoresOnlyHPDamage(t *testing.T) {
 	skills := rt.deps.SkillData().(staticSkillSource)
 	row := skills[2]
 	row.ActionCastingTimeMs = 0
+	row.ActionRange = 1000
 	skills[2] = row
 	result := rt.MonsterBasicAttack(testDivision, mob, key.gid, 2, clock.NowMs())
 	if !result.Accepted {
-		t.Fatal("monster strike refused")
+		t.Fatalf("monster strike refused: %+v", result)
+	}
+	if rt.petShields.rows[key].amount == 100000 {
+		t.Fatal("fixture hit did not consume shield")
 	}
 	if state.trained.retribStored != 0 {
 		t.Fatal("absorbed damage charged retribution")

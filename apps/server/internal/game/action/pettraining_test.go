@@ -426,9 +426,9 @@ TestManualRoarAddsPetThreatWithoutDamageOrTarget
 ================
 */
 func TestManualRoarAddsPetThreatWithoutDamageOrTarget(t *testing.T) {
-	rt, clock, c, mob := newPetCombatRuntime(t, 100000, attackPetBand)
+	rt, clock, c, _ := newPetCombatRuntime(t, 100000, attackPetBand)
 	makeTrainedPet(rt, c, "COS_P_BEAR_090", 90)
-	mob = roarField(t, rt, c, clock)
+	mob := roarField(t, rt, c, clock)
 	rt.AttackPetExpansion = true
 	companion.UpgradeTree(c.ActiveCOS)
 	if msg := companion.Learn(c.ActiveCOS, 16); msg != "" {
