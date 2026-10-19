@@ -36,7 +36,8 @@ const OFF = Object.freeze( {
 	predictedRunUp: false,
 	// On by default (owner 2026-10-15): the camera eases its height and release.
 	smoothCamera: true,
-	enchantSparks: false,
+	// On by default (owner 2026-10-17): +8 and higher weapons and shields wear enchant sparks.
+	enchantSparks: true,
 	// On by default (owner 2026-10-14); it changes only devices without BC.
 	compressedTextures: true,
 	// On by default (owner 2026-10-14): near effects outrank far characters.
@@ -57,7 +58,14 @@ const OFF = Object.freeze( {
 	noticeLinks: true,
 	// On by default (owner 2026-10-15): the notice banner shows for 5 s.
 	shortNotices: true,
-	attackPetTraining: false
+	attackPetTraining: false,
+	// On by default (owner 2026-10-15): Withdraw asks before a guild ban.
+	confirmGuildBan: true,
+	// Off by default: straight projectiles keep their launch-captured endpoint (8D8580).
+	homingProjectiles: false,
+	// On by default (owner 2026-10-18, BUG-086): clicking CIFPetMiniInfo opens CIFCos;
+	// off restores the native no-op click (6B3760).
+	petClickOpensWindow: true
 } );
 
 test("only an explicit boolean enables chat timestamps", () => {
@@ -137,7 +145,8 @@ test("every video stage defaults off and only an explicit true enables it", () =
 		perPixelLighting: false,
 		// Smooth camera is on by default (owner 2026-10-15).
 		smoothCamera: true,
-		enchantSparks: false,
+		// Enchant sparks are on by default (owner 2026-10-17).
+		enchantSparks: true,
 		// The shared actor room is on by default (owner 2026-10-14).
 		sharedActorRoom: true,
 		vHidesCompanions: false
@@ -151,8 +160,7 @@ test("every video stage defaults off and only an explicit true enables it", () =
 			"floatBloom",
 			"hdrToneMap",
 			"sunShadow",
-			"perPixelLighting",
-			"enchantSparks"
+			"perPixelLighting"
 		]
 	) {
 		assert.equal( experimentalOptions( { [key]: 1 } )[key], false );
@@ -215,7 +223,7 @@ Tabs
 test("the window's tabs cover every preference once and Open returns to Image", () => {
 	assert.deepEqual(
 		EXPERIMENTAL_TABS.map( tab => tab.title ),
-		[ "Image", "World", "Lighting", "Game", "Notices", "Other" ]
+		[ "Image", "World", "Lighting", "Game", "Notices", "Other", "Pets" ]
 	);
 	// Lighting keeps the direct-light stages; render scale joins Image without
 	// changing the indices used to reopen the existing tabs.
@@ -331,7 +339,8 @@ test("the predicted run-up defaults off and reaches only the worker's slice", ()
 	assert.deepEqual( experimentalGameplay( experimentalOptions() ), {
 		predictedRunUp: false,
 		jobKillNotices: true,
-		dropPlusNotices: true
+		dropPlusNotices: true,
+		homingProjectiles: false
 	} );
 	for ( const value of [ 1, "true", null, {} ] ) {
 		assert.equal( experimentalOptions( { predictedRunUp: value } ).predictedRunUp, false );
@@ -340,7 +349,8 @@ test("the predicted run-up defaults off and reaches only the worker's slice", ()
 	assert.deepEqual( experimentalGameplay( on ), {
 		predictedRunUp: true,
 		jobKillNotices: true,
-		dropPlusNotices: true
+		dropPlusNotices: true,
+		homingProjectiles: false
 	} );
 	assert.equal( "predictedRunUp" in experimentalVideo( on ), false );
 });
@@ -433,4 +443,40 @@ test("smooth camera is on unless explicitly false and reaches the renderer's sli
 	const off = experimentalOptions( { smoothCamera: false } );
 	assert.equal( off.smoothCamera, false );
 	assert.equal( experimentalVideo( off ).smoothCamera, false );
+});
+
+test("enchant sparks are on unless explicitly false and reach the renderer's slice", () => {
+	for ( const value of [ undefined, null, {}, { enchantSparks: 1 }, { enchantSparks: "false" } ] ) {
+		const options = experimentalOptions( value );
+		assert.equal( options.enchantSparks, true );
+		assert.equal( experimentalVideo( options ).enchantSparks, true );
+	}
+	const off = experimentalOptions( { enchantSparks: false } );
+	assert.equal( off.enchantSparks, false );
+	assert.equal( experimentalVideo( off ).enchantSparks, false );
+});
+
+test("homing projectiles default off (native captured endpoint) and reach the worker's gameplay slice when enabled", () => {
+	for ( const value of [ undefined, null, {}, { homingProjectiles: 1 }, { homingProjectiles: "true" } ] ) {
+		const options = experimentalOptions( value );
+		assert.equal( options.homingProjectiles, false );
+		assert.equal( experimentalGameplay( options ).homingProjectiles, false );
+		assert.equal( "homingProjectiles" in experimentalVideo( options ), false );
+	}
+	const on = experimentalOptions( { homingProjectiles: true } );
+	assert.equal( on.homingProjectiles, true );
+	assert.equal( experimentalGameplay( on ).homingProjectiles, true );
+	assert.ok( EXPERIMENTAL_TABS.some( tab => tab.rows.some( row => row.key === "homingProjectiles" ) ) );
+});
+
+test("pet panel click-to-open defaults on (BUG-086) and stays out of the worker's slices", () => {
+	for ( const value of [ undefined, null, {}, { petClickOpensWindow: 1 }, { petClickOpensWindow: "true" } ] ) {
+		const options = experimentalOptions( value );
+		assert.equal( options.petClickOpensWindow, true );
+		assert.equal( "petClickOpensWindow" in experimentalGameplay( options ), false );
+		assert.equal( "petClickOpensWindow" in experimentalVideo( options ), false );
+	}
+	const off = experimentalOptions( { petClickOpensWindow: false } );
+	assert.equal( off.petClickOpensWindow, false );
+	assert.ok( EXPERIMENTAL_TABS.some( tab => tab.rows.some( row => row.key === "petClickOpensWindow" ) ) );
 });

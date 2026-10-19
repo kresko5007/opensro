@@ -10,6 +10,7 @@ package action
 
 import (
 	"encoding/binary"
+	"strings"
 	"sync"
 
 	"opensro.online/server/internal/domain"
@@ -156,6 +157,9 @@ The next pet tick publishes the remaining amount. Expired shields absorb nothing
 ================
 */
 func (rt *Runtime) absorbPetShield(division string, gid, damage uint32, now int64) uint32 {
+	if !rt.AttackPetExpansion {
+		return damage
+	}
 	rt.petShields.Lock()
 	defer rt.petShields.Unlock()
 	key := petShieldKey{division, gid}
@@ -213,6 +217,9 @@ func (rt *Runtime) advancePetShields(now int64) []simulation.DivisionFrames {
 			recipient = rt.characterSnapshot(s.key.division, rt.findCharacter(s.key.division, s.name))
 			valid = recipient != nil && enterworld.CharacterAlive(recipient) &&
 				rt.petExpansionAllowed(recipient, owner.CompanionByGID(s.source.gid)) && !rt.inTown(s.key.division, recipient)
+		}
+		if valid && recipient != nil && recipient.Name != owner.Name {
+			_, valid = rt.auraParty(s.key.division, owner)[s.key.gid]
 		}
 		if valid && recipient != nil {
 			a := rt.liveSpawn(simulation.WorldKey(s.key.division, owner.Name), owner, now)
@@ -291,4 +298,34 @@ func (rt *Runtime) burstPetShield(s petShield, owner *enterworld.Character, at s
 		}
 	}
 	return out
+}
+
+/*
+================
+petShieldRecipientAllowed
+
+Hit-time exclusion without reading character storage inside its write door.
+================
+*/
+func (rt *Runtime) petShieldRecipientAllowed(c *enterworld.Character) bool {
+	return rt.AttackPetExpansion && !rt.inFreeBattle(c) && !wearsJobSuit(c, rt.deps.ItemReferences()) && domain.CharacterWorldInstance(c) == domain.DefaultWorldInstance
+}
+
+/*
+================
+retirePetShields
+
+Actor teardown cancels both received shields and shields cast by that actor.
+The next tick publishes zero; a disconnected party recipient cannot burst.
+================
+*/
+func (rt *Runtime) retirePetShields(division, name string) {
+	rt.petShields.Lock()
+	defer rt.petShields.Unlock()
+	for key, shield := range rt.petShields.rows {
+		if key.division == division && (strings.EqualFold(shield.name, name) || strings.EqualFold(shield.source.name, name)) {
+			shield.amount, shield.publishAt, shield.burst = 0, 0, false
+			rt.petShields.rows[key] = shield
+		}
+	}
 }

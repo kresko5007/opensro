@@ -95,3 +95,43 @@ test("reseeding and world travel preserve current vitals; a new login replaces t
 	assert.equal( g.take().vitals[0].hp, 90 );
 	g.dispose();
 });
+test("33A6 ignores unknown foreign GIDs while accepting spawned entities and owned companions", () => {
+	const entities = new Map( [ [ 2, { gid: 2, kind: "monster", regionId: 1, x: 0, y: 0, z: 0, heading: 0 } ] ] );
+	const g = createGameplay( () => {}, () => {}, () => {}, gid => entities.get( gid ) );
+	const local = { gid: 1, regionId: 1, x: 0, y: 0, z: 0, heading: 0 };
+	g.bootstrap( {
+		character: { hp: 100, mp: 100, maxHp: 200, maxMp: 200 },
+		refObjSnapshot: [ { kind: "cos", refObjId: 9, tidWord: 0x09c6 } ]
+	} );
+	g.seed( local );
+	const vitalFor = ( gid, hp ) => {
+		const p = new Uint8Array( 11 ), v = new DataView( p.buffer );
+		v.setUint32( 0, gid, true );
+		v.setUint16( 4, 0x400, true );
+		p[6] = 1;
+		v.setUint32( 7, hp, true );
+		return p;
+	};
+	assert.equal( g.receive( { opcode: 0x33a6, payload: vitalFor( 999, 50 ) }, 0 ), false );
+	assert.deepEqual( g.take().vitals.map( row => row.gid ), [ 1 ] );
+	assert.equal( g.receive( { opcode: 0x33a6, payload: vitalFor( 2, 75 ) }, 0 ), true );
+	assert.deepEqual( g.take().vitals.map( row => [ row.gid, row.hp ] ), [ [ 1, 100 ], [ 2, 75 ] ] );
+	entities.delete( 2 );
+	g.entityLifecycle( { kind: "despawn", gid: 2 } );
+	assert.equal( g.receive( { opcode: 0x33a6, payload: vitalFor( 2, 40 ) }, 0 ), false );
+	assert.deepEqual( g.take().vitals.map( row => row.gid ), [ 1 ] );
+	// Owned companion (0x3158) is accepted via cosRecords even while out of view,
+	// and a type-1 0x3508 detach while out of view retires its vitals row so
+	// later 0x33A6 packets for the detached GID are rejected.
+	const cosRecord = new Uint8Array( 17 ), cosView = new DataView( cosRecord.buffer );
+	cosView.setUint32( 0, 3, true );
+	cosView.setUint32( 4, 9, true );
+	cosView.setUint32( 8, 100, true );
+	assert.equal( g.receive( { opcode: 0x3158, payload: cosRecord }, 0 ), true );
+	assert.equal( g.receive( { opcode: 0x33a6, payload: vitalFor( 3, 80 ) }, 0 ), true );
+	assert.deepEqual( g.take().vitals.map( row => [ row.gid, row.hp ] ), [ [ 1, 100 ], [ 3, 80 ] ] );
+	assert.equal( g.receive( { opcode: 0x3508, payload: Uint8Array.of( 3, 0, 0, 0, 1 ) }, 0 ), true );
+	assert.equal( g.receive( { opcode: 0x33a6, payload: vitalFor( 3, 60 ) }, 0 ), false );
+	assert.deepEqual( g.take().vitals.map( row => row.gid ), [ 1 ] );
+	g.dispose();
+});

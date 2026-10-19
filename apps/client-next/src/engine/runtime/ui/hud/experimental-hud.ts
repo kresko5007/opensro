@@ -111,6 +111,12 @@ export const EXPERIMENTAL_TABS: readonly {
 				id: "experimental-shared-actor-room",
 				label: "Effects in crowds",
 				description: "In a crowd, near skill effects draw before far characters."
+			},
+			{
+				key: "homingProjectiles",
+				id: "experimental-homing-projectiles",
+				label: "Homing projectiles",
+				description: "Steer straight projectiles toward a moving target."
 			}
 		]
 	},
@@ -161,11 +167,6 @@ export const EXPERIMENTAL_TABS: readonly {
 			id: "experimental-v-hides-companions",
 			label: "V hides pets and transports",
 			description: "Holding V also hides other players' pets and transports."
-		}, {
-			key: "attackPetTraining",
-			id: "experimental-attack-pet-training",
-			label: "Attack-pet training",
-			description: "Pet skills and gear; requires server opt-in."
 		} ]
 	},
 	{
@@ -190,7 +191,7 @@ export const EXPERIMENTAL_TABS: readonly {
 			key: "shortNotices",
 			id: "experimental-short-notices",
 			label: "Short notices",
-			description: "Show a notice for 5 seconds instead of 7."
+			description: "Show notices for up to the original 7 seconds."
 		} ]
 	},
 	{
@@ -216,6 +217,26 @@ export const EXPERIMENTAL_TABS: readonly {
 			id: "experimental-drop-on-bag-tab",
 			label: "Drop on bag tabs",
 			description: "Drop an item on a bag tab to move it to that page."
+		}, {
+			key: "confirmGuildBan",
+			id: "experimental-confirm-guild-ban",
+			label: "Confirm guild ban",
+			description: "Ask before Withdraw bans a guild member."
+		} ]
+	},
+	{
+		title: "Pets",
+		section: "Attack pets",
+		rows: [ {
+			key: "attackPetTraining",
+			id: "experimental-attack-pet-training",
+			label: "Attack-pet training",
+			description: "Pet skills and gear; requires server opt-in."
+		}, {
+			key: "petClickOpensWindow",
+			id: "experimental-pet-click-opens-window",
+			label: "Pet panel opens window",
+			description: "Click the attack pet panel to open its window."
 		} ]
 	}
 ];

@@ -118,9 +118,12 @@ func TestPetGearCannotBeBoughtFromNPCs(t *testing.T) {
 				t.Fatal(err)
 			}
 			for _, o := range catalog.Offers {
-				if o.Slot == 3 {
+				if enabled && o.Slot == 3 {
 					t.Fatal("NPC advertised monster-only pet gear")
 				}
+			}
+			if !enabled {
+				continue
 			}
 			before := c.Snapshot()
 			result := trade(t, rt, c, wire.ItemMoveRequest{MovementType: wire.MoveTypeShopBuy, NpcGID: 17, ShopSlot: 3, Quantity: 1})

@@ -1,5 +1,4 @@
 {
-	"generatedBy": "scripts/tools/pet_design_export.py from docs/pet-expansion/pet-design.xlsx - do not edit",
 	"rules": {
 		"skillMaxLevel": 10,
 		"rank2Level": 5,

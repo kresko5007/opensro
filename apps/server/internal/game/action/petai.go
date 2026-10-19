@@ -9,6 +9,7 @@ petai.go - session-owned summoned-pet movement, pickup and peer presentation
 package action
 
 import (
+	"math"
 	"opensro.online/server/internal/domain"
 	"opensro.online/server/internal/game/item/grounditem"
 	"sort"
@@ -213,7 +214,7 @@ func (rt *Runtime) advancePets(nowMs int64) []simulation.DivisionFrames {
 		// viewer who saw the owner but not the pet got each cast open and
 		// never its close (#804). The owner has these in its private batch.
 		if len(public) > 0 {
-			out = append(out, simulation.DivisionFrames{DivisionID: key.division, SourceGID: key.gid, ExceptCharacterID: characterID, Frames: simFrames(public)})
+			out = append(out, routePetPublicFrames(key.division, key.gid, characterID, public)...)
 		}
 		if len(frames) != 0 && characterID != 0 {
 			out = append(out, simulation.DivisionFrames{DivisionID: key.division, OnlyCharacterID: characterID, Frames: frames})
@@ -223,6 +224,39 @@ func (rt *Runtime) advancePets(nowMs int64) []simulation.DivisionFrames {
 		rt.Worlds.ReplaceTethers(tethers)
 	}
 	return append(shieldFrames, out...)
+}
+
+/*
+================
+routePetPublicFrames
+
+Splits a pet's public batch by per-frame SourceGID so 0x35C7 pickup animations
+go to viewers of the pet while 0x36AB ground-item despawns go to every viewer
+that published the drop, matching SweepExpired.
+================
+*/
+func routePetPublicFrames(divisionID string, petGID uint32, ownerCharacterID int64, public []wire.Frame) []simulation.DivisionFrames {
+	var out []simulation.DivisionFrames
+	start := 0
+	currentSource := frameSourceGID(petGID, public[0])
+	for i := 1; i <= len(public); i++ {
+		var nextSource uint32
+		if i < len(public) {
+			nextSource = frameSourceGID(petGID, public[i])
+			if nextSource == currentSource {
+				continue
+			}
+		}
+		out = append(out, simulation.DivisionFrames{
+			DivisionID:        divisionID,
+			SourceGID:         currentSource,
+			ExceptCharacterID: ownerCharacterID,
+			Frames:            simFrames(public[start:i]),
+		})
+		start = i
+		currentSource = nextSource
+	}
+	return out
 }
 
 /*
@@ -362,11 +396,13 @@ func (rt *Runtime) advancePet(key petOwnerKey, nowMs int64) (output []simulation
 		}
 		pose := state.follower.Position(nowMs)
 		target := simulation.Spawn{RegionID: item.Position.RegionID, X: float64(item.Position.X), Y: float64(item.Y), Z: float64(item.Position.Z)}
-		if simulation.WorldDistance2D(pose, target) > grounditem.ExecuteRange {
+		from := grounditem.Point{RegionID: pose.RegionID, X: float32(pose.X), Z: float32(pose.Z)}
+		distance := grounditem.Distance2D(from, item.Position)
+		if !grounditem.SameWorld(from, item.Position) || math.IsNaN(distance) || distance > grounditem.ExecuteRange {
 			return state.follower.Approach(target, float64(rt.cosPacedRun(ref, run)), nowMs, grounditem.ExecuteRange, constraint)
 		}
 		frames := state.follower.Stop(nowMs)
-		result := rt.applyCosGroundAt(key.division, state.character, q, cosGroundAttempt{now: time.UnixMilli(nowMs)})
+		result := rt.applyCosGroundAt(key.division, state.character, q, cosGroundAttempt{now: time.UnixMilli(nowMs), command: state.pickupCommand})
 		result = finishPendingCosPickup(state, result)
 		state.public = append(state.public, result.Broadcast...)
 		// A shared pickup's receipt and the party loot notices belong to other

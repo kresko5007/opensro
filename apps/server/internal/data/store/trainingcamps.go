@@ -1,29 +1,83 @@
-package store
+/*
+===========================================================================
 
-// The training-camp plane's door (domain.TrainingCampStore over the
-// training_camps and training_camp_members tables): the guilds-door
-// pattern with the same two-part dirty unit - one campKey marks the camp
-// row AND its whole member set, and the commit rewrites both with a
-// whole-set replace (replaceCampTx).
+trainingcamps.go - the training-camp door: opening, admission, notice and honor
+
+The authority store's camp aggregate. OpenCamp creates a camp (0x72EC);
+AdmitStudent appends to one; UpdateNotice edits its text; DisbandCamp,
+LeaveCamp, KickMember, Graduate, CompulsoryGraduate, HonorRankings and
+SpendHonorPoints own the Academy lifecycle and honor-point ledger under
+the store lock.
+
+===========================================================================
+*/
+package store
 
 import (
 	"fmt"
+	"strings"
 
 	"opensro.online/server/internal/domain"
 	"opensro.online/server/internal/domain/charactervitals"
 )
 
-// TrainingCamps returns the training-camp door (domain.TrainingCampStore
-// over the training_camps / training_camp_members tables). Same lifetime
-// contract as Characters().
+const (
+	// campDisbandCooldownSec is the 7-day creation wait before a master can
+	// dissolve a newly opened camp (v1.188 TrainingCamp_ValidateDisband
+	// 0x004E4780 @ 0x004E47DF -> TrainingCamp_DisbandWaitSeconds
+	// 0x005DD350 @ 0x005DD36A: mov ecx, 0x93A80; client UIIT_MSG_TC_ERROR_NOT_DISORGANIZATION_7D).
+	campDisbandCooldownSec = 604_800
+	// campReopenCooldownSec is the 7-day wait after dissolving a camp before
+	// the master can open another (v1.188 TrainingCamp_ValidateCreate
+	// 0x004E4680 @ 0x004E4709..0x004E4761: TimedJob type 2 subType 7, 604,800 s).
+	campReopenCooldownSec = 604_800
+	// campCompulsoryWaitMs is the 24-hour join wait before a member can leave
+	// or be kicked (v1.188 CTrainingCamp_HasJoinCooldownElapsed 0x005DD3F0 @
+	// 0x005DD40E: mov ecx, 0x15180).
+	campCompulsoryWaitMs = 86_400_000
+	// campGraduationLevel is the voluntary apprentice graduation level floor
+	// (40 = 0x28, v1.188 CGObjPC_HandleAcademyGraduate7475 0x00519600 @ 0x005196CD:
+	// cmp al, 0x28; jae 0x5196FF -> push 0x681A).
+	campGraduationLevel = 40
+	// campCompulsoryGraduationLevel is the master-initiated compulsory
+	// graduation level floor (41 = > 0x28, v1.188
+	// CGObjPC_HandleAcademyCompulsoryGraduate7476 0x00519770 @ 0x00519883:
+	// cmp dl, 0x28; jbe 0x519898 -> push 0x6822; client UIIT_MSG_TC_ERROR_POSIBLE_41L).
+	campCompulsoryGraduationLevel = 41
+	// campHonorAwardMaxJoinLevel is the maximum apprentice join level that
+	// awards Honor and Evaluation points on graduation (30 = 0x1E, v1.188
+	// CTrainingCamp_OnMemberGraduatedUpdatePoints 0x005DDD50 @ 0x005DDE8E: cmp bl, 0x1E;
+	// CTrainingCamp_AwardGraduationHonorAndEvalPoints 0x005E3730 @ 0x005E3741: cmp al, 0x1E;
+	// retail SP _TRAINING_CAMP_MEMBER_GRADUATE @ 0x53E9104: IF @JoinLvl <= 30).
+	campHonorAwardMaxJoinLevel = 30
+	// campHonorRankingLimit caps the division Honor Ranking table at 50 entries
+	// (retail SP _TRAINING_CAMP_UPDATEHONORRANK @ 0x53FAE8C: SELECT TOP 50).
+	campHonorRankingLimit = 50
+)
+
+/*
+================
+TrainingCamps
+
+TrainingCamps returns the training-camp door (domain.TrainingCampStore
+over the training_camps / training_camp_members tables). Same lifetime
+contract as Characters().
+================
+*/
 func (s *Store) TrainingCamps() domain.TrainingCampStore {
 	return storeCampDoor{s: s}
 }
 
 type storeCampDoor struct{ s *Store }
 
-// Camp returns copies of the camp row and its member list in wire order;
-// ok=false when no such camp is stored.
+/*
+================
+Camp
+
+Camp returns copies of the camp row and its member list in wire order;
+ok=false when no such camp is stored.
+================
+*/
 func (door storeCampDoor) Camp(divisionID string, campID int64) (domain.TrainingCampRecord, []domain.TrainingCampMemberRecord, bool) {
 	door.s.mu.RLock()
 	defer door.s.mu.RUnlock()
@@ -37,9 +91,15 @@ func (door storeCampDoor) Camp(divisionID string, campID int64) (domain.Training
 	return camp, members, true
 }
 
-// CampOfCharacter answers the camp a character is a MEMBER of (the master
-// is a kind-0 member row, so masters resolve here too), resolved from the
-// stored member sets (the GuildOfCharacter shape - no Character FK).
+/*
+================
+CampOfCharacter
+
+CampOfCharacter answers the camp a character is a MEMBER of (the master
+is a kind-0 member row, so masters resolve here too), resolved from the
+stored member sets (the GuildOfCharacter shape - no Character FK).
+================
+*/
 func (door storeCampDoor) CampOfCharacter(divisionID string, characterID int64) (int64, bool) {
 	door.s.mu.RLock()
 	defer door.s.mu.RUnlock()
@@ -53,9 +113,15 @@ func (door storeCampDoor) CampOfCharacter(divisionID string, characterID int64) 
 	return 0, false
 }
 
-// AdmitStudent is the camp aggregate's only topology command. The gameplay
-// layer supplies version-specific level/capacity policy, and this door applies
-// it together with relationship and lifecycle invariants under one lock.
+/*
+================
+AdmitStudent
+
+AdmitStudent appends one student to the master's existing camp. The gameplay
+layer supplies version-specific level/capacity policy, and this door applies
+it together with relationship and lifecycle invariants under one lock.
+================
+*/
 func (door storeCampDoor) AdmitStudent(
 	divisionID string,
 	admission domain.TrainingCampAdmission,
@@ -79,8 +145,9 @@ func (door storeCampDoor) AdmitStudent(
 	if master == nil || student == nil || master.DeletePending || student.DeletePending {
 		return refused, false
 	}
+	studentLevel := resolvedCharacterLevel(student)
 	if resolvedCharacterLevel(master) < admission.MasterMinLevel ||
-		resolvedCharacterLevel(student) > admission.StudentMaxLevel {
+		studentLevel > admission.StudentMaxLevel {
 		return refused, false
 	}
 	if _, joined := door.campOfCharacterLocked(divisionID, student.ID); joined {
@@ -88,32 +155,14 @@ func (door storeCampDoor) AdmitStudent(
 	}
 
 	campID, masterJoined := door.campOfCharacterLocked(divisionID, master.ID)
-	created := admission.ExpectedCampID == 0
-	var camp domain.TrainingCampRecord
-	var members []domain.TrainingCampMemberRecord
-	if created {
-		if masterJoined {
-			return refused, false
-		}
-		campID = master.ID
-		if _, exists := s.camps[divisionID][campID]; exists {
-			return refused, false
-		}
-		camp = domain.TrainingCampRecord{ID: campID, MasterCharID: master.ID}
-		members = []domain.TrainingCampMemberRecord{
-			{CharID: master.ID, Kind: 0},
-		}
-	} else {
-		if !masterJoined || campID != admission.ExpectedCampID {
-			return refused, false
-		}
-		var exists bool
-		camp, exists = s.camps[divisionID][campID]
-		if !exists || camp.MasterCharID != master.ID {
-			return refused, false
-		}
-		members = s.campMembers[divisionID][campID]
+	if !masterJoined || admission.ExpectedCampID < 1 || campID != admission.ExpectedCampID {
+		return refused, false
 	}
+	camp, exists := s.camps[divisionID][campID]
+	if !exists || camp.MasterCharID != master.ID {
+		return refused, false
+	}
+	members := s.campMembers[divisionID][campID]
 
 	studentCount := 0
 	for _, member := range members {
@@ -125,16 +174,18 @@ func (door storeCampDoor) AdmitStudent(
 		return refused, false
 	}
 
+	nowMs := admission.NowMs
+	if nowMs <= 0 {
+		nowMs = s.now().UnixMilli()
+	}
 	next := make([]domain.TrainingCampMemberRecord, len(members), len(members)+1)
 	copy(next, members)
-	next = append(next, domain.TrainingCampMemberRecord{CharID: student.ID, Kind: 2})
-	if s.camps[divisionID] == nil {
-		s.camps[divisionID] = map[int64]domain.TrainingCampRecord{}
-	}
-	if s.campMembers[divisionID] == nil {
-		s.campMembers[divisionID] = map[int64][]domain.TrainingCampMemberRecord{}
-	}
-	s.camps[divisionID][campID] = camp
+	next = append(next, domain.TrainingCampMemberRecord{
+		CharID:     student.ID,
+		Kind:       2,
+		JoinedAtMs: nowMs,
+		JoinLevel:  uint8(studentLevel),
+	})
 	s.campMembers[divisionID][campID] = next
 	s.changes.camps[campKey{division: divisionID, campID: campID}] = true
 	s.commitLocked(fmt.Sprintf("training-camp-admit-student %s/%d", divisionID, campID))
@@ -144,10 +195,104 @@ func (door storeCampDoor) AdmitStudent(
 	return domain.TrainingCampAdmissionResult{
 		Camp:    camp,
 		Members: resultMembers,
-		Created: created,
 	}, true
 }
 
+/*
+================
+OpenCamp
+
+The NPC's camp opening (v1.150 0x72EC; v1.188 0x004E4680 checks, then 0x005DFCC0
+burns the fee through 0x004E4650 and answers). 0x004E4680's order: alive (0x6807),
+level (0x6809), gold (0x680A), already in a camp (0x6812), and TimedJob (2, 7)'s
+7-day reopen wait after a disband (0x681C).
+================
+*/
+func (door storeCampDoor) OpenCamp(divisionID string, opening domain.TrainingCampOpening) (domain.TrainingCampOpenResult, domain.TrainingCampOpenRefusal) {
+	var refused domain.TrainingCampOpenResult
+	s := door.s
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if opening.MasterCharID < 1 || opening.MinLevel < 1 || opening.Fee < 0 {
+		return refused, domain.TrainingCampOpenUnavailable
+	}
+	master := s.characterByIDLocked(divisionID, opening.MasterCharID)
+	if master == nil || master.DeletePending {
+		return refused, domain.TrainingCampOpenUnavailable
+	}
+	if charactervitals.CurrentHP(master) == 0 {
+		return refused, domain.TrainingCampOpenDead
+	}
+	masterLevel := resolvedCharacterLevel(master)
+	if masterLevel < opening.MinLevel {
+		return refused, domain.TrainingCampOpenLevel
+	}
+	if ledgerGold(master) < opening.Fee {
+		return refused, domain.TrainingCampOpenGold
+	}
+	if _, joined := door.campOfCharacterLocked(divisionID, master.ID); joined {
+		return refused, domain.TrainingCampOpenInCamp
+	}
+	if _, exists := s.camps[divisionID][master.ID]; exists {
+		return refused, domain.TrainingCampOpenInCamp
+	}
+
+	nowMs := opening.NowMs
+	if nowMs <= 0 {
+		nowMs = s.now().UnixMilli()
+	}
+	if master.CampDisbandedAtMs > 0 {
+		elapsedSec := (nowMs - master.CampDisbandedAtMs) / 1000
+		if elapsedSec < 0 {
+			elapsedSec = 0
+		}
+		if elapsedSec < campReopenCooldownSec {
+			return domain.TrainingCampOpenResult{
+				RemainingSeconds: uint32(campReopenCooldownSec - elapsedSec),
+			}, domain.TrainingCampOpenReopenWait
+		}
+	}
+
+	gold := ledgerGold(master) - opening.Fee
+	master.Gold = &gold
+	master.CampDisbandedAtMs = 0
+	camp := domain.TrainingCampRecord{
+		ID:           master.ID,
+		MasterCharID: master.ID,
+		CreatedAtMs:  nowMs,
+	}
+	members := []domain.TrainingCampMemberRecord{{
+		CharID:     master.ID,
+		Kind:       0,
+		JoinedAtMs: nowMs,
+		JoinLevel:  uint8(masterLevel),
+	}}
+	if s.camps[divisionID] == nil {
+		s.camps[divisionID] = map[int64]domain.TrainingCampRecord{}
+	}
+	if s.campMembers[divisionID] == nil {
+		s.campMembers[divisionID] = map[int64][]domain.TrainingCampMemberRecord{}
+	}
+	s.camps[divisionID][camp.ID] = camp
+	s.campMembers[divisionID][camp.ID] = members
+	key := campKey{division: divisionID, campID: camp.ID}
+	delete(s.changes.dissolvedCamp, key)
+	s.changes.camps[key] = true
+	s.changes.characters[master] = true
+	s.commitLocked(fmt.Sprintf("training-camp-open %s/%d", divisionID, camp.ID))
+	return domain.TrainingCampOpenResult{
+		Camp:    camp,
+		Members: append([]domain.TrainingCampMemberRecord(nil), members...),
+		Gold:    gold,
+	}, domain.TrainingCampOpenAccepted
+}
+
+/*
+================
+resolvedCharacterLevel
+================
+*/
 func resolvedCharacterLevel(character *domain.Character) int64 {
 	if character == nil || character.Level == nil || *character.Level < 1 {
 		return 1
@@ -155,9 +300,16 @@ func resolvedCharacterLevel(character *domain.Character) int64 {
 	return *character.Level
 }
 
-// Native 5E43B0 -> 5E36A0 authorizes the kind-0 camp member. Keep the
-// permission and expected aggregate checks in the same critical section as
-// the update so a stale gameplay precheck cannot edit another camp.
+/*
+================
+UpdateNotice
+
+Native 0x00519900 -> 0x005DF070 -> 0x005DF5C0 (case 6) authorizes the kind-0
+camp master. Keep the permission and expected aggregate checks in the same
+critical section as the update so a stale gameplay precheck cannot edit
+another camp.
+================
+*/
 func (door storeCampDoor) UpdateNotice(divisionID string, authorID, expectedCampID int64, subject, contents string) (domain.TrainingCampRecord, []domain.TrainingCampMemberRecord, bool) {
 	s := door.s
 	s.mu.Lock()
@@ -178,8 +330,6 @@ func (door storeCampDoor) UpdateNotice(divisionID string, authorID, expectedCamp
 	if !authorized {
 		return domain.TrainingCampRecord{}, nil, false
 	}
-	// Wire-encoding and version-specific byte limits belong to the caller;
-	// this command stores logical text and owns the authorization transaction.
 	camp.Subject, camp.Contents = subject, contents
 	s.camps[divisionID][expectedCampID] = camp
 	s.changes.camps[campKey{division: divisionID, campID: expectedCampID}] = true
@@ -187,8 +337,251 @@ func (door storeCampDoor) UpdateNotice(divisionID string, authorID, expectedCamp
 	return camp, append([]domain.TrainingCampMemberRecord(nil), members...), true
 }
 
-// campOfCharacterLocked is CampOfCharacter's body for callers already
-// holding s.mu.
+/*
+================
+DisbandCamp
+
+CGObjPC_HandleAcademyDisband7471 (0x00519120) ->
+TrainingCamp_ValidateDisband (0x004E4780) ->
+CTrainingCamp_GetDisbandRemainingSeconds (0x005DD350 @ 0x004E47DF) ->
+TrainingCamp_SubmitDisband (0x005DF140 @ 0x005191F3) ->
+CTrainingCampManager_SetCampDeletedAndDisband (0x005DE920) ->
+CTrainingCamp_OnDisbandCancelBuffs (0x005DDAF0):
+ 1. Master must belong to a camp (0x680B -> 0x0B) and be alive (0x6807 -> 0x07).
+ 2. Requester must own the camp as founding master (0x6816 -> 0x16).
+ 3. At least 7 days (604,800 s = 0x93A80 at 0x005DD36A) must have elapsed
+    since CreatedAtMs (0x681D -> 0x1D with remainingSeconds u32).
+ 4. Deletes the camp and its members, stamps CampDisbandedAtMs on the master
+    for the 7-day reopen cooldown (CGObjPC_SetTrainingCampLeaveTimestamp
+    0x004E4950 @ 0x005DDBAC), and recomputes division honor rankings.
+
+================
+*/
+func (door storeCampDoor) DisbandCamp(divisionID string, masterCharID int64, nowMs int64) domain.TrainingCampDisbandResult {
+	s := door.s
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	master := s.characterByIDLocked(divisionID, masterCharID)
+	if master == nil || master.DeletePending {
+		return domain.TrainingCampDisbandResult{Refusal: domain.TrainingCampDisbandUnavailable}
+	}
+	if charactervitals.CurrentHP(master) == 0 {
+		return domain.TrainingCampDisbandResult{Refusal: domain.TrainingCampDisbandDead}
+	}
+	campID, joined := door.campOfCharacterLocked(divisionID, masterCharID)
+	camp, exists := s.camps[divisionID][campID]
+	if !joined || !exists {
+		return domain.TrainingCampDisbandResult{Refusal: domain.TrainingCampDisbandNotInCamp}
+	}
+	if camp.MasterCharID != masterCharID {
+		return domain.TrainingCampDisbandResult{Refusal: domain.TrainingCampDisbandNotMaster}
+	}
+
+	if nowMs <= 0 {
+		nowMs = s.now().UnixMilli()
+	}
+	if camp.CreatedAtMs > 0 {
+		elapsedSec := (nowMs - camp.CreatedAtMs) / 1000
+		if elapsedSec < 0 {
+			elapsedSec = 0
+		}
+		if elapsedSec < campDisbandCooldownSec {
+			return domain.TrainingCampDisbandResult{
+				Refusal:          domain.TrainingCampDisbandWait,
+				RemainingSeconds: uint32(campDisbandCooldownSec - elapsedSec),
+			}
+		}
+	}
+
+	membersBefore := append([]domain.TrainingCampMemberRecord(nil), s.campMembers[divisionID][campID]...)
+	delete(s.camps[divisionID], campID)
+	delete(s.campMembers[divisionID], campID)
+	key := campKey{division: divisionID, campID: campID}
+	delete(s.changes.camps, key)
+	s.changes.dissolvedCamp[key] = true
+
+	master.CampDisbandedAtMs = nowMs
+	s.changes.characters[master] = true
+
+	rankChanges := door.recomputeEvaluationRanksLocked(divisionID)
+	if camp.EvaluationRank > 0 {
+		rankChanges = append([]domain.TrainingCampRankChange{{
+			CampID:       camp.ID,
+			MasterCharID: camp.MasterCharID,
+			Evaluation:   0,
+			Members:      membersBefore,
+		}}, rankChanges...)
+	}
+
+	s.commitLocked(fmt.Sprintf("training-camp-disband %s/%d", divisionID, campID))
+	return domain.TrainingCampDisbandResult{
+		Refusal:       domain.TrainingCampDisbandAccepted,
+		Camp:          camp,
+		MembersBefore: membersBefore,
+		RankChanges:   rankChanges,
+	}
+}
+
+/*
+================
+LeaveCamp
+
+CGObjPC_HandleAcademyLeave7474 (0x00519510) ->
+TrainingCamp_SubmitLeaveOrBanCommand_5DEEB0 (0x005DEEB0 @ 0x005195DB):
+ 1. Member must belong to a camp (0x0051952C: 0x680B -> 0x0B) and be alive
+    (0x00519560: 0x6807 -> 0x07).
+ 2. Founding master cannot leave via 0x7785 (0x00519597: 0x6816 -> 0x16).
+ 3. At least 24 hours (86,400 s = 0x15180 in j_CTrainingCamp_HasJoinCooldownElapsed
+    0x005DD490 -> CTrainingCamp_HasJoinCooldownElapsed 0x005DD3F0 @ 0x005195B3)
+    must have elapsed since JoinedAtMs (0x005195BC: 0x6821 -> 0x21).
+
+================
+*/
+func (door storeCampDoor) LeaveCamp(divisionID string, memberCharID int64, nowMs int64) domain.TrainingCampLeaveResult {
+	s := door.s
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	memberChar := s.characterByIDLocked(divisionID, memberCharID)
+	if memberChar == nil || memberChar.DeletePending {
+		return domain.TrainingCampLeaveResult{Refusal: domain.TrainingCampLeaveUnavailable}
+	}
+	if charactervitals.CurrentHP(memberChar) == 0 {
+		return domain.TrainingCampLeaveResult{Refusal: domain.TrainingCampLeaveDead}
+	}
+	campID, joined := door.campOfCharacterLocked(divisionID, memberCharID)
+	camp, exists := s.camps[divisionID][campID]
+	if !joined || !exists {
+		return domain.TrainingCampLeaveResult{Refusal: domain.TrainingCampLeaveNotInCamp}
+	}
+
+	members := s.campMembers[divisionID][campID]
+	memberIdx := -1
+	for i, member := range members {
+		if member.CharID == memberCharID {
+			memberIdx = i
+			break
+		}
+	}
+	if memberIdx < 0 {
+		return domain.TrainingCampLeaveResult{Refusal: domain.TrainingCampLeaveNotInCamp}
+	}
+	removed := members[memberIdx]
+	if removed.Kind == 0 || camp.MasterCharID == memberCharID {
+		return domain.TrainingCampLeaveResult{Refusal: domain.TrainingCampLeaveIsMaster}
+	}
+
+	if nowMs <= 0 {
+		nowMs = s.now().UnixMilli()
+	}
+	if removed.JoinedAtMs > 0 && (nowMs < removed.JoinedAtMs || nowMs-removed.JoinedAtMs < campCompulsoryWaitMs) {
+		return domain.TrainingCampLeaveResult{Refusal: domain.TrainingCampLeaveWait24h}
+	}
+
+	membersBefore := append([]domain.TrainingCampMemberRecord(nil), members...)
+	next := make([]domain.TrainingCampMemberRecord, 0, len(members)-1)
+	next = append(next, members[:memberIdx]...)
+	next = append(next, members[memberIdx+1:]...)
+	s.campMembers[divisionID][campID] = next
+	s.changes.camps[campKey{division: divisionID, campID: campID}] = true
+	s.commitLocked(fmt.Sprintf("training-camp-leave %s/%d char=%d", divisionID, campID, memberCharID))
+
+	return domain.TrainingCampLeaveResult{
+		Refusal:       domain.TrainingCampLeaveAccepted,
+		Camp:          camp,
+		RemovedMember: removed,
+		MembersBefore: membersBefore,
+	}
+}
+
+/*
+================
+KickMember
+
+CGObjPC_HandleAcademyKick7473 (0x005193A0) ->
+TrainingCamp_SubmitLeaveOrBanCommand_5DEEB0 (0x005DEEB0 @ 0x005194C0):
+ 1. Master must belong to a camp (0x005193F0: 0x680B -> 0x0B) and be alive
+    (0x00519424: 0x6807 -> 0x07).
+ 2. Requester must be the camp's master (0x0051945B: 0x6816 -> 0x16).
+ 3. Target must exist in the same camp by case-insensitive name
+    (TrainingCamp_FindMemberByName 0x005E42C0 @ 0x00519473 -> 0x0051948C:
+    0x6815 -> 0x15) and not be the master (0x0051949E: 0x6816 -> 0x16).
+ 4. At least 24 hours (86,400 s = 0x15180 in CTrainingCamp_HasJoinCooldownElapsed
+    0x005DD3F0 @ 0x005194A4) must have elapsed since JoinedAtMs (0x005194B0:
+    0x6820 -> 0x20).
+
+================
+*/
+func (door storeCampDoor) KickMember(divisionID string, masterCharID int64, targetName string, nowMs int64) domain.TrainingCampKickResult {
+	s := door.s
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	master := s.characterByIDLocked(divisionID, masterCharID)
+	if master == nil || master.DeletePending {
+		return domain.TrainingCampKickResult{Refusal: domain.TrainingCampKickUnavailable}
+	}
+	if charactervitals.CurrentHP(master) == 0 {
+		return domain.TrainingCampKickResult{Refusal: domain.TrainingCampKickDead}
+	}
+	campID, joined := door.campOfCharacterLocked(divisionID, masterCharID)
+	camp, exists := s.camps[divisionID][campID]
+	if !joined || !exists {
+		return domain.TrainingCampKickResult{Refusal: domain.TrainingCampKickNotInCamp}
+	}
+	if camp.MasterCharID != masterCharID {
+		return domain.TrainingCampKickResult{Refusal: domain.TrainingCampKickNotMaster}
+	}
+
+	members := s.campMembers[divisionID][campID]
+	targetIdx := -1
+	for i, member := range members {
+		candidate := s.characterByIDLocked(divisionID, member.CharID)
+		if candidate != nil && !candidate.DeletePending && strings.EqualFold(candidate.Name, targetName) {
+			targetIdx = i
+			break
+		}
+	}
+	if targetIdx < 0 {
+		return domain.TrainingCampKickResult{Refusal: domain.TrainingCampKickTargetNotFound}
+	}
+	removed := members[targetIdx]
+	if removed.CharID == masterCharID || removed.Kind == 0 {
+		return domain.TrainingCampKickResult{Refusal: domain.TrainingCampKickNotMaster}
+	}
+
+	if nowMs <= 0 {
+		nowMs = s.now().UnixMilli()
+	}
+	if removed.JoinedAtMs > 0 && (nowMs < removed.JoinedAtMs || nowMs-removed.JoinedAtMs < campCompulsoryWaitMs) {
+		return domain.TrainingCampKickResult{Refusal: domain.TrainingCampKickWait24h}
+	}
+
+	membersBefore := append([]domain.TrainingCampMemberRecord(nil), members...)
+	next := make([]domain.TrainingCampMemberRecord, 0, len(members)-1)
+	next = append(next, members[:targetIdx]...)
+	next = append(next, members[targetIdx+1:]...)
+	s.campMembers[divisionID][campID] = next
+	s.changes.camps[campKey{division: divisionID, campID: campID}] = true
+	s.commitLocked(fmt.Sprintf("training-camp-kick %s/%d char=%d", divisionID, campID, removed.CharID))
+
+	return domain.TrainingCampKickResult{
+		Refusal:       domain.TrainingCampKickAccepted,
+		Camp:          camp,
+		RemovedMember: removed,
+		MembersBefore: membersBefore,
+	}
+}
+
+/*
+================
+campOfCharacterLocked
+
+campOfCharacterLocked is CampOfCharacter's body for callers already
+holding s.mu.
+================
+*/
 func (door storeCampDoor) campOfCharacterLocked(divisionID string, characterID int64) (int64, bool) {
 	for campID, members := range door.s.campMembers[divisionID] {
 		for _, member := range members {

@@ -1,9 +1,3 @@
-# Character record fields owned by store schema 22 (persisted_shape_test.go).
-# Never edit after it ships: a new persisted field takes schema 23, its upgrade
-# Never edit after it ships: a new persisted field takes schema 25, its upgrade
-# character record fields owned by store schema 24 (persisted_shape_test.go).
-# step and character-fields-v23.txt.
-# step and character-fields-v25.txt.
 accountId
 activeCos
 activeCos.codename
@@ -47,19 +41,6 @@ activeCos.satiety
 activeCos.stateFlags
 activeCos.summonGeneration
 activeCos.summoned
-activeCos.training
-activeCos.training.bonusPoints
-activeCos.training.gear
-activeCos.training.gear[].options
-activeCos.training.gear[].refObjId
-activeCos.training.levels
-activeCos.training.passiveReadyAtMs
-activeCos.training.rows
-activeCos.training.rows[].kind
-activeCos.training.rows[].left
-activeCos.training.rows[].readyAtMs
-activeCos.training.slotted
-activeCos.training.treeVersion
 activeQuests
 activeQuests[].branch
 activeQuests[].contents
@@ -129,19 +110,6 @@ avatarInventory.rows[].summon.satiety
 avatarInventory.rows[].summon.stateFlags
 avatarInventory.rows[].summon.summonGeneration
 avatarInventory.rows[].summon.summoned
-avatarInventory.rows[].summon.training
-avatarInventory.rows[].summon.training.bonusPoints
-avatarInventory.rows[].summon.training.gear
-avatarInventory.rows[].summon.training.gear[].options
-avatarInventory.rows[].summon.training.gear[].refObjId
-avatarInventory.rows[].summon.training.levels
-avatarInventory.rows[].summon.training.passiveReadyAtMs
-avatarInventory.rows[].summon.training.rows
-avatarInventory.rows[].summon.training.rows[].kind
-avatarInventory.rows[].summon.training.rows[].left
-avatarInventory.rows[].summon.training.rows[].readyAtMs
-avatarInventory.rows[].summon.training.slotted
-avatarInventory.rows[].summon.training.treeVersion
 avatarInventory.rows[].tradeOwner
 avatarInventory.rows[].transformRefObjId
 avatarInventory.rows[].typeFlags
@@ -150,6 +118,7 @@ berserkPoints
 blockedWhisperers
 bodyShapeByte
 buybackNext
+campDisbandedAtMs
 completedQuestIds
 compositeJobs
 compositeJobs[].endUnixMs
@@ -248,19 +217,6 @@ mercenaries[].satiety
 mercenaries[].stateFlags
 mercenaries[].summonGeneration
 mercenaries[].summoned
-mercenaries[].training
-mercenaries[].training.bonusPoints
-mercenaries[].training.gear
-mercenaries[].training.gear[].options
-mercenaries[].training.gear[].refObjId
-mercenaries[].training.levels
-mercenaries[].training.passiveReadyAtMs
-mercenaries[].training.rows
-mercenaries[].training.rows[].kind
-mercenaries[].training.rows[].left
-mercenaries[].training.rows[].readyAtMs
-mercenaries[].training.slotted
-mercenaries[].training.treeVersion
 mercenarySummonUntilMs
 mission
 mission.eventGuideStateMask
@@ -303,19 +259,6 @@ missionInventory[].summon.satiety
 missionInventory[].summon.stateFlags
 missionInventory[].summon.summonGeneration
 missionInventory[].summon.summoned
-missionInventory[].summon.training
-missionInventory[].summon.training.bonusPoints
-missionInventory[].summon.training.gear
-missionInventory[].summon.training.gear[].options
-missionInventory[].summon.training.gear[].refObjId
-missionInventory[].summon.training.levels
-missionInventory[].summon.training.passiveReadyAtMs
-missionInventory[].summon.training.rows
-missionInventory[].summon.training.rows[].kind
-missionInventory[].summon.training.rows[].left
-missionInventory[].summon.training.rows[].readyAtMs
-missionInventory[].summon.training.slotted
-missionInventory[].summon.training.treeVersion
 missionInventory[].tradeOwner
 missionInventory[].transformRefObjId
 missionInventory[].typeFlags

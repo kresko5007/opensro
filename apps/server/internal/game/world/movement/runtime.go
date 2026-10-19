@@ -28,6 +28,7 @@ import (
 	"opensro.online/server/internal/game/item/stall"
 	"opensro.online/server/internal/game/item/wire"
 	"opensro.online/server/internal/game/social/union"
+	"opensro.online/server/internal/game/world/monster"
 	"opensro.online/server/internal/game/world/simulation"
 	"opensro.online/server/internal/transport"
 )
@@ -620,16 +621,43 @@ func (rt *Runtime) ConstrainMovement(characterName string, from, to simulation.S
 	return committed, refusal
 }
 
+// maxLineOfSightLegs is 98D880's leg cap: the native test re-runs the
+// move test from each reached point at most six times.
+const maxLineOfSightLegs = 6
+
+// lineOfSightSettleDistance is the within-5-units completion 98B300
+// breaks a continuation run on (see continuedReport): a leg that started
+// this close to the target settles the run, clear of its contact bits.
+const lineOfSightSettleDistance = 5
+
+/*
+================
+clipConstrained
+
+clipConstrained reports whether the client clip changed the goal a move
+asked for: an applied blocking contact, or a reached rest point other
+than the requested endpoint. A Y-only change is the floor lift every
+arrival gets, not a constraint.
+================
+*/
+func clipConstrained(requested, clipped simulation.Spawn, blocked bool) bool {
+	return blocked || clipped.RegionID != requested.RegionID || clipped.X != requested.X || clipped.Z != requested.Z
+}
+
 /*
 ==================
 LineOfSight
 
 CRegionManagerBody_CheckLineOfSight (98D880), the region-manager vfunc
 +0x78 that Skill_ValidatePrerequisitesAndCost asks for every action target
-in phase 0x40. It runs the ground move test (vfunc +0x30, at most six
-region legs) from the caster to the target and fails only on a blocking
-contact. The clip validator is that move test, walked from the caster's
-retained owner. Nobody moves, so no clip statistics are counted.
+in phase 0x40. Verified in SR_GameServer.exe.trimmed.bndb: it runs the
+ground move test (vfunc +0x30) leg by leg toward the target, at most
+six legs; a leg whose result carries the linked bit (0x2) without the
+failure bit 0x10000000 is re-run from the point it reached, and the
+line is clear exactly when the final leg's result carries neither
+failure bit (0x10000001). The clip validator is that move test, walked
+from the caster's retained owner. Nobody moves, so no clip statistics
+are counted.
 
 Only an applied clip is authority: with the clip off or observing, walls
 do not stop walks either, so they do not stop skills.
@@ -644,13 +672,58 @@ func (rt *Runtime) LineOfSight(from simulation.Spawn, fromOwner simulation.NavOw
 		return true
 	}
 	from, to = simulation.NormalizeSpawnFrame(from), simulation.NormalizeSpawnFrame(to)
-	var report ClipReport
-	if owned, ok := clip.Validator.(ownerClipValidator); ok {
-		report = owned.ClipMovementPathFrom(from, fromOwner, to)
-	} else {
-		report = clip.Validator.ClipMovementPath(from, to)
+	segments, ok := clip.Validator.(segmentClipValidator)
+	if !ok {
+		// Validators without a leg seam keep the single-query answer.
+		var report ClipReport
+		if owned, ok := clip.Validator.(ownerClipValidator); ok {
+			report = owned.ClipMovementPathFrom(from, fromOwner, to)
+		} else {
+			report = clip.Validator.ClipMovementPath(from, to)
+		}
+		return report.Outcome != ClipBlocked
 	}
-	return report.Outcome != ClipBlocked
+	var report ClipReport
+	legFrom, legOwner := from, fromOwner
+	for leg := 0; leg < maxLineOfSightLegs; leg++ {
+		report = segments.ClipMovementSegmentFrom(legFrom, legOwner, to)
+		if report.NativeResult&monster.NavResultBlocked != 0 {
+			return false
+		}
+		if !report.continuation {
+			return report.NativeResult&monster.NavResultClipped == 0
+		}
+		// A continued leg is not a failure: when the leg started within
+		// the native completion distance of the target, 98B300 settles
+		// the run and clears the contact bits (continuedReport), so an
+		// open outline exit's Clipped bit must not refuse the line.
+		if lineOfSightSettles(legFrom, to) {
+			return true
+		}
+		legFrom, legOwner = report.Rest, report.RestOwner
+	}
+	// The leg cap ran out on a leg that still continues: 98D880 judges
+	// the final leg's result, and a continuing leg carries no failure.
+	return true
+}
+
+/*
+================
+lineOfSightSettles
+
+lineOfSightSettles reports whether a continued leg started within the
+native completion distance of the target: 98B300 (98B5B2..98B5E9, the
+same break ClipMovementPathFrom models) compares the squared 3D
+distance from the leg's start - not the point it reached - to the
+target against 25 and ends the continuation run there. Sector
+expansion puts both ends in the world frame first.
+================
+*/
+func lineOfSightSettles(legFrom, to simulation.Spawn) bool {
+	dx := to.X + float64(simulation.SectorX(to.RegionID)-simulation.SectorX(legFrom.RegionID))*1920 - legFrom.X
+	dz := to.Z + float64(simulation.SectorY(to.RegionID)-simulation.SectorY(legFrom.RegionID))*1920 - legFrom.Z
+	dy := to.Y - legFrom.Y
+	return dx*dx+dy*dy+dz*dz < lineOfSightSettleDistance*lineOfSightSettleDistance
 }
 
 /*
@@ -675,11 +748,20 @@ func (rt *Runtime) ConstrainMovementFrom(characterName string, from simulation.S
 	// Client CRTNavMeshTerrain_Move (404970..40499C) keeps the reached
 	// contact point on a blocked step. Validate that clipped approach,
 	// not the unreachable requested endpoint, just as direction legs do.
+	requested := to
+	clipBlocked := false
 	if rt.ClientClip != nil {
-		to = rt.ClientClip.ProcessMoveFrom(characterName, from, fromOwner, to)
+		to, clipBlocked = rt.ClientClip.ProcessStepFrom(characterName, from, fromOwner, to)
 	}
 	if rt.PathGuard != nil {
-		if refusal := rt.PathGuard.InspectMoveFrom(characterName, from, fromOwner, to); refusal != nil {
+		// A goal the clip already constrained is native-legal by
+		// construction: the stock client composes target clicks past an
+		// object edge and rests at the same contact. The endpoint
+		// verdict exists for goals no stock client can compose, so it
+		// must not discard the rest (Case B2); coverage refusals still
+		// refuse, constrained or not.
+		report, refusal := rt.PathGuard.InspectMoveFromReport(characterName, from, fromOwner, to)
+		if refusal != nil && !(clipConstrained(requested, to, clipBlocked) && endpointBlockedOnly(report)) {
 			return from, simulation.NavWalk{}, refusal
 		}
 	}

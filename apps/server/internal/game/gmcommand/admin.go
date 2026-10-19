@@ -75,7 +75,9 @@ type SessionEnder interface {
 BanObserver
 
 The owner told about a completed /BAN (the action runtime, which purges
-the website chat feed). Port-only, not native.
+the website chat feed). The feed matches the character identity recorded
+on every line, so lines a suited player left under a job alias go too.
+Port-only, not native.
 ================
 */
 type BanObserver interface {

@@ -39,7 +39,6 @@ apps/client-next/src/engine/foundation/animation/native-clip.ts
 apps/client-next/src/engine/foundation/animation/one-shot-layers.ts
 apps/client-next/src/engine/foundation/animation/orb-mover.ts
 apps/client-next/src/engine/foundation/animation/palette-bindings.ts
-apps/client-next/src/engine/foundation/animation/particle-command-frames.ts
 apps/client-next/src/engine/foundation/animation/particle-emission.ts
 apps/client-next/src/engine/foundation/animation/particle-rotation.ts
 apps/client-next/src/engine/foundation/animation/pose-lod.ts
@@ -59,8 +58,6 @@ apps/client-next/src/engine/foundation/audio/item-sounds.ts
 apps/client-next/src/engine/foundation/audio/loop.ts
 apps/client-next/src/engine/foundation/audio/music.ts
 apps/client-next/src/engine/foundation/gameplay/abnormal-snapshot.ts
-apps/client-next/src/engine/foundation/gameplay/academy-notices.ts
-apps/client-next/src/engine/foundation/gameplay/academy.ts
 apps/client-next/src/engine/foundation/gameplay/buff-slots.ts
 apps/client-next/src/engine/foundation/gameplay/cast-displacement.ts
 apps/client-next/src/engine/foundation/gameplay/cast-results.ts
@@ -117,7 +114,6 @@ apps/client-next/src/engine/foundation/rendering/material-timeline.ts
 apps/client-next/src/engine/foundation/rendering/modifier-delta.ts
 apps/client-next/src/engine/foundation/rendering/pick-destination.ts
 apps/client-next/src/engine/foundation/rendering/pick-volume.ts
-apps/client-next/src/engine/foundation/rendering/scenery-particles.ts
 apps/client-next/src/engine/foundation/rendering/screen-point.ts
 apps/client-next/src/engine/foundation/rendering/sky-geometry.ts
 apps/client-next/src/engine/foundation/rendering/star-construction.ts
@@ -155,8 +151,6 @@ apps/client-next/src/engine/foundation/ui/matching-slots.ts
 apps/client-next/src/engine/foundation/ui/message-box.ts
 apps/client-next/src/engine/foundation/ui/message-tips.ts
 apps/client-next/src/engine/foundation/ui/minimap-catalog.ts
-apps/client-next/src/engine/foundation/ui/minimap-floor.ts
-apps/client-next/src/engine/foundation/ui/minimap-markers.ts
 apps/client-next/src/engine/foundation/ui/minimap-zoom.ts
 apps/client-next/src/engine/foundation/ui/money-presentation.ts
 apps/client-next/src/engine/foundation/ui/normal-tile.ts
@@ -238,7 +232,6 @@ apps/client-next/tests/browser/dungeon-water.test.mjs
 apps/client-next/tests/browser/effect-material.test.mjs
 apps/client-next/tests/browser/effect-plates.test.mjs
 apps/client-next/tests/browser/entity-material-clock.test.mjs
-apps/client-next/tests/browser/entry-consumers.test.mjs
 apps/client-next/tests/browser/equipment-overlays.test.mjs
 apps/client-next/tests/browser/flares.test.mjs
 apps/client-next/tests/browser/font-guide-regression.test.mjs
@@ -359,7 +352,6 @@ apps/client-next/tools/verify-bsr-transforms.mjs
 apps/client-next/tools/verify-deferred-alpha.mjs
 apps/client-next/tools/verify-layout.mjs
 apps/client-next/tools/verify-modifier-keys.mjs
-apps/client-next/tools/verify-ownership.mjs
 apps/server-observatory/public/item-model.js
 apps/server-observatory/public/items.js
 apps/server-observatory/public/model.js
@@ -390,12 +382,8 @@ scripts/build/data/buildGInterfaceSectionsAsset.mjs
 scripts/build/data/buildQuestDataAsset.mjs
 scripts/build/data/buildSiegeFortressDataAsset.mjs
 scripts/build/data/buildSkillMasteryDataAsset.mjs
-scripts/build/data/buildTeleportDataAsset.mjs
-scripts/build/effects/parseJmxVisualEffect.mjs
 scripts/build/server/serverGameDataArchive.mjs
 scripts/build/world/assets/buildDungeonResources.mjs
-scripts/build/world/assets/buildDungeonWorlds.mjs
-scripts/build/world/assets/dungeonInfo.mjs
 scripts/build/world/assets/dungeonWater.mjs
 scripts/build/world/assets/environment/environmentTracks.mjs
 scripts/build/world/assets/environment/readEnvironmentIfo.mjs

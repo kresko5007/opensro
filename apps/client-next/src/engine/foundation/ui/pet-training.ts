@@ -85,11 +85,11 @@ export type PetSkillDesign = (typeof PET_DESIGN.treeSkills)[number];
 // The tree's rows and the gear slots, with the character equipment socket
 // art each slot borrows (necklace, chest, ring).
 export const PET_ROW_NAMES = [ "Active I", "Active II", "Passive I", "Passive II", "Passive III" ] as const;
-export const PET_GEAR_SLOTS: readonly { readonly name: string; readonly socket: number; }[] = [
+export const PET_GEAR_SLOTS = [
 	{ name: "Collar", socket: 10 },
 	{ name: "Harness", socket: 1 },
 	{ name: "Charm", socket: 11 }
-];
+] as const;
 
 /*
 ================

@@ -82,10 +82,13 @@ func isVersionMismatch(err error) bool {
 // Version 26 adds the optional guild founding time (foundedAtMs, native
 // _Guild.FoundationDate), stamped at creation. Guilds founded earlier keep
 // none and show as unknown; the upgrade rewrites no record.
-// Version 27 merges the lab companion training/treeVersion fields with
-// main schemas 24-26. Earlier lab 24/25 saves remain readable by the
-// preserving offline upgrade; no character record is rewritten.
-const CurrentVersion = 27
+// Version 27 adds the optional training-camp honor, evaluation, graduation
+// and join fields plus character campDisbandedAtMs (native _TrainingCamp /
+// _TrainingCampMember / _TrainingCampSubMentorHonorPoint). The upgrade
+// rewrites no record.
+// Version 28 adds opt-in companion training/treeVersion to both schema-27
+// histories. The preserving upgrade never rewrites a character record.
+const CurrentVersion = 28
 
 // SkillSeedFunc resolves the current racial base-skill set while preserving
 // any already learned skill identifiers.

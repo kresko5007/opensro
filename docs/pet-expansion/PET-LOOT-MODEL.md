@@ -11,11 +11,9 @@ shader or emissive material was added; the original chest remains unchanged.
 ## Editable source
 
 - Geometry: `scripts/build/char/petLootCollar.mjs` (24-sided oval band, low-poly fittings).
-- Detailed owned1536x1024 atlas: `scripts/build/char/pet-loot-textures/caravan-atlas.png`.
-  Six material tiles: stitched teal leather, engraved floral brass, veined turquoise,
-  dark leather lining, braided/beaded gold trim and crimson silk threads. Generated
-  specifically for this prop with image generation; no retail texture art is copied.
-  Original64x64 swatches remain preserved as the earlier version, now unused.
+- Original 768x512 procedural atlas: `scripts/build/char/petLootAtlas.mjs`.
+  Six material tiles supply teal leather, brass, turquoise, lining, trim and
+  red silk. The text recipe generates its PNG without external artwork inputs.
 - Item binding: `PORT_PET_DROP_MODEL` in `scripts/build/shared/portItemRows.mjs`.
   All 27 existing pet equipment items use this one loot silhouette. Their inventory icons,
   stats and drops are unchanged; other items retain their native models.
@@ -56,17 +54,8 @@ Reload the client to pick up the new pack index. GLB output is generated, not ch
   template, and focused publication task registration.
 - `pnpm task check:scripts` and `git diff --check` pass.
 - All 27 published pet item references resolve to the owned prop; 39/39 drop models built.
-- Live test: LabPetTest dropped/recovered its Rawhide Collar twice; the final textured
-  version rendered beside the unchanged Cloth Shell gold chest in Hotan. Both items
-  were recovered and Penguin was re-summoned. No character equipment was removed.
-- Local comparison evidence: `E:/CodeProjects/SRO/outputs/pet-design-codex/pet-loot-collar-native-comparison.png`.
-- Follow-up: enlarged1.8 collar and borrowed native glow rebuilt/published and
-  verified in-game with no renderer errors. Dropped collar recovered, Penguin
-  restored. New preview: `E:/CodeProjects/SRO/outputs/pet-design-codex/pet-loot-collar-large-glow.png`.
-- Rich-texture pass: atlas published and verified in the live renderer, including
-  drop/pickup with no warning/error logs. Collar recovered and Penguin restored.
-  Proof: `E:/CodeProjects/SRO/outputs/pet-design-codex/pet-loot-collar-rich-textures.png`.
+- Earlier live drop/pickup tests passed with the same geometry and native glow.
+  The new atlas replaces the AI texture; earlier screenshots are not evidence
+  for this revised texture. Its export and geometry/material checks pass.
 
-Skill testing remains postponed. This check used manual ground drops; it did not
-rerun monster drop-rate or pet skill acceptance tests. This prop targets OpenSRO's
-browser client; a retail client BSR/BMS/DDJ conversion is not included.
+This targets the browser client; retail BSR/BMS/DDJ conversion is not included.

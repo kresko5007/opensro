@@ -19,8 +19,9 @@ const PARTY_SHADE_SQUARED_3 = 640000; // 800
 const PARTY_SHADE_SQUARED_4 = 810000; // 900
 const PARTY_SHADE_SQUARED_5 = 1000000; // 1000
 // The two main mastery icons sit left of the buff row (GDR_QPS_PARTY_BUFF is
-// at x 32, pitch 15), on the same 12px cells. A port addition, sent by the
-// server only while SRO_PARTY_MASTERIES is on.
+// at x 32, pitch 15), on the same 12px cells. The pair itself is native wire
+// data (member-row mask bit 0x08, +0x50/+0x54); drawing it here is the
+// browser board's own presentation of that data.
 const PARTY_MASTERY_X = 2;
 const PARTY_MASTERY_PITCH = 15;
 const PARTY_MASTERY_Y = 39;
@@ -30,16 +31,22 @@ const PARTY_DUNGEON_REGION = 0x8000;
 // Only the position matters to the distance shade; entities carry no heading.
 type PartyShadePosition = Pick<Pose, "regionId" | "x" | "y" | "z">;
 // 5BCBB0: exclude self by name, preserve roster order, wrap before placing
-// each row. The 230px bottom reserve is independent of the buff preference.
-// Each slot's CIFBuffViewer (5BAD30 / 5BA840) is owned by the UI runtime,
-// which keeps its one-second diff state across frames.
+// each row. In job mode 8675F0 (8679C4..867A03) overwrites g_pLocalPlayer+0x108
+// with the job alias (+0x1898), so a suited player's roster entry carries
+// their alias and must be excluded too. The 230px bottom reserve is
+// independent of the buff preference. Each slot's CIFBuffViewer (5BAD30 /
+// 5BA840) is owned by the UI runtime, which keeps its one-second diff state
+// across frames.
 /*
 ================
 partyMembers
 ================
 */
 export function partyMembers( game: GameplayState ) {
-	return (game.social?.members ?? []).filter( m => m.name !== game.social?.localName );
+	const social = game.social, alias = game.job?.alias;
+	return (social?.members ?? []).filter(
+		m => m.name !== social?.localName && (!alias || m.name !== alias) && (!social?.self || m.id !== social.self)
+	);
 }
 /*
 ================

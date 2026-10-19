@@ -51,6 +51,14 @@ const (
 	// u8 count, u8 type (CHAMP 1, GIANT 4, NORMAL 0, else the record's +0xA0).
 	SubLoadMonster uint8 = 0x06
 	SubWarp        uint8 = 0x10
+	// SubMobKill: /MOBKILL (@0x0050b754 var_4bc = 0x14, three builder calls
+	// of 1, 4 and 2 bytes) - subcmd, u32 selected target id, u16 mode. The
+	// client sends it only for a mode argument of exactly 0 or 1.
+	SubMobKill uint8 = 0x14
+	// SubZoe: /ZOE (@0x0050a6dd var_4bc = 0x0C, three builder calls of 1, 4
+	// and 1 bytes) - subcmd, u32 monster refObjID, u8 count (client clamps
+	// 1..255). The server loads the monsters and kills them for rewards.
+	SubZoe uint8 = 0x0C
 	// SubSetTime: /SETTIME hour - subcmd + u8 hour 0..23 (509CF0 clamps;
 	// 51DE90 case 8 relays it to the shard manager as SetGameTime).
 	SubSetTime uint8 = 0x0A
@@ -76,6 +84,24 @@ const (
 	SubLieName uint8 = 0x19
 	// SubRealName: /REALNAME (@0x0050bbd1 var_4bc = 0x1a) - subcmd + ANSI name.
 	SubRealName uint8 = 0x1A
+	// The quest tools (509CF0 50CA69..50CBE6): the discriminator byte, then
+	// for all but /RESETQ a sized ANSI quest codename (4C4350 then 4FD5B0).
+	SubInitQ   uint8 = 0x1B
+	SubResetQ  uint8 = 0x1C
+	SubCompQ   uint8 = 0x1D
+	SubRemoveQ uint8 = 0x1E
+	// SubOpenWorld: /INSTANCE worldId layerId (50B56C..50B627 / 51FCBD..51FD1C).
+	SubOpenWorld uint8 = 0x13
+	// SubMoveToNPC: /movetonpc codename (50C982..50CA57 / 520013 -> 520350).
+	SubMoveToNPC uint8 = 0x1F
+	// SubSiegeStructure: /SIEGE STRUCT_BUILD|STRUCT_UPGRADE|STRUCT_REPAIR|GATE
+	// (50C2FD..50C66B / 51FC78 -> 51A4F0).
+	SubSiegeStructure uint8 = 0x20
+	// SubSiegePeriod: /SIEGE STARTWAR|ENDWAR|STARTTAX|ENDTAX|STARTREQ|ENDREQ
+	// (50C1DF..50C2DC / 520028..5200FA -> 62EE90).
+	SubSiegePeriod uint8 = 0x21
+	// SubFlagWorld: /flagworld n (50C88F..50C971 / 51FE18..51FEA8).
+	SubFlagWorld uint8 = 0x30
 	// SubGrantSilk is the port's /SILK name amount (operator tooling, not
 	// native): subcmd, u16 len + ANSI name, u32 amount. The native table
 	// ends at 0x30, so 0xF0 cannot collide with a retail command.
@@ -83,6 +109,22 @@ const (
 	// SubSetSpeed is the port's /SETSPEED percent (GM tooling, not native,
 	// action/gmspeed.go): subcmd, u16 percent of the effective speed.
 	SubSetSpeed uint8 = 0xF1
+)
+
+// Siege structure sub-actions for SubSiegeStructure (0x20) and period codes for
+// SubSiegePeriod (0x21), pinned from 50C1DF..50C66B and 51A4F0 / 520028.
+const (
+	SiegeActionBuild   uint8 = 0x0A
+	SiegeActionUpgrade uint8 = 0x0B
+	SiegeActionRepair  uint8 = 0x0C
+	SiegeActionGate    uint8 = 0x15
+
+	SiegePeriodStartWar uint8 = 1
+	SiegePeriodEndWar   uint8 = 2
+	SiegePeriodStartTax uint8 = 3
+	SiegePeriodEndTax   uint8 = 4
+	SiegePeriodStartReq uint8 = 5
+	SiegePeriodEndReq   uint8 = 6
 )
 
 // Ack result bytes (sub_751ec0 @0x00751f08 result == 1 / @0x00752111
@@ -107,6 +149,12 @@ type Request struct {
 	Destination wire.Position
 	// MonsterType is /LOADMONSTER's requested type byte (server 520A89 &0xF).
 	MonsterType uint8
+	// TargetGID is /MOBKILL's selected monster object id.
+	TargetGID uint32
+	// MobKillMode is /MOBKILL's mode word: 0 kills with EXP/SP and drops, 1
+	// kills without them. INFERENCE: community GM guides for the V-Sro client
+	// describe the two modes this way; no server binary was read.
+	MobKillMode uint16
 	// Name is the decoded ANSI argument for the name-payload subcommands
 	// (FINDUSER/LIENAME/REALNAME/...). Empty for other subcommands.
 	Name string
@@ -117,6 +165,15 @@ type Request struct {
 	Silk uint32
 	// SpeedPercent is /SETSPEED's percent of the effective speed.
 	SpeedPercent uint16
+	// WorldID and LayerID are /INSTANCE's (SubOpenWorld 0x13) u16 arguments.
+	WorldID uint16
+	LayerID uint16
+	// SiegeAction, FortressID, EventStructID, and SiegeParam are /SIEGE's
+	// structure (0x20) and period (0x21) fields.
+	SiegeAction   uint8
+	FortressID    uint32
+	EventStructID uint32
+	SiegeParam    uint8
 }
 
 // nameSubcommands are the subcommands whose payload is a single sized ANSI
@@ -131,6 +188,10 @@ var nameSubcommands = map[uint8]bool{
 	SubRecallGuild: true,
 	SubLieName:     true,
 	SubRealName:    true,
+	SubInitQ:       true,
+	SubCompQ:       true,
+	SubRemoveQ:     true,
+	SubMoveToNPC:   true,
 	// SubGrantSilk's name is followed by the u32 amount.
 	SubGrantSilk: true,
 }
@@ -198,6 +259,98 @@ func DecodeGmCommand(payload []byte) (Request, error) {
 		request.MonsterType, err = reader.U8()
 		return request, err
 	}
+	if subcmd == SubMobKill {
+		// 50B754..50B77E: subcmd, u32 target id, u16 mode.
+		if len(payload) != 7 {
+			return Request{}, fmt.Errorf("gmcommand: MOBKILL requires seven bytes")
+		}
+		if request.TargetGID, err = reader.U32(); err != nil {
+			return Request{}, err
+		}
+		if request.MobKillMode, err = reader.U16(); err != nil {
+			return Request{}, err
+		}
+		if request.MobKillMode > 1 {
+			return Request{}, fmt.Errorf("gmcommand: MOBKILL mode %d is not 0 or 1", request.MobKillMode)
+		}
+		return request, nil
+	}
+	if subcmd == SubZoe {
+		// 50A6DD..50A707: subcmd, u32 refObjID, u8 count.
+		if len(payload) != 6 {
+			return Request{}, fmt.Errorf("gmcommand: ZOE requires six bytes")
+		}
+		if request.RefObjID, err = reader.U32(); err != nil {
+			return Request{}, err
+		}
+		request.Amount, err = reader.U8()
+		return request, err
+	}
+	if subcmd == SubResetQ {
+		if len(payload) != 1 {
+			return Request{}, fmt.Errorf("gmcommand: RESETQ requires one byte")
+		}
+		return request, nil
+	}
+	if subcmd == SubOpenWorld {
+		if len(payload) != 5 {
+			return Request{}, fmt.Errorf("gmcommand: INSTANCE requires five bytes")
+		}
+		if request.WorldID, err = reader.U16(); err != nil {
+			return Request{}, err
+		}
+		request.LayerID, err = reader.U16()
+		return request, err
+	}
+	if subcmd == SubSiegeStructure {
+		if len(payload) < 10 {
+			return Request{}, fmt.Errorf("gmcommand: SIEGE structure requires at least ten bytes")
+		}
+		if request.SiegeAction, err = reader.U8(); err != nil {
+			return Request{}, err
+		}
+		if request.FortressID, err = reader.U32(); err != nil {
+			return Request{}, err
+		}
+		if request.EventStructID, err = reader.U32(); err != nil {
+			return Request{}, err
+		}
+		switch request.SiegeAction {
+		case SiegeActionBuild, SiegeActionRepair:
+			if len(payload) != 10 {
+				return Request{}, fmt.Errorf("gmcommand: SIEGE structure action %#x requires ten bytes", request.SiegeAction)
+			}
+		case SiegeActionUpgrade, SiegeActionGate:
+			if len(payload) != 11 {
+				return Request{}, fmt.Errorf("gmcommand: SIEGE structure action %#x requires eleven bytes", request.SiegeAction)
+			}
+			if request.SiegeParam, err = reader.U8(); err != nil {
+				return Request{}, err
+			}
+		default:
+			return Request{}, fmt.Errorf("gmcommand: unsupported SIEGE structure action %#x", request.SiegeAction)
+		}
+		return request, nil
+	}
+	if subcmd == SubSiegePeriod {
+		if len(payload) != 2 {
+			return Request{}, fmt.Errorf("gmcommand: SIEGE period requires two bytes")
+		}
+		if request.SiegeAction, err = reader.U8(); err != nil {
+			return Request{}, err
+		}
+		if request.SiegeAction < SiegePeriodStartWar || request.SiegeAction > SiegePeriodEndReq {
+			return Request{}, fmt.Errorf("gmcommand: invalid SIEGE period action %d", request.SiegeAction)
+		}
+		return request, nil
+	}
+	if subcmd == SubFlagWorld {
+		if len(payload) != 2 {
+			return Request{}, fmt.Errorf("gmcommand: flagworld requires two bytes")
+		}
+		request.Amount, err = reader.U8()
+		return request, err
+	}
 	if !nameSubcommands[subcmd] {
 		return request, nil
 	}
@@ -214,6 +367,9 @@ func DecodeGmCommand(payload []byte) (Request, error) {
 	}
 	request.Name = string(nameBytes)
 	request.HasName = true
+	if (subcmd == SubInitQ || subcmd == SubCompQ || subcmd == SubRemoveQ || subcmd == SubMoveToNPC) && len(payload) != 3+int(nameLen) {
+		return Request{}, fmt.Errorf("gmcommand: trailing quest-tool or movetonpc bytes")
+	}
 	if subcmd == SubGrantSilk {
 		if request.Silk, err = reader.U32(); err != nil {
 			return Request{}, err

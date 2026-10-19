@@ -271,6 +271,27 @@ fault (the TextdataItems loader posture).
 ==================
 */
 func LoadMonsterRefs(textdataDir string) map[uint32]MonsterRef {
+	matches, err := filepath.Glob(filepath.Join(textdataDir, "characterdata*.txt"))
+	if err != nil {
+		return make(map[uint32]MonsterRef)
+	}
+	sort.Strings(matches)
+	tables := make([][][]string, 0, len(matches))
+	for _, path := range matches {
+		tables = append(tables, readTabbedFile(path))
+	}
+	return parseMonsterRefTables(textdataDir, tables)
+}
+
+/*
+================
+parseMonsterRefTables
+
+Parses characterdata row tables into MonsterRef records, resolving localized
+display names and ride metadata from textdataDir when present.
+================
+*/
+func parseMonsterRefTables(textdataDir string, tables [][][]string) map[uint32]MonsterRef {
 	refs := make(map[uint32]MonsterRef)
 	rides := loadMonsterRideMetadata(textdataDir)
 	// Every characterdata codename, served or not: the characterInfo default
@@ -291,13 +312,8 @@ func LoadMonsterRefs(textdataDir string) map[uint32]MonsterRef {
 			names[symbol] = english
 		}
 	}
-	matches, err := filepath.Glob(filepath.Join(textdataDir, "characterdata*.txt"))
-	if err != nil {
-		return refs
-	}
-	sort.Strings(matches)
-	for _, path := range matches {
-		for _, cols := range readTabbedFile(path) {
+	for _, table := range tables {
+		for _, cols := range table {
 			if len(cols) > colCodename {
 				known[strings.TrimSpace(cols[colCodename])] = true
 			}
@@ -421,12 +437,48 @@ func LoadMonsterRefs(textdataDir string) map[uint32]MonsterRef {
 			}
 		}
 	}
+	byCodename := make(map[string]MonsterRef, len(refs))
+	for _, ref := range refs {
+		if ref.Codename != "" {
+			byCodename[ref.Codename] = ref
+		}
+	}
 	for id, ref := range refs {
+		ref.ModelPath = resolveMonsterModelPath(ref, byCodename)
 		ride := rides.resolve(ref.Codename, ref.OriginalCodename, known)
 		ref.RideModelPath, ref.RiderTransformMode = ride.modelPath, ride.transformMode
 		refs[id] = ref
 	}
 	return refs
+}
+
+/*
+================
+resolveMonsterModelPath
+
+Clone and variant rows (_CLON, _L2/_L3, regional aliases) store "xxx" in
+column 52 (FileName128) and inherit their model path from column 4
+(OrgObjCodeName128), matching the client asset bake's resolveNpcModel chain.
+================
+*/
+func resolveMonsterModelPath(ref MonsterRef, byCodename map[string]MonsterRef) string {
+	if ref.ModelPath != "" && !strings.EqualFold(ref.ModelPath, "xxx") {
+		return ref.ModelPath
+	}
+	visited := map[string]bool{ref.Codename: true}
+	current := ref.OriginalCodename
+	for current != "" && !strings.EqualFold(current, "xxx") && !visited[current] {
+		visited[current] = true
+		parent, ok := byCodename[current]
+		if !ok {
+			break
+		}
+		if parent.ModelPath != "" && !strings.EqualFold(parent.ModelPath, "xxx") {
+			return parent.ModelPath
+		}
+		current = parent.OriginalCodename
+	}
+	return ref.ModelPath
 }
 
 /*
@@ -678,6 +730,15 @@ func readTabbedFile(path string) [][]string {
 		return nil
 	}
 	text := decodeTextdata(buffer)
+	return splitTabbedText(text)
+}
+
+/*
+================
+splitTabbedText
+================
+*/
+func splitTabbedText(text string) [][]string {
 	cells := make(texttable.Cells)
 	text = strings.TrimPrefix(text, "\ufeff")
 	var rows [][]string

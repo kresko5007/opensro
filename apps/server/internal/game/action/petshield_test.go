@@ -9,6 +9,7 @@ import (
 	"encoding/binary"
 	"testing"
 
+	"opensro.online/server/internal/game/combat"
 	"opensro.online/server/internal/game/enterworld"
 	"opensro.online/server/internal/game/world/simulation"
 )
@@ -19,7 +20,7 @@ TestPetShieldAbsorption
 ================
 */
 func TestPetShieldAbsorption(t *testing.T) {
-	rt := &Runtime{}
+	rt := &Runtime{AttackPetExpansion: true}
 	key := petShieldKey{"one", 1}
 	rt.petShields.rows = map[petShieldKey]petShield{key: {key: key, amount: 100, until: 5000}}
 	if d := rt.absorbPetShield("two", 1, 30, 0); d != 30 {
@@ -196,6 +197,7 @@ func TestPetShieldRealMonsterHit(t *testing.T) {
 		for _, shield := range []uint32{5, 1000} {
 			plain, clock, c, mob := newCombatTestRuntime(t, 100000)
 			guarded, guardedClock, gc, gm := newCombatTestRuntime(t, 100000)
+			guarded.AttackPetExpansion = true
 			if petTarget {
 				equipCombatTestPet(t, plain, c, attackPetBand)
 				equipCombatTestPet(t, guarded, gc, attackPetBand)
@@ -245,6 +247,7 @@ TestPetShieldAbsorbsBeforeManaRedirect
 */
 func TestPetShieldAbsorbsBeforeManaRedirect(t *testing.T) {
 	rt, clock, c, mob := damageToMPFixture(t, 19592)
+	rt.AttackPetExpansion = true
 	mob.Ref.DefaultSkillIDs[0] = 2
 	*c.CurrentHP, *c.CurrentMP = 200, 200
 	key := petShieldKey{testDivision, enterworld.ObjectIDForCharacter(c)}
@@ -252,5 +255,122 @@ func TestPetShieldAbsorbsBeforeManaRedirect(t *testing.T) {
 	result := rt.MonsterBasicAttack(testDivision, mob, key.gid, 2, clock.NowMs())
 	if !result.Accepted || *c.CurrentHP != 200 || *c.CurrentMP != 200 || rt.petShields.rows[key].amount == 10000 {
 		t.Fatalf("shield/mana ordering: accepted=%v HP=%d MP=%d", result.Accepted, *c.CurrentHP, *c.CurrentMP)
+	}
+}
+
+/*
+================
+TestPetShieldPartyDepartureCancels
+================
+*/
+func TestPetShieldPartyDepartureCancels(t *testing.T) {
+	rt, clock, c, _ := newPetCombatRuntime(t, 100000, attackPetBand)
+	makeTrainedPet(rt, c, "COS_P_BEAR_090", 90)
+	roarField(t, rt, c, clock)
+	c.MissionInventory = nil
+	rt.AttackPetExpansion = true
+	near := nearbyCharacter(rt, c, 21, "shield-party", 50)
+	rt.RewardParties = func(string) []RewardParty {
+		return []RewardParty{{Members: []uint32{enterworld.ObjectIDForCharacter(c), enterworld.ObjectIDForCharacter(near)}}}
+	}
+	skill := learnPetBook(t, c, 21)
+	rt.castPetShield(testDivision, c, c, c.ActiveCOS, skill, clock.NowMs())
+	key := petShieldKey{testDivision, enterworld.ObjectIDForCharacter(near)}
+	if rt.petShields.rows[key].amount == 0 {
+		t.Fatal("party shield not cast")
+	}
+	rt.RewardParties = func(string) []RewardParty { return nil }
+	for _, b := range rt.advancePetShields(clock.NowMs() + 5000) {
+		for _, f := range b.Frames {
+			if f.Opcode == petShieldOpcode && binary.LittleEndian.Uint32(f.Payload) == key.gid && f.Payload[20] != 0 {
+				t.Fatal("former party member exploded")
+			}
+		}
+	}
+	if _, ok := rt.petShields.rows[key]; ok {
+		t.Fatal("former party shield retained")
+	}
+}
+
+/*
+================
+TestPetShieldPlayerSourceBypassesAbsorption
+================
+*/
+func TestPetShieldPlayerSourceBypassesAbsorption(t *testing.T) {
+	rt, clock, c, _ := newCombatTestRuntime(t, 100000)
+	rt.AttackPetExpansion = true
+	*c.CurrentHP = 200
+	key := petShieldKey{testDivision, enterworld.ObjectIDForCharacter(c)}
+	rt.petShields.rows = map[petShieldKey]petShield{key: {key: key, amount: 100, until: clock.NowMs() + 5000}}
+	owner := rt.newPlayerAbnormalOwner(testDivision, c, clock.NowMs())
+	owner.sources = map[uint32]abnormalSourceState{999: {killer: deathKiller{player: c}}}
+	owner.Hit(999, true, 10, 0, 0)
+	if *c.CurrentHP != 190 || rt.petShields.rows[key].amount != 100 {
+		t.Fatal("player DoT consumed shield")
+	}
+	hit := playerStrike{division: testDivision, victim: c, killer: deathKiller{player: c}, owner: owner, now: clock.NowMs(), formulas: []combat.Result{{Damage: 10, ResultFlags: 1}}}
+	rt.strikePlayerInDoor(hit)
+	if *c.CurrentHP != 180 || rt.petShields.rows[key].amount != 100 {
+		t.Fatal("player strike consumed shield")
+	}
+	rt.AttackPetExpansion = false
+	if rt.absorbPetShield(testDivision, key.gid, 10, clock.NowMs()) != 10 {
+		t.Fatal("disabled shield absorbed")
+	}
+}
+
+/*
+================
+TestPetShieldRetributionStoresOnlyHPDamage
+================
+*/
+func TestPetShieldRetributionStoresOnlyHPDamage(t *testing.T) {
+	rt, clock, c, mob := newPetCombatRuntime(t, 100000, attackPetBand)
+	makeTrainedPet(rt, c, "COS_P_BEAR_090", 90)
+	c.MissionInventory = nil
+	rt.AttackPetExpansion = true
+	state := rt.petSessionFor(testDivision, c.Name, c.ActiveCOS.GID)
+	state.trained.retribution = clock.NowMs() + 10000
+	key := petShieldKey{testDivision, c.ActiveCOS.GID}
+	rt.petShields.rows = map[petShieldKey]petShield{key: {key: key, amount: 100000, until: clock.NowMs() + 5000}}
+	mob.Ref.DefaultSkillIDs[0] = 2
+	skills := rt.deps.SkillData().(staticSkillSource)
+	row := skills[2]
+	row.ActionCastingTimeMs = 0
+	skills[2] = row
+	result := rt.MonsterBasicAttack(testDivision, mob, key.gid, 2, clock.NowMs())
+	if !result.Accepted {
+		t.Fatal("monster strike refused")
+	}
+	if state.trained.retribStored != 0 {
+		t.Fatal("absorbed damage charged retribution")
+	}
+}
+
+/*
+================
+TestPetShieldDisconnectCancelsRecipientAndCaster
+================
+*/
+func TestPetShieldDisconnectCancelsRecipientAndCaster(t *testing.T) {
+	rt := &Runtime{AttackPetExpansion: true}
+	rt.petShields.rows = map[petShieldKey]petShield{}
+	for _, shield := range []petShield{
+		{key: petShieldKey{"one", 1}, name: "member", source: petOwnerKey{name: "caster"}},
+		{key: petShieldKey{"one", 2}, name: "other", source: petOwnerKey{name: "member"}},
+		{key: petShieldKey{"two", 1}, name: "member", source: petOwnerKey{name: "caster"}},
+	} {
+		shield.amount, shield.until, shield.burst = 100, 5000, true
+		rt.petShields.rows[shield.key] = shield
+	}
+	rt.retirePetShields("one", "MEMBER")
+	for key, shield := range rt.petShields.rows {
+		if key.division == "one" && (shield.amount != 0 || shield.burst) {
+			t.Fatal("disconnected shield retained")
+		}
+		if key.division == "two" && shield.amount != 100 {
+			t.Fatal("cross-division teardown")
+		}
 	}
 }

@@ -217,6 +217,50 @@ func (rt *Runtime) HandleRebirthPointAppointment(
 	}}}
 }
 
+// siegeRebirthRefusalMs is the +0x1CD4 > 0xA5 window: the 180 ticks
+// CGObjPC::OnDeath stamps at 52CFBA, read down to 165 - the first 15
+// ticks of the siege corpse clock, at one second a tick
+// (domain.SiegeDeathAtMs).
+const siegeRebirthRefusalMs = 15 * 1000
+
+/*
+================
+siegeRebirthRefused
+
+50FEE0 before the death-kind check (510086..5100D6): while a siege war
+is active (MainProcess_IsSiegeWarActive 62EB50), the corpse lies in a
+siege world (CGameWorldMgr_CallGameWorldSlot31 answers nonzero), and
+its corpse clock (+0x1CD4, stamped 180 at the death) still
+reads above 165, the handler returns without reviving - whatever the
+death kind or the player's choice. The port's clock is the elapsed
+time since SiegeDeathAtMs; Fortresses.WarActive is the war mirror and
+Definition.Siege is slot 31's answer, the same pair worldPlayerEnemy
+consults.
+================
+*/
+/*
+================
+inSiegeWorld
+
+CGameWorldMgr_CallGameWorldSlot31's answer for the character's world:
+a fortress siege world.
+================
+*/
+func inSiegeWorld(c *enterworld.Character) bool {
+	world, found := instance.Lookup(instance.ID(domain.CharacterWorldInstance(c)).Definition())
+	return found && world.Siege()
+}
+
+func (rt *Runtime) siegeRebirthRefused(divisionID string, c *enterworld.Character) bool {
+	if c == nil || c.SiegeDeathAtMs == 0 || rt.Fortresses == nil || !rt.Fortresses.WarActive(divisionID) {
+		return false
+	}
+	if !inSiegeWorld(c) {
+		return false
+	}
+	return rt.Now().UnixMilli()-c.SiegeDeathAtMs < siegeRebirthRefusalMs
+}
+
 /*
 ==================
 HandleLocalRebirth
@@ -243,6 +287,27 @@ func (rt *Runtime) HandleLocalRebirth(
 
 	unlock := rt.lockDivision(divisionID)
 	defer unlock()
+	return rt.handleRebirthInDoor(divisionID, character, choice, false)
+}
+
+/*
+=================
+handleRebirthInDoor
+
+The settled corpse's revival, with the caller holding the division
+door. forceTown is the corpse clock's expiry (advanceSiegeCorpses):
+CGObjPC_OnTick sends the run-out corpse to town directly
+(CGObjPC_TeleportToTown 4DF290), so a death that would revive where
+it fell still goes to town and the choice must already name the town
+point. Every other caller takes the player's own choice.
+=================
+*/
+func (rt *Runtime) handleRebirthInDoor(
+	divisionID string,
+	character *enterworld.Character,
+	choice byte,
+	forceTown bool,
+) OpResult {
 
 	// Prepare the complete destination projection while still dead. No durable
 	// revival may depend on a later fallible packet build or correction fallback.
@@ -256,12 +321,17 @@ func (rt *Runtime) HandleLocalRebirth(
 	if before.DeletePending || enterworld.CharacterAlive(before) || corpse.MoveSegment != nil {
 		return OpResult{DiagnosticRefusal: "rebirth-requires-settled-corpse"}
 	}
+	// 50FEE0 ahead of the kind check (510075..5100D6): a fresh siege
+	// corpse in an active siege world is refused outright (below).
+	if rt.siegeRebirthRefused(divisionID, before) {
+		return OpResult{}
+	}
 	// 50FEE0 (5100D6): a team death (free-battle capes, arena) revives where
 	// it fell at any level, whatever the choice; otherwise the present point
 	// is a beginner's (level 10 or below, 51017F). The shard may set the town
 	// rule for team deaths too (teamdeath.go).
 	inPlace := rt.revivesInPlace(before.DeathKind)
-	if inPlace {
+	if inPlace && !forceTown {
 		choice = wire.RebirthAtPresentPoint
 	}
 	if choice == wire.RebirthAtPresentPoint && !inPlace && before.Level != nil && *before.Level > 10 {

@@ -20,11 +20,9 @@ stats are unchanged.
 
 ## Source and export
 
-- Editable full-size AI-authored sheets: `scripts/build/shared/pet-item-icons/{collar,harness,charm}-degrees.png`.
-  Each has nine cells in reading order (1–9); native gear images were style references.
-- `scripts/build/shared/pet_item_icons.py` extracts each cell, downsamples to32x32
-  and supplies the native-style one-pixel border. It does not recolor one degree
-  into another. The original source sheets remain unchanged.
+- Editable original text recipe: `scripts/build/shared/pet_item_icons.py`.
+  It paints each slot with degree-specific metal, gemstones and ornaments at
+  4x native resolution, then downsamples to 32x32. No binary sheet is needed.
 - `scripts/build/shared/petItemIcons.mjs` publishes the27 PNGs using the existing
   public-tree writer. Full CIF builds and `pnpm assets refresh pet-loot` both call it.
 - `scripts/build/shared/portItemRows.mjs` binds every slot/degree to
@@ -46,17 +44,6 @@ images distinct32x32 RGBA PNGs with visible object detail, source row preservati
 pet drop geometry/material/glow and family registration. No inventory/character
 data is edited to install these icons. Skill testing remains postponed.
 
-## Deployment evidence — 2026-10-15
-
-Published all27 icons in the `ui-icons` pack and verified all27 client bindings.
-Rebuilt the server game-data bundle with source revision `workspace-pet-icons`;
-manifest SHA256 `030dfaa6caac1ed4e7772443f00140a35121daa26992c5a7cf317a0180fe6592`.
-Gracefully restarted Agent0 and GameWorld0; both deployments are1/1 healthy.
-Reloaded the browser and confirmed the new inventory artwork for the test items
-(including degree1 Collar, Harness and Charm). No renderer warnings/errors.
-All27 exports are checked; not every degree was individually inspected in-game.
-
-Logs and live proof: `E:/CodeProjects/SRO/outputs/pet-design-codex/`:
-`pet-icons-publish.log`, `pet-icons-server-data.log`, `pet-icons-deploy.log`,
-`pet-icons-live-inventory.png`. Browser left with inventory open in safe Hotan;
-LabPetTest90 and Penguin remain intact. These visual changes are uncommitted.
+The earlier AI image sheets were replaced with text recipes for repository
+policy. Artwork changes; names, bindings and stats remain unchanged. All 27
+outputs have unique hashes and valid RGBA data.

@@ -241,11 +241,7 @@ func (rt *Runtime) monsterStrikeCOS(in monsterStrikeInput, owner *enterworld.Cha
 		}
 		records = append(records, rolled...)
 	}
-	// Port-only pet defenses apply to monster hits, never player PvP.
-	for i := range formulas {
-		formulas[i].Damage = rt.petTrainedDamageTaken(divisionID, owner, pet, formulas[i].Damage, nowMs)
-	}
-	hit := cosHit{owner: owner, pet: pet, ref: ref, pose: pose, block: ownerBlock, formulas: formulas, records: records,
+	hit := cosHit{monsterSource: true, owner: owner, pet: pet, ref: ref, pose: pose, block: ownerBlock, formulas: formulas, records: records,
 		displacement: displacement, displaceAt: displaceAt,
 		context: abnormal.HitContext{Attack: skill.ReplacementPinned && skill.Replacement.MatchesExecutionSelector}}
 	hit.block.sources = rt.captureAbnormalSources(divisionID, hit.block.block, records)
@@ -255,7 +251,7 @@ func (rt *Runtime) monsterStrikeCOS(in monsterStrikeInput, owner *enterworld.Cha
 		}
 		live := owner.CompanionByGID(pet.GID)
 		previousRows := live.Training.Rows
-		for _, formula := range formulas {
+		for _, formula := range hit.strike.impacts {
 			if !formula.Blocked && formula.Damage > 0 {
 				rt.petTrainedHitTaken(owner, live)
 				break
@@ -285,16 +281,17 @@ strike and a player's share it.
 ================
 */
 type cosHit struct {
-	owner        *enterworld.Character
-	pet          *enterworld.CharacterCOS
-	ref          *enterworld.CharacterRef
-	pose         simulation.Spawn
-	block        *cosAbnormalOwner
-	formulas     []combat.Result
-	records      []abnormal.Record
-	displacement *playerDisplacement
-	displaceAt   int
-	context      abnormal.HitContext
+	monsterSource bool
+	owner         *enterworld.Character
+	pet           *enterworld.CharacterCOS
+	ref           *enterworld.CharacterRef
+	pose          simulation.Spawn
+	block         *cosAbnormalOwner
+	formulas      []combat.Result
+	records       []abnormal.Record
+	displacement  *playerDisplacement
+	displaceAt    int
+	context       abnormal.HitContext
 	// Filled by applyCOSHitInDoor.
 	strike    monsterStrike
 	remaining uint32
@@ -324,7 +321,10 @@ func (rt *Runtime) applyCOSHitInDoor(divisionID string, hit *cosHit, nowMs int64
 	}
 	for _, formula := range hit.formulas {
 		hit.context.Magical = hit.context.Magical || formula.MagicalDamage != 0
-		formula.Damage = rt.absorbPetShield(divisionID, pet.GID, formula.Damage, nowMs)
+		if hit.monsterSource && rt.petShieldRecipientAllowed(owner) {
+			formula.Damage = rt.absorbPetShield(divisionID, pet.GID, formula.Damage, nowMs)
+			formula.Damage = rt.petTrainedDamageTaken(divisionID, owner, live, formula.Damage, nowMs)
+		}
 		live.CurrentHP -= vitals.HitDebit(live.CurrentHP, formula.Damage)
 		strike.fatal = live.CurrentHP == 0
 		strike.impacts = append(strike.impacts, wire.SkillCastTargetImpact{Damage: formula.Damage,

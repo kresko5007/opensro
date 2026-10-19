@@ -131,20 +131,14 @@ The total 80% ceiling is source policy, **not a DB setting**.
 | Pet drop chance relative to normal equipment | SQLite `meta.petGearDropFactor` | Stop shard, edit, restart |
 | Blue min/max, relative weight, value bias | SQLite `pet_affix_rules` | Stop shard, edit, restart |
 | General drop/EXP/gold/SoX rates and category mix | Deployment environment | Persist config, restart/redeploy |
-| Degree magic/rare odds, blue caps/weights/floors | Workbook `Degrees` | Export and rebuild matched data |
-| Skill values, family progression, species profiles | Workbook sheets consumed by exporter | Export and rebuild matched client/server |
-| Flat stat formula | `scripts/tools/pet_design_export.py` | Change exporter, regenerate/rebuild |
+| Degree magic/rare odds, blue caps/weights/floors | Canonical JSON `gear` | Export and rebuild matched data |
+| Skill values, family progression, species profiles | Canonical JSON `treeSkills`, `pets` | Export and rebuild matched client/server |
+| Flat item stats | Canonical JSON `gear[].items[].baseStats` | Export, rebuild matched data |
 | Total 80% cooldown cap | Server `companion/gear.go` and client state validation | Source change, tests, matched deployment |
 
-The authority directory comes from `SRO_AUTHORITY_STATE_DIR`, not a cluster
-wrapper's `--state-dir`. The current lab database is:
-
-```text
-E:\CodeProjects\opensro-lab\apps\server\.state\shards\global-official\authority\state.db
-```
-
-In DBeaver verify the full connection path and expected character records.
-Do not edit the hub checkout's empty authority DB by mistake.
+The authority directory comes from `SRO_AUTHORITY_STATE_DIR`, not the cluster
+wrapper's `--state-dir`. Open `<authority-dir>/state.db` in your SQLite client.
+Stop the shard and retain a backup before changing rates or upgrading schema.
 
 ## Pet drop factor
 
@@ -255,12 +249,12 @@ Validation rejects nonfinite values; min/max must be integers with
 0 ≤ min ≤ max ≤ 1,000,000, weight within 0..1,000,000, power within 1..20.
 Invalid DB policy refuses startup. Storage limits are not recommended balance
 targets. The top cooldown tier is seeded with max 50 by
-`cmd/services/sro-gameworld/petaffixes.go`, even though the workbook's legacy
+`cmd/services/sro-gameworld/petaffixes.go`, even though the design's legacy
 catalogue value may differ. Existing DB rows take precedence over new defaults.
 
 ## Degree quality and blue counts
 
-Baseline workbook values before item-find modifiers:
+Baseline design values before item-find modifiers:
 
 | Degree | Pet level | Max blues | Magic chance | Rare chance | Roll floor |
 | --- | --- | --- | --- | --- | --- |
@@ -282,7 +276,7 @@ therefore still has at most one blue. Fewer eligible groups can reduce the count
 D9 weights for 3/4/5/6 are **40/38/22/15**, totaling 115; these are relative
 weights, not percentages. D9 does not guarantee six blues or a perfect roll.
 
-Edit the workbook `Degrees` sheet for odds, weights, caps and floors. `Rules`
+Edit the canonical JSON `gear` section for odds, weights, caps and floors. `Rules`
 owns global max six and the magic-two-blue chance. `Gear` owns names, IDs and
 requirements. Do not change saved identities or raise the six-option wire/save
 ceiling casually. Never roll back to a five-option server after issuing six-blue

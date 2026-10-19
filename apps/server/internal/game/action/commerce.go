@@ -20,6 +20,7 @@ import (
 	"opensro.online/server/internal/game/item/commerce"
 	"opensro.online/server/internal/game/item/inventory"
 	"opensro.online/server/internal/game/item/wire"
+	"opensro.online/server/internal/game/tunables"
 	"opensro.online/server/internal/game/world/simulation"
 	"reflect"
 	"strconv"
@@ -72,6 +73,16 @@ type shopContent struct {
 
 /*
 ================
+shopPriceRow
+================
+*/
+type shopPriceRow struct {
+	Currency uint8  `json:"currency"`
+	Amount   string `json:"amount"`
+}
+
+/*
+================
 shopOffer
 ================
 */
@@ -85,8 +96,9 @@ type shopOffer struct {
 	Name          string             `json:"name"`
 	Price         string             `json:"price"`
 	// Currency is the refpricepolicyofitem payment type: 1 gold, 32 honor.
-	Currency uint8  `json:"currency"`
-	Stack    uint16 `json:"maxStack"`
+	Currency uint8          `json:"currency"`
+	Prices   []shopPriceRow `json:"prices,omitempty"`
+	Stack    uint16         `json:"maxStack"`
 }
 
 /*
@@ -153,7 +165,7 @@ func (rt *Runtime) eachShopOffer(npc simulation.NpcDef, visit func(uint8, commer
 				return
 			}
 			for _, offer := range rt.Commerce.Tabs[tab.TabID] {
-				if petGearShopOffer(offer) {
+				if rt.AttackPetExpansion && petGearShopOffer(offer) {
 					continue
 				}
 				visit(uint8(index), offer)
@@ -218,7 +230,17 @@ func (rt *Runtime) shopCatalog(division string, c *enterworld.Character, gid uin
 			if len(templates) == 1 && inventory.IsEtcStackableTypeFlags(templates[0].Ref.TypeFlags()) && templates[0].Data == 0 {
 				purchaseLimit = templates[0].Stack
 			}
-			p.Offers = append(p.Offers, shopOffer{PurchaseLimit: purchaseLimit, Previews: previews, Contents: contents, Tab: tab, Slot: o.Slot, Ref: o.Ref.RefObjID, Name: o.Ref.Name, Price: strconv.FormatUint(price, 10), Currency: o.Currency, Stack: o.Stack})
+			var prices []shopPriceRow
+			if o.Currency == commerce.PaymentGold && (o.GuildPointPrice > 0 || o.HonorPrice > 0) {
+				prices = append(prices, shopPriceRow{Currency: commerce.PaymentGold, Amount: strconv.FormatUint(price, 10)})
+				if o.GuildPointPrice > 0 {
+					prices = append(prices, shopPriceRow{Currency: commerce.PaymentGuildPoint, Amount: strconv.FormatUint(o.GuildPointPrice, 10)})
+				}
+				if o.HonorPrice > 0 {
+					prices = append(prices, shopPriceRow{Currency: commerce.PaymentHonor, Amount: strconv.FormatUint(o.HonorPrice, 10)})
+				}
+			}
+			p.Offers = append(p.Offers, shopOffer{PurchaseLimit: purchaseLimit, Previews: previews, Contents: contents, Tab: tab, Slot: o.Slot, Ref: o.Ref.RefObjID, Name: o.Ref.Name, Price: strconv.FormatUint(price, 10), Currency: o.Currency, Prices: prices, Stack: o.Stack})
 		})
 	}
 	b, _ := json.Marshal(p)
@@ -280,8 +302,16 @@ func (rt *Runtime) applyCommerce(division string, c *enterworld.Character, q wir
 	// refusal names the native cause of an uncommitted trade; the silent
 	// generic code covers requests the retail client cannot compose.
 	refusal := wire.ErrCodeInvalidRequest
+	if q.MovementType == wire.MoveTypeShopBuy {
+		rt.honorMu.Lock()
+		defer rt.honorMu.Unlock()
+	}
 	roster := rt.commerceRoster(division, c)
+	availableHonor := rt.honorPoints(division, snapshot)
+	isGuildMaster, availableGuildPoints := rt.guildShopAdmission(division, snapshot)
 	var collected int64
+	var guildPointCost uint64
+	var honorCost uint64
 	committed := rt.deps.SettleTrade(roster.members, commerceDoorLabel(snapshot, q, isCOS), func(pool *domain.TradeRewardPool) bool {
 		if c.DeletePending {
 			return false
@@ -307,6 +337,8 @@ func (rt *Runtime) applyCommerce(division string, c *enterworld.Character, q wir
 		// goods sale. An ordinary item sale collects nothing; no sale path
 		// in the original calls 486330.
 		collected = 0
+		guildPointCost = 0
+		honorCost = 0
 		settledPool := *pool
 		buyback, nextID := c.Buyback, c.BuybackNext
 		switch q.MovementType {
@@ -326,19 +358,58 @@ func (rt *Runtime) applyCommerce(division string, c *enterworld.Character, q wir
 				return false
 			}
 			cost := unit * uint64(q.Quantity)
-			if offer.Currency != commerce.PaymentHonor {
+			if offer.Currency == 0 || offer.Currency == commerce.PaymentGold {
 				collected = int64(cost) - int64(offer.Price*uint64(q.Quantity))
 			}
-			if offer.Currency == commerce.PaymentHonor {
-				if cost > honorPoints(c) {
+			switch offer.Currency {
+			case commerce.PaymentHonor:
+				if cost > math.MaxUint32 || cost > availableHonor {
 					refusal = wire.ErrCodeNotEnoughHonor
 					return false
 				}
+				honorCost = cost
 				// Paid in honor: the gold balance is untouched.
 				cost = 0
-			} else if cost > balance {
-				refusal = wire.ErrCodeNotEnoughGold
-				return false
+			case commerce.PaymentGuildPoint:
+				if !isGuildMaster {
+					refusal = wire.ErrCodeGuildShopNotMaster
+					return false
+				}
+				if cost > math.MaxUint32 || cost > availableGuildPoints {
+					refusal = wire.ErrCodeNotEnoughGuildPoints
+					return false
+				}
+				guildPointCost = cost
+				cost = 0
+			default:
+				if cost > balance {
+					refusal = wire.ErrCodeNotEnoughGold
+					return false
+				}
+				if offer.HonorPrice > 0 {
+					if offer.HonorPrice > math.MaxUint32/uint64(q.Quantity) {
+						return false
+					}
+					honorCost = offer.HonorPrice * uint64(q.Quantity)
+					if honorCost > availableHonor {
+						refusal = wire.ErrCodeNotEnoughHonor
+						return false
+					}
+				}
+				if offer.GuildPointPrice > 0 {
+					if !isGuildMaster {
+						refusal = wire.ErrCodeGuildShopNotMaster
+						return false
+					}
+					if offer.GuildPointPrice > math.MaxUint32/uint64(q.Quantity) {
+						return false
+					}
+					guildPointCost = offer.GuildPointPrice * uint64(q.Quantity)
+					if guildPointCost > availableGuildPoints {
+						refusal = wire.ErrCodeNotEnoughGuildPoints
+						return false
+					}
+				}
 			}
 			contents := append([]commerce.Content(nil), offer.Contents...)
 			if len(contents) == 0 {
@@ -412,11 +483,14 @@ func (rt *Runtime) applyCommerce(division string, c *enterworld.Character, q wir
 				part := item
 				part.Quantity = q.Quantity
 				var profit int64
-				credit, profit, collected, priced = rt.tradeSaleValue(division, c, npc, part)
+				// One snapshot of the live tunables prices the sale and splits it.
+				settings := tunables.Current()
+				credit, profit, collected, priced = rt.tradeSaleValue(division, c, npc, part, settings)
 				if !priced {
 					return false
 				}
-				payouts = rt.tradeRewards(division, c, roster, commerce.TradeRewardInput{Credit: int64(credit), Profit: profit})
+				payouts = rt.tradeRewards(division, c, roster, commerce.TradeRewardInput{Credit: int64(credit), Profit: profit},
+					settings)
 				for _, payout := range payouts {
 					if payout.Gold < 0 || uint64(payout.Gold) > math.MaxInt64-goldOf(payout.character) {
 						return false
@@ -499,6 +573,12 @@ func (rt *Runtime) applyCommerce(division string, c *enterworld.Character, q wir
 	if !committed {
 		return failureResult(refusal)
 	}
+	if honorCost > 0 {
+		rt.spendHonorPoints(division, snapshot, uint32(honorCost))
+	}
+	if guildPointCost > 0 {
+		result = rt.spendGuildPoints(division, snapshot, uint32(guildPointCost), result)
+	}
 	rt.collectFortressTax(division, npc, collected)
 	return result
 }
@@ -507,11 +587,12 @@ func (rt *Runtime) applyCommerce(division string, c *enterworld.Character, q wir
 ================
 offerUnitPrice
 
-Gold prices carry the town tax; honor prices are the authored points.
+Gold prices carry the town tax; guild-point and honor prices are the
+authored points.
 ================
 */
 func offerUnitPrice(o commerce.Offer, tax commerce.Tax) (uint64, bool) {
-	if o.Currency == commerce.PaymentHonor {
+	if o.Currency == commerce.PaymentHonor || o.Currency == commerce.PaymentGuildPoint {
 		return o.Price, o.Price > 0
 	}
 	return commerce.AdjustPrice(o.Price, tax, true)
@@ -521,14 +602,33 @@ func offerUnitPrice(o commerce.Offer, tax commerce.Tax) (uint64, bool) {
 ================
 honorPoints
 
-Training Camp honor is the only source of honor points (client
-UIIT_STT_TC_HONOR_POINT). INFERENCE: the server has no Training Camp
-authority, so no character has earned any and every honor package refuses
-with the native lack-of-honor notice instead of trading.
+Returns the character's usable Training Camp honor points via the runtime's
+HonorPoints hook (CShopApp_CheckPurchasePayment 0x00617360 @ 0x00617629 ->
+CGObjPC_GetTrainingCampHonorPoints 0x004EA600 ->
+CTrainingCamp_FindMemberByCharID 0x005E4260, member [member+0x34]+0x54),
+or 0 when unconfigured.
 ================
 */
-func honorPoints(c *enterworld.Character) uint64 {
-	return 0
+func (rt *Runtime) honorPoints(division string, c *enterworld.Character) uint64 {
+	if rt == nil || rt.HonorPoints == nil || c == nil {
+		return 0
+	}
+	return uint64(rt.HonorPoints(division, c))
+}
+
+/*
+================
+spendHonorPoints
+
+Deducts cost honor points via the runtime's SpendHonorPoints hook after a
+shop purchase commits.
+================
+*/
+func (rt *Runtime) spendHonorPoints(division string, c *enterworld.Character, cost uint32) {
+	if rt == nil || rt.SpendHonorPoints == nil || c == nil || cost == 0 {
+		return
+	}
+	_ = rt.SpendHonorPoints(division, c, cost)
 }
 
 /*

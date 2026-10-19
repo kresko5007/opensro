@@ -161,6 +161,10 @@ type Runtime struct {
 	NpcDialogs *NpcDialogStore
 	NpcQuests  NpcQuestHooks
 
+	// GMQuests are the quest runtime's GM tools (gmquest.go), injected by the
+	// composition root like NpcQuests.
+	GMQuests GMQuestHooks
+
 	// bodyRestores holds the timed body-mode restores (spawnprotection.go).
 	bodyRestores *BodyRestoreQueue
 
@@ -573,6 +577,21 @@ type Runtime struct {
 	// banned character's lines. Nil keeps both in-game only.
 	PublicChat *chatfeed.Feed
 
+	// HonorPoints returns the character's usable Training Camp honor points
+	// (0x00617360 @ 0x00617629 -> 0x004EA600 -> 0x005E4260, [member+0x34]+0x54). Nil reports 0.
+	HonorPoints func(divisionID string, c *enterworld.Character) uint32
+
+	// SpendHonorPoints deducts cost from Training Camp honor points and broadcasts
+	// 0x3AC5 status 5 flag 3 (0x004E9AE0 @ 0x004E9C1A..0x004E9C37 -> 0x005E3760 -> 0x005DE6C0).
+	// Nil refuses honor deductions.
+	SpendHonorPoints func(divisionID string, c *enterworld.Character, cost uint32) bool
+
+	// honorMu serializes shop purchases against HonorPoints + SettleTrade +
+	// SpendHonorPoints so concurrent 0x7034 requests cannot double-spend a
+	// mentor's honor balance across the store door boundary. Always acquired
+	// outside store.mu.
+	honorMu sync.Mutex
+
 	// PushMonsterCast publishes prepared-cast results before the division
 	// transaction ends. It must only enqueue (never perform network I/O).
 	// Detached runtimes leave it nil and inspect returned frames instead.
@@ -861,116 +880,6 @@ func writeBackWorld(character *enterworld.Character, state simulation.WorldState
 	next.MovementMode = &mode
 	next.SpawnSet = state.SpawnSet
 	character.World = &next
-}
-
-/*
-==================
-liveSpawn
-
-liveSpawn samples the character's LIVE position - the bug-D plane. Every
-position-dependent op reads THIS, never the goal in WorldState.Spawn.
-==================
-*/
-func (rt *Runtime) liveSpawn(
-	worldKey string,
-	character *enterworld.Character,
-	nowMs int64,
-) simulation.Spawn {
-	snapshot := rt.Worlds.Snapshot(worldKey, func() simulation.WorldState {
-		return simulation.SeedWorldState(character)
-	})
-
-	return snapshot.LiveSpawnAt(nowMs)
-}
-
-/*
-==================
-LiveSpawnFor
-
-The character's live position now, for lanes outside action that gate on
-native range (the party invite's CGObjChar_CheckHitRange).
-==================
-*/
-func (rt *Runtime) LiveSpawnFor(divisionID string, character *enterworld.Character) simulation.Spawn {
-	return rt.liveSpawn(simulation.WorldKey(divisionID, character.Name), character, rt.Now().UnixMilli())
-}
-
-/*
-==================
-liveNav
-
-liveNav is liveSpawn plus the surface owner retained at that point.
-==================
-*/
-func (rt *Runtime) liveNav(
-	worldKey string,
-	character *enterworld.Character,
-	nowMs int64,
-) (simulation.Spawn, simulation.NavOwner) {
-	snapshot := rt.Worlds.Snapshot(worldKey, func() simulation.WorldState {
-		return simulation.SeedWorldState(character)
-	})
-
-	return snapshot.LiveSpawnAt(nowMs), snapshot.LiveOwnerAt(nowMs)
-}
-
-/*
-==================
-constrainWalk
-
-constrainWalk routes a character move through the owner-aware constraint,
-degrading to the owner-less one only in compositions that lack it.
-==================
-*/
-func (rt *Runtime) constrainWalk(
-	characterName string,
-	from simulation.Spawn,
-	fromOwner simulation.NavOwner,
-	to simulation.Spawn,
-) (simulation.Spawn, simulation.NavWalk, *simulation.MoveError) {
-	if rt.ConstrainWalk != nil {
-		return rt.ConstrainWalk(characterName, from, fromOwner, to)
-	}
-
-	if rt.ConstrainMovement != nil {
-		committed, refusal := rt.ConstrainMovement(characterName, from, to)
-		return committed, simulation.NavWalk{}, refusal
-	}
-
-	return to, simulation.NavWalk{}, nil
-}
-
-/*
-==================
-admitGroundWalk
-
-Player approaches retain their intended goal while the world owner checks
-each elapsed movement step. A skill displacement still resolves its whole
-authored chord through constrainWalk before it commits.
-==================
-*/
-func (rt *Runtime) admitGroundWalk(
-	characterName string,
-	from simulation.Spawn,
-	fromOwner simulation.NavOwner,
-	to simulation.Spawn,
-) (simulation.Spawn, simulation.NavWalk, *simulation.MoveError) {
-	if rt.AdmitGroundWalk != nil {
-		return rt.AdmitGroundWalk(characterName, from, fromOwner, to)
-	}
-	return rt.constrainWalk(characterName, from, fromOwner, to)
-}
-
-/*
-==================
-samePlacement
-
-samePlacement compares where a move lands. Walked goals stand on their
-surface's height, so the requested int16 Y is not part of the comparison.
-==================
-*/
-func samePlacement(a, b simulation.Spawn) bool {
-	return a.RegionID == b.RegionID && a.X == b.X && a.Z == b.Z
 }
 
 // ---- 0x72CD pickup ----

@@ -1,10 +1,10 @@
 /*
 ===========================================================================
 
-design.go - the attack-pet design workbook, embedded
+design.go - the attack-pet design JSON, embedded
 
 Port-only, not native. petdesign.json is written by
-scripts/tools/pet_design_export.py from docs/pet-expansion/pet-design.xlsx
+scripts/tools/pet_design_export.py from docs/pet-expansion/pet-design.json
 (the owner's single source: rules, skills, gear, degrees, affixes). It is
 compiled into the binary, so a malformed export is a build defect and
 panics at package init (the go:embed rule in apps/server/AGENTS.md).

@@ -54,7 +54,6 @@ var Settings = []Setting{
 	{Env: "SRO_BETA_PLAYER_MAP", NomadVar: "beta_player_map", Default: "on"},
 	{Env: "SRO_BETA_MASTERY", NomadVar: "beta_mastery", Default: "on", Catalogue: true, Source: Built},
 	{Env: "SRO_BETA_SILK", NomadVar: "beta_silk", Default: "50"},
-	{Env: "SRO_PARTY_MASTERIES", NomadVar: "party_masteries", Default: "on"},
 	// Grab and growth pets at four fifths of their run speed (#320): never
 	// deployed, so the deployment default stays native.
 	{Env: "SRO_PET_PACING", NomadVar: "pet_pacing", Default: "off"},
@@ -75,6 +74,13 @@ var Settings = []Setting{
 	{Env: "SRO_MOST_WANTED_BOUNTY_TRANSFER", NomadVar: "most_wanted_bounty_transfer", Default: "on"},
 	// Owner, 2026-10-14: trade stars by cargo gold, Jangan route profit.
 	{Env: "SRO_TRADE_TIERS", NomadVar: "trade_tiers", Default: "on", Catalogue: true},
+	// F10 trade group (game/tunables): the Jangan route profit percents. The
+	// site's trade quotes read them, so the catalogue does too.
+	{Env: "SRO_TRADE_ROUTE_DONWHANG_PERCENT", NomadVar: "trade_route_donwhang_percent", Default: "50", Catalogue: true},
+	{Env: "SRO_TRADE_ROUTE_HOTAN_PERCENT", NomadVar: "trade_route_hotan_percent", Default: "100", Catalogue: true},
+	{Env: "SRO_TRADE_ROUTE_SAMARKAND_PERCENT", NomadVar: "trade_route_samarkand_percent", Default: "200", Catalogue: true},
+	{Env: "SRO_TRADE_ROUTE_CONSTANTINOPLE_PERCENT", NomadVar: "trade_route_constantinople_percent", Default: "300",
+		Catalogue: true},
 	// Owner, 2026-10-14: trader and hunter suits hide worn armour.
 	{Env: "SRO_JOB_SUIT_HIDES_ARMOR", NomadVar: "job_suit_hides_armor", Default: "on"},
 	// Owner, 2026-10-15: level-20 thief suits wear the Moonlit Ash look.
@@ -97,16 +103,30 @@ var Settings = []Setting{
 	{Env: "SRO_JOB_KILL_NOTICES_PER_MINUTE", NomadVar: "job_kill_notices_per_minute", Default: "6"},
 	{Env: "SRO_MOST_WANTED_NOTICES_PER_MINUTE", NomadVar: "most_wanted_notices_per_minute", Default: "6"},
 	{Env: "SRO_JOB_KILL_REPEAT_MINUTES", NomadVar: "job_kill_repeat_minutes", Default: "10"},
+	// F10 uiTuning: the client values sent at world entry (game/tunables).
+	{Env: "SRO_SHORT_NOTICE_SHOW_MS", NomadVar: "short_notice_show_ms", Default: "5000"},
+	{Env: "SRO_SHORT_NOTICE_FADE_MS", NomadVar: "short_notice_fade_ms", Default: "1000"},
+	{Env: "SRO_CHAT_ACK_TIMEOUT_MS", NomadVar: "chat_ack_timeout_ms", Default: "10000"},
 	// Owner, 2026-10-15: Most Wanted levels and claimed bounties are announced.
 	{Env: "SRO_ANNOUNCE_MOST_WANTED", NomadVar: "announce_most_wanted", Default: "on"},
 	// Owner, 2026-10-14: +10% party EXP and gold per thief (cap 50%).
 	{Env: "SRO_THIEF_PARTY_BONUS", NomadVar: "thief_party_bonus", Default: "on"},
+	// F10 trade group (game/tunables): the per-thief percent and its cap.
+	{Env: "SRO_THIEF_PARTY_PERCENT_EACH", NomadVar: "thief_party_percent_each", Default: "10"},
+	{Env: "SRO_THIEF_PARTY_PERCENT_CAP", NomadVar: "thief_party_percent_cap", Default: "50"},
 	// Owner, 2026-10-14: trader +10%/hunter (cap 20%), hunter +10%/trader (cap 60%).
 	{Env: "SRO_TRADE_JOB_BONUS", NomadVar: "trade_job_bonus", Default: "on"},
+	// F10 trade group (game/tunables): the four trader and hunter percents.
+	{Env: "SRO_TRADE_JOB_TRADER_PERCENT_PER_HUNTER", NomadVar: "trade_job_trader_percent_per_hunter", Default: "10"},
+	{Env: "SRO_TRADE_JOB_TRADER_PERCENT_CAP", NomadVar: "trade_job_trader_percent_cap", Default: "20"},
+	{Env: "SRO_TRADE_JOB_HUNTER_PERCENT_PER_TRADER", NomadVar: "trade_job_hunter_percent_per_trader", Default: "10"},
+	{Env: "SRO_TRADE_JOB_HUNTER_PERCENT_CAP", NomadVar: "trade_job_hunter_percent_cap", Default: "60"},
 	{Env: "SRO_REVERSE_RETURN_MAP", NomadVar: "reverse_return_map", Default: ""},
 	{Env: "SRO_GM_SETSPEED", NomadVar: "gm_setspeed", Default: "on"},
 	{Env: "SRO_ALCHEMY_RATES", NomadVar: "alchemy_rates", Default: "on", Catalogue: true},
-	{Env: "SRO_ALCHEMY_MAX_PLUS", NomadVar: "alchemy_max_plus", Default: "on", Catalogue: true},
+	// Owner, 2026-10-18: reversed the 2026-10-13 +11 cap; the deployment
+	// default stays native ("off", ceiling 250).
+	{Env: "SRO_ALCHEMY_MAX_PLUS", NomadVar: "alchemy_max_plus", Default: "off", Catalogue: true},
 	{Env: "SRO_TEAM_DEATH_REVIVE", NomadVar: "team_death_revive", Default: "on"},
 	{Env: "SRO_BETA_GROWTH", NomadVar: "beta_growth", Default: "on", Catalogue: true},
 	{Env: "SRO_BETA_SKILL_EXP_RATE", NomadVar: "beta_skill_exp_rate", Default: "100", Catalogue: true},
@@ -121,10 +141,12 @@ var Settings = []Setting{
 	{Env: "SRO_CARAVAN_STAR_AMBUSH", NomadVar: "caravan_star_ambush", Default: "on"},
 	// Owner, 2026-10-15: thief and hunter monsters move 20% faster.
 	{Env: "SRO_JOB_MONSTER_SPEED", NomadVar: "job_monster_speed", Default: "on"},
-	// Owner, 2026-10-15: a dismounted trade transport follows its trader.
-	{Env: "SRO_TRANSPORT_FOLLOW", NomadVar: "transport_follow", Default: "on"},
-	// Owner, 2026-10-15: town teleport with a trade transport out (testing).
-	{Env: "SRO_JOB_GOODS_TELEPORT", NomadVar: "job_goods_teleport", Default: "on"},
+	// Owner, 2026-10-18: reversed the 2026-10-15 follow setting; the
+	// deployment default stays native ("off", 0x4FD1D0).
+	{Env: "SRO_TRANSPORT_FOLLOW", NomadVar: "transport_follow", Default: "off"},
+	// Owner, 2026-10-18: reversed the 2026-10-15 testing switch; the
+	// deployment default stays native ("off", town gates refuse a transport).
+	{Env: "SRO_JOB_GOODS_TELEPORT", NomadVar: "job_goods_teleport", Default: "off"},
 	{Env: "SRO_ELIXIR_DROPS_OFF", NomadVar: "elixir_drops_off", Default: "on", Catalogue: true},
 	// Owner, 2026-10-14: alchemy materials no longer drop; "off" is native.
 	{Env: "SRO_ALCHEMY_MATERIAL_DROPS_OFF", NomadVar: "alchemy_material_drops_off", Default: "on", Catalogue: true},
@@ -139,6 +161,10 @@ var Settings = []Setting{
 	// Owner, 2026-10-13 (F7): Lucky Powder stacks to 500; 2026-10-14:
 	// arrows and bolts stack to 2500. "off" is native.
 	{Env: "SRO_STACK_SIZES", NomadVar: "stack_sizes", Default: "arrow=2500,bolt=2500,luckypowder=500", Source: Built},
+	// Owner, 2026-10-17: Qin-Shi Emperor Tomb Floor 1-4 monsters, skills
+	// and walk-in portals (port-only, not native: v1.150 shipped Tomb visual
+	// assets before the Legend IV server tables). "off" is native.
+	{Env: "SRO_QINSHI_TOMB", NomadVar: "qinshi_tomb", Default: "off"},
 }
 
 // NotSettings are the job's other SRO_ variables: what a deployment

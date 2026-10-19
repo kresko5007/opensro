@@ -21,6 +21,7 @@ import (
 	"opensro.online/server/internal/game/enterworld"
 	"opensro.online/server/internal/game/item/grounditem"
 	"opensro.online/server/internal/game/item/wire"
+	"opensro.online/server/internal/game/tunables"
 	worldgeom "opensro.online/server/internal/game/world"
 	"opensro.online/server/internal/game/world/monster"
 	"opensro.online/server/internal/game/world/simulation"
@@ -58,6 +59,7 @@ rewardRoster
 ================
 */
 type rewardRoster struct {
+	division   string
 	actors     map[uint32]rewardActor
 	characters []*enterworld.Character
 }
@@ -71,7 +73,7 @@ authoritative character pointers, then enter a single UpdateMany transaction.
 ================
 */
 func (rt *Runtime) monsterRewardRoster(division string, actor *enterworld.Character, now int64) rewardRoster {
-	r := rewardRoster{actors: make(map[uint32]rewardActor)}
+	r := rewardRoster{division: division, actors: make(map[uint32]rewardActor)}
 	parties := []RewardParty(nil)
 	if rt.RewardParties != nil {
 		parties = rt.RewardParties(division)
@@ -312,6 +314,8 @@ func (rt *Runtime) settleMonsterInsideDoor(division string, actor *enterworld.Ch
 	if !impact.Fatal {
 		return out
 	}
+	// One snapshot of the live tunables for the whole kill (thiefparty.go).
+	settings := tunables.Current()
 	for _, award := range rt.grantBerserkForKill(actor, roster, impact) {
 		if award.CharacterID == actor.ID {
 			out.actorFrames = append(out.actorFrames, award.Frames...)
@@ -380,7 +384,7 @@ func (rt *Runtime) settleMonsterInsideDoor(division string, actor *enterworld.Ch
 			exp, sexp := monsterContributionReward(a.character, impact.Instance, rt.deps.LevelData(), g.damage, factors[i], a.party != nil && a.party.Options&1 != 0)
 			exp, sexp = paramJobRewardBonus(a.character, exp, sexp, now)
 			// Port-only, not native (thiefparty.go): the member's party's thieves.
-			exp = thiefPartyExp(exp, rt.thiefPartyPercent(division, a.party))
+			exp = thiefPartyExp(exp, rt.thiefPartyPercent(division, a.party, settings))
 			var frames []wire.Frame
 			if rt.UpdateExperience != nil && (exp != 0 || sexp != 0) {
 				frames, _ = rt.UpdateExperience(a.character, exp, sexp, impact.Instance.Gid)
@@ -410,7 +414,7 @@ func (rt *Runtime) settleMonsterInsideDoor(division string, actor *enterworld.Ch
 		// selected representative, never the actor who supplied the fatal hit.
 		planned := rt.planMonsterKillLoot(a.character, impact.Instance, pose, now)
 		rt.applyMonsterGoldBonus(division, a.character, planned)
-		rt.applyThiefPartyGold(division, a.character, planned)
+		rt.applyThiefPartyGold(division, a.character, planned, settings)
 		planned = append(planned, rt.planQuestKillDrops(a.character, impact.Instance, pose, now)...)
 		frames, drops, _ := rt.applyMonsterKillInsideDoor(division, a.character, 0, 0, impact.Instance.Gid, planned)
 		out.drops = drops

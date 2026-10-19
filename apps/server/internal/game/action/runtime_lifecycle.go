@@ -93,6 +93,7 @@ func (rt *Runtime) TickHook() simulation.TickHook {
 		step("advanceReturnScrolls", func() { rt.advanceReturnScrolls(nowMs) })
 		step("advanceJobDresses", func() { rt.advanceJobDresses(nowMs) })
 		step("advanceFortressPhases", func() { rt.advanceFortressPhases(nowMs) })
+		frames("advanceSiegeCorpses", rt.advanceSiegeCorpses)
 		frames("drainStructureDeaths", rt.drainStructureDeaths)
 		step("advanceFortressStructures", func() { rt.advanceFortressStructures(nowMs) })
 		step("advanceFortressForges", func() { rt.Fortresses.AdvanceItemForges(nowMs) })
@@ -183,15 +184,41 @@ pickup after reach succeeds; it does not require the client to replay the
 original target packet. Each due entry is revalidated under the same
 per-division operation lock as request-time pickup, then the actor and peer
 packet halves are routed without duplicating the public frames to the actor.
+
+Approach deadlines (armApproach) and GroundWalk stepping (EnableGroundWalk)
+both run against wall-clock rt.Now(), whereas simulation.Ticker.run passes the
+buffered <-ticker.C timestamp as nowMs. When a tick overruns 100ms, nowMs lags
+behind rt.Now() and would strand a walk that has already arrived until the
+next scheduled tick. Clamp now forward to rt.Now() so maturity and liveSpawn
+share the same clock as armApproach and GroundWalk.
 ==================
 */
 func (rt *Runtime) advancePendingPickups(nowMs int64) []simulation.DivisionFrames {
 	var recipients []simulation.DivisionFrames
-	now := time.UnixMilli(nowMs)
+	now := rt.pendingPickupNow(nowMs)
 	for _, pending := range rt.Pending.Due(now) {
 		recipients = append(recipients, rt.publishPendingPickup(pending, now)...)
 	}
 	return recipients
+}
+
+/*
+================
+pendingPickupNow
+
+Return the maturity clock for pending ground pickups: at least the scheduled
+tick timestamp nowMs, and at least rt.Now() when wall-clock time has advanced
+ahead of a buffered ticker tick.
+================
+*/
+func (rt *Runtime) pendingPickupNow(nowMs int64) time.Time {
+	now := time.UnixMilli(nowMs)
+	if rt.Now != nil {
+		if wall := rt.Now(); wall.After(now) {
+			return wall
+		}
+	}
+	return now
 }
 
 /*
@@ -286,6 +313,7 @@ Revalidate ownership and live approach range before committing inventory.
 ================
 */
 func (rt *Runtime) completePendingPickup(pending grounditem.Pending, now time.Time) (OpResult, *enterworld.Character) {
+	now = rt.pendingPickupNow(now.UnixMilli())
 	character := rt.findCharacter(pending.DivisionID, pending.CharacterName)
 	if character == nil {
 		rt.Pending.Clear(pending.Key)
@@ -307,14 +335,17 @@ func (rt *Runtime) completePendingPickup(pending grounditem.Pending, now time.Ti
 		groundItem.OwnerJID != enterworld.ObjectIDForCharacter(snapshot) &&
 		(rt.CanPickupOwnedDrop == nil ||
 			!rt.CanPickupOwnedDrop(pending.DivisionID, snapshot.Name, groundItem.OwnerJID)) {
-		return pickupRefusal(wire.ErrCodeCannotBePicked), character
+		// 4A9050's owner gate (0x1812): the drop is another's for now.
+		return pickupRefusal(wire.ErrCodeLockedByOther), character
 	}
 
 	worldKey := simulation.WorldKey(pending.DivisionID, character.Name)
 	live := rt.liveSpawn(worldKey, snapshot, now.UnixMilli())
 	from := grounditem.Point{RegionID: live.RegionID, X: float32(live.X), Z: float32(live.Z)}
 	if !grounditem.SameWorld(from, groundItem.Position) {
-		return pickupRefusal(wire.ErrCodeCannotBePicked), character
+		// Another plane: the presser's world holds no such object, the
+		// same answer 4A9050 seeds (3) before its lookup resolves nothing.
+		return pickupRefusal(wire.ErrCodeTargetGone), character
 	}
 	worldSnapshot := rt.Worlds.Snapshot(worldKey, func() simulation.WorldState {
 		return simulation.SeedWorldState(snapshot)
@@ -533,8 +564,8 @@ func (rt *Runtime) forgetCharacterLocked(divisionID, characterName string) {
 			// CGObjPC_ResetRuntimeState (4DE9ED, 4DEA23) zeroes the death
 			// kind (+0x1CB4) and the last EXP loss (+0x1CE0) with the actor: a
 			// relogged corpse takes the town rule and no earlier loss's refund.
-			changed = c.DeathKind != 0 || c.LastExpLoss != 0 || changed
-			c.DeathKind, c.LastExpLoss = 0, 0
+			changed = c.DeathKind != 0 || c.LastExpLoss != 0 || c.SiegeDeathAtMs != 0 || changed
+			c.DeathKind, c.LastExpLoss, c.SiegeDeathAtMs = 0, 0, 0
 			changed = len(c.Aggressions) != 0 || changed
 			c.Aggressions = nil
 			changed = c.TransitionBodyStatus(domain.BodyStatusTransition{}) || changed
@@ -553,6 +584,7 @@ func (rt *Runtime) forgetCharacterLocked(divisionID, characterName string) {
 	}
 
 	rt.forgetPetSession(divisionID, characterName)
+	rt.retirePetShields(divisionID, characterName)
 	rt.forgetRecoverySession(divisionID, characterName)
 	rt.Worlds.Forget(simulation.WorldKey(divisionID, characterName))
 	rt.groundApproachStops.Delete(simulation.WorldKey(divisionID, characterName))

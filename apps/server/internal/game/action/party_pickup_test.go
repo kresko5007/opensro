@@ -422,3 +422,316 @@ func TestPetPickupShareKeepsThePetAdmissions(t *testing.T) {
 		t.Fatalf("a mounted pet shared a pickup: %d left on the ground", len(rt.Ground.All(testDivision)))
 	}
 }
+
+/*
+================
+partyLootNoticesFor
+
+The 0x317D party loot notice payloads delivered to one party member.
+================
+*/
+func partyLootNoticesFor(result OpResult, id int64) [][]byte {
+	var out [][]byte
+	for _, r := range result.Recipients {
+		if r.CharacterID != id {
+			continue
+		}
+		for _, frame := range r.Frames {
+			if frame.Opcode == wire.OpPartyLootNotice {
+				out = append(out, frame.Payload)
+			}
+		}
+	}
+	return out
+}
+
+/*
+================
+TestPetPickupEmitsPartyLootNoticeOnOwnerAndPeerTurns
+
+CCOS_ExecuteGroundPickup (4D515E..4D517A) and CPlayer_ExecuteGroundPickup
+(5263C8..5263DF) call CParty_BroadcastLootNotice (5BDC80) after every
+granted non-gold pickup in an item-share party, including when the rotation
+selects the pet owner and the item lands in the pet bag (move type 0x11).
+================
+*/
+func TestPetPickupEmitsPartyLootNoticeOnOwnerAndPeerTurns(t *testing.T) {
+	rt, picker, peer, gid, heap := sharedPetFixture(t)
+	pick := func(item grounditem.Item) OpResult {
+		payload, err := wire.ItemMoveRequest{MovementType: wire.MoveTypeCosPickup, CosGID: gid, GroundGID: item.Gid}.Encode()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return rt.HandleItemMove(testDivision, picker, payload)
+	}
+	potion := grounditem.Item{RefObjID: picker.MissionInventory[0].RefObjID, Codename: picker.MissionInventory[0].Codename,
+		TypeFlags: picker.MissionInventory[0].TypeFlags, StackCount: 1}
+	wantPicker := wire.EncodePartyLootNotice(enterworld.ObjectIDForCharacter(picker), potion.RefObjID, potion.TypeFlags, 1)
+	wantPeer := wire.EncodePartyLootNotice(enterworld.ObjectIDForCharacter(peer), potion.RefObjID, potion.TypeFlags, 1)
+
+	// 4D5545: pet gold pickup must not advance the party item-share cursor, and
+	// shared pet pickup frames must never include the player 0xB2CD latch.
+	goldRes := pick(heap(grounditem.Item{GoldAmount: 40}))
+	for _, f := range goldRes.Frames {
+		if f.Opcode == wire.OpActionState {
+			t.Fatalf("pet shared gold pickup emitted player OpActionState: %+v", goldRes.Frames)
+		}
+	}
+
+	first := pick(heap(potion))
+	second := pick(heap(potion))
+	for _, f := range second.Frames {
+		if f.Opcode == wire.OpActionState {
+			t.Fatalf("pet shared item pickup emitted player OpActionState: %+v", second.Frames)
+		}
+	}
+	for _, memberID := range []int64{picker.ID, peer.ID} {
+		n1 := partyLootNoticesFor(first, memberID)
+		n2 := partyLootNoticesFor(second, memberID)
+		if len(n1) != 1 || len(n2) != 1 {
+			t.Fatalf("member %d notices = %d then %d, want 1 on both owner and peer turns", memberID, len(n1), len(n2))
+		}
+		if string(n1[0]) != string(wantPicker) || string(n2[0]) != string(wantPeer) {
+			t.Fatalf("member %d notice order = %x then %x, want picker (%x) then peer (%x)", memberID, n1[0], n2[0], wantPicker, wantPeer)
+		}
+	}
+}
+
+/*
+================
+TestSharedPlayerPickupFullRecipientBagRoutes07ToRecipientAndDAToPicker
+
+CPlayer_ExecuteGroundPickup (526343..5263B2): when the party rotation selects
+another member whose player bag is full (0x1807), the recipient receives
+0xB06D [2, 0x07] (ErrCodeStorageFull) and the picker receives 0xB06D [2, 0xDA]
+(ErrCodePartyInventoryFull) plus the 0xB2CD release.
+================
+*/
+func TestSharedPlayerPickupFullRecipientBagRoutes07ToRecipientAndDAToPicker(t *testing.T) {
+	rt, _, picker, peer, registry := sharedPickupFixture(t)
+	registry.NextLootMember(testDivision, picker.Name) // peer is next
+	peer.MissionInventory = nil
+	for slot := int64(13); slot < 45; slot++ {
+		peer.MissionInventory = append(peer.MissionInventory, domain.InventoryRow{
+			Slot: slot, RefObjID: 11459, Codename: "ITEM_CH_SWORD_01_A_RARE",
+			TypeFlags: wire.PackTypeFlags(3, 1, 6, 2), VarianceBits: "0", StackCount: 1,
+		})
+	}
+
+	pose := rt.liveSpawn(simulation.WorldKey(testDivision, picker.Name), picker.Snapshot(), rt.Now().UnixMilli())
+	drop := rt.Ground.Add(testDivision, grounditem.Item{
+		RefObjID: picker.MissionInventory[0].RefObjID, Codename: picker.MissionInventory[0].Codename,
+		TypeFlags: picker.MissionInventory[0].TypeFlags, StackCount: 1,
+		Position: grounditem.Point{RegionID: pose.RegionID, X: float32(pose.X), Z: float32(pose.Z)}, Y: float32(pose.Y),
+	})
+	res := rt.HandleTargetInteract(testDivision, picker, wire.TargetInteract{Gid: drop.Gid}.Encode())
+	if len(res.Broadcast) != 0 || len(rt.Ground.All(testDivision)) != 1 {
+		t.Fatalf("full-bag shared pickup consumed drop: %+v", res)
+	}
+	assertOpcodes(t, res.Frames, wire.OpItemMoveResponse, wire.OpActionState)
+	if got := res.Frames[0].Payload; len(got) != 2 || got[0] != 2 || got[1] != wire.ErrCodePartyInventoryFull {
+		t.Fatalf("picker 0xB06D = %x, want [02 DA]", got)
+	}
+	if len(res.Recipients) != 1 || res.Recipients[0].CharacterID != peer.ID || len(res.Recipients[0].Frames) != 1 {
+		t.Fatalf("peer recipient frames = %+v, want one 0xB06D [02 07]", res.Recipients)
+	}
+	if got := res.Recipients[0].Frames[0]; got.Opcode != wire.OpItemMoveResponse || len(got.Payload) != 2 ||
+		got.Payload[0] != 2 || got.Payload[1] != wire.ErrCodeStorageFull {
+		t.Fatalf("peer 0xB06D = %+v, want [02 07]", got)
+	}
+}
+
+/*
+================
+TestPetPickupSharedPeerFullPlayerBagSpillsToPeerPetAndNotifiesBothWhenFull
+
+CCOS_SelectPickupRecipient (4D5715..4D5744) and CCOS_ExecuteGroundPickup
+(4D5143, 4D52B6..4D54C6):
+ 1. When the rotated party member's player bag is full and they have no pickup
+    pet, the picker's owner receives 0xB69E [2, 8, 0x9C, pickerPet, item].
+ 2. When the rotated party member has a summoned pickup pet with free space,
+    the grant spills into that member's pickup pet (0xB06D type 0x11 to the
+    member, 0xB69E [1, 8, pickerPet, item] to the picker's owner, and 0x317D
+    party loot notices).
+ 3. When both the rotated member's player bag and their pickup pet bag are
+    full, the member receives 0xB69E [2, 8, 0xB4, peerPet, item] and the
+    picker's owner receives 0xB69E [2, 8, 0x9C, pickerPet, item].
+
+================
+*/
+func TestPetPickupSharedPeerFullPlayerBagSpillsToPeerPetAndNotifiesBothWhenFull(t *testing.T) {
+	rt, picker, peer, pickerPetGID, heap := sharedPetFixture(t)
+	occupied := domain.InventoryRow{
+		Slot: 13, RefObjID: 11459, Codename: "ITEM_CH_SWORD_01_A_RARE",
+		TypeFlags: wire.PackTypeFlags(3, 1, 6, 2), VarianceBits: "0", StackCount: 1,
+	}
+	potion := grounditem.Item{
+		RefObjID: 3630, Codename: "ITEM_ETC_HP_POTION_01",
+		TypeFlags: wire.PackTypeFlags(3, 3, 1, 1), StackCount: 1,
+	}
+	peer.MissionInventory = []domain.InventoryRow{{
+		Slot: 13, RefObjID: potion.RefObjID, Codename: potion.Codename,
+		TypeFlags: potion.TypeFlags, StackCount: 3,
+	}}
+	for slot := int64(14); slot < 45; slot++ {
+		row := occupied
+		row.Slot = slot
+		peer.MissionInventory = append(peer.MissionInventory, row)
+	}
+	drop1 := heap(potion)
+	cmd1 := wire.NewWriter(9).U32(pickerPetGID).U8(wire.CosCommandPickupTag).U32(drop1.Gid).Payload()
+
+	// 1. Peer has no free bag slot (even with a below-cap potion stack at slot 13) and no pickup pet:
+	// 4D570C probes CGStorage_FindFirstEmptySlot(0x0D) == 0xFF and refuses with 0x9C without merging.
+	rt.NextPartyLootMember(testDivision, picker.Name)
+	noPetRes := rt.HandleCosCommand(testDivision, picker, cmd1)
+	assertCosPickupAck(t, noPetRes.Frames, pickerPetGID, drop1.Gid, false)
+	if noPetRes.Frames[0].Payload[2] != cosPickupRetryBackoff || len(noPetRes.Recipients) != 0 || len(rt.Ground.All(testDivision)) != 1 {
+		t.Fatalf("peer without pet full-bag result = %+v, want 0x9C to picker and no peer frame", noPetRes)
+	}
+	if peer.MissionInventory[0].StackCount != 3 {
+		t.Fatalf("peer slot 13 stack = %d, want 3 (no merge when no empty slot exists at 4D570C)", peer.MissionInventory[0].StackCount)
+	}
+
+	// 2. Summon a 1-slot pickup pet for peer and rotate back to peer: drop1 spills to peer's pet without merging into slot 13.
+	peerPetGID, _ := enterworld.CosObjectIDForCharacter(peer)
+	peer.ActiveCOS = &enterworld.CharacterCOS{GID: peerPetGID, RefObjID: 9, Codename: "PET", CurrentHP: 100, Summoned: true,
+		Container: &domain.COSContainer{Capacity: 1}}
+	rt.BindPetSession(testDivision, peer, 1)
+	rt.NextPartyLootMember(testDivision, picker.Name) // advance past picker back to peer
+	spillRes := rt.HandleCosCommand(testDivision, picker, cmd1)
+	assertCosPickupAck(t, spillRes.Frames, pickerPetGID, drop1.Gid, true)
+	if len(rt.Ground.All(testDivision)) != 0 || len(peer.ActiveCOS.Container.Rows) != 1 || peer.MissionInventory[0].StackCount != 3 {
+		t.Fatalf("spillover into peer pet failed: ground=%d peerPetRows=%+v peerSlot13=%d", len(rt.Ground.All(testDivision)), peer.ActiveCOS.Container.Rows, peer.MissionInventory[0].StackCount)
+	}
+	sawPeerPetReceipt := false
+	for _, r := range spillRes.Recipients {
+		if r.CharacterID != peer.ID {
+			continue
+		}
+		for _, f := range r.Frames {
+			if f.Opcode == wire.OpItemMoveResponse && len(f.Payload) >= 6 && f.Payload[0] == 1 && f.Payload[1] == wire.MoveTypeCosPickup {
+				sawPeerPetReceipt = true
+			}
+		}
+	}
+	if !sawPeerPetReceipt || len(partyLootNoticesFor(spillRes, picker.ID)) != 1 || len(partyLootNoticesFor(spillRes, peer.ID)) != 1 {
+		t.Fatalf("missing peer 0x11 receipt (%v) or 0x317D notices in %+v", sawPeerPetReceipt, spillRes.Recipients)
+	}
+
+	// 3. Peer's player bag and peer's 1-slot pickup pet are both full (for a non-stacking item).
+	swordDrop := heap(grounditem.Item{
+		RefObjID: occupied.RefObjID, Codename: occupied.Codename, TypeFlags: occupied.TypeFlags, StackCount: 1,
+	})
+	cmd2 := wire.NewWriter(9).U32(pickerPetGID).U8(wire.CosCommandPickupTag).U32(swordDrop.Gid).Payload()
+	rt.NextPartyLootMember(testDivision, picker.Name) // advance past picker back to peer
+	bothFullRes := rt.HandleCosCommand(testDivision, picker, cmd2)
+	assertCosPickupAck(t, bothFullRes.Frames, pickerPetGID, swordDrop.Gid, false)
+	if bothFullRes.Frames[0].Payload[2] != cosPickupRetryBackoff || len(rt.Ground.All(testDivision)) != 1 {
+		t.Fatalf("picker ack on dual-full = %+v, want 0x9C with drop preserved", bothFullRes)
+	}
+	if len(bothFullRes.Recipients) != 1 || bothFullRes.Recipients[0].CharacterID != peer.ID {
+		t.Fatalf("dual-full recipients = %+v, want peer 0xB4 ack", bothFullRes.Recipients)
+	}
+	assertCosPickupAck(t, bothFullRes.Recipients[0].Frames, peerPetGID, swordDrop.Gid, false)
+	if bothFullRes.Recipients[0].Frames[0].Payload[2] != cosPickupBagFull {
+		t.Fatalf("peer pet ack code = 0x%02X, want 0xB4", bothFullRes.Recipients[0].Frames[0].Payload[2])
+	}
+}
+
+/*
+================
+TestManualCosItemMoveKeepsB06DErrorCodesOnFullBags
+
+CGObjPC_OnItemMoveRequest (50F87A) dispatches 0x706D move type 0x11 to
+CPlayer_ExecuteGroundPickup (526090), which uses 0xB06D error codes (0x07 /
+0xDA) rather than the 0x769E command codes (0x9C / 0xB4 / 0xB5) or peer-pet
+spillover from CCOS_SelectPickupRecipient (4D5510).
+================
+*/
+func TestManualCosItemMoveKeepsB06DErrorCodesOnFullBags(t *testing.T) {
+	rt, picker, peer, pickerPetGID, heap := sharedPetFixture(t)
+	occupied := domain.InventoryRow{
+		Slot: 13, RefObjID: 11459, Codename: "ITEM_CH_SWORD_01_A_RARE",
+		TypeFlags: wire.PackTypeFlags(3, 1, 6, 2), VarianceBits: "0", StackCount: 1,
+	}
+	peer.MissionInventory = nil
+	picker.MissionInventory = nil
+	for slot := int64(13); slot < 45; slot++ {
+		row := occupied
+		row.Slot = slot
+		peer.MissionInventory = append(peer.MissionInventory, row)
+		picker.MissionInventory = append(picker.MissionInventory, row)
+	}
+	peerPetGID, _ := enterworld.CosObjectIDForCharacter(peer)
+	peer.ActiveCOS = &enterworld.CharacterCOS{GID: peerPetGID, RefObjID: 9, Codename: "PET", CurrentHP: 100, Summoned: true,
+		Container: &domain.COSContainer{Capacity: 4}}
+	rt.BindPetSession(testDivision, peer, 1)
+
+	// 1. Manual 0x706D move type 0x11 when the rotated peer's player bag is full:
+	// routes 0xB06D [2, 0x07] to peer and [2, 0xDA] to picker without spilling to peer's pet.
+	swordDrop := heap(grounditem.Item{
+		RefObjID: occupied.RefObjID, Codename: occupied.Codename, TypeFlags: occupied.TypeFlags, StackCount: 1,
+	})
+	rt.NextPartyLootMember(testDivision, picker.Name)
+	req, err := wire.ItemMoveRequest{MovementType: wire.MoveTypeCosPickup, CosGID: pickerPetGID, GroundGID: swordDrop.Gid}.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := rt.HandleItemMove(testDivision, picker, req)
+	if len(res.Frames) != 1 || res.Frames[0].Opcode != wire.OpItemMoveResponse ||
+		len(res.Frames[0].Payload) != 2 || res.Frames[0].Payload[0] != 2 || res.Frames[0].Payload[1] != wire.ErrCodePartyInventoryFull {
+		t.Fatalf("picker manual 0x706D frames = %+v, want 0xB06D [02 DA]", res.Frames)
+	}
+	if len(res.Recipients) != 1 || res.Recipients[0].CharacterID != peer.ID || len(res.Recipients[0].Frames) != 1 ||
+		res.Recipients[0].Frames[0].Opcode != wire.OpItemMoveResponse || len(res.Recipients[0].Frames[0].Payload) != 2 ||
+		res.Recipients[0].Frames[0].Payload[0] != 2 || res.Recipients[0].Frames[0].Payload[1] != wire.ErrCodeStorageFull {
+		t.Fatalf("peer manual 0x706D recipients = %+v, want 0xB06D [02 07]", res.Recipients)
+	}
+	if len(peer.ActiveCOS.Container.Rows) != 0 {
+		t.Fatalf("manual 0x706D spilled into peer pet container: %+v", peer.ActiveCOS.Container.Rows)
+	}
+
+	// 2. Manual 0x706D move type 0x11 on a personal quest drop when owner's player bag is full:
+	// returns 0xB06D [2, 0x07] rather than 0x9C/0xB5.
+	questDrop := heap(grounditem.Item{
+		RefObjID: 45165, Codename: "ITEM_QNO_EU_CON_19_01", TypeFlags: wire.PackTypeFlags(3, 3, 9, 0), StackCount: 1,
+	})
+	questReq, err := wire.ItemMoveRequest{MovementType: wire.MoveTypeCosPickup, CosGID: pickerPetGID, GroundGID: questDrop.Gid}.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	questRes := rt.HandleItemMove(testDivision, picker, questReq)
+	if len(questRes.Frames) != 1 || questRes.Frames[0].Opcode != wire.OpItemMoveResponse ||
+		len(questRes.Frames[0].Payload) != 2 || questRes.Frames[0].Payload[0] != 2 || questRes.Frames[0].Payload[1] != wire.ErrCodeStorageFull {
+		t.Fatalf("picker manual 0x706D quest full-bag frames = %+v, want 0xB06D [02 07]", questRes.Frames)
+	}
+}
+
+/*
+================
+TestGrantPeerCosPickupRechecksReservationUnderRecipientUpdate
+
+grantPeerCosPickup re-reads the ground item under the recipient update door
+and must re-verify OwnerJID and TradeOwner before mutating the peer's pet bag.
+================
+*/
+func TestGrantPeerCosPickupRechecksReservationUnderRecipientUpdate(t *testing.T) {
+	rt, picker, peer, _, heap := sharedPetFixture(t)
+	peerPetGID, _ := enterworld.CosObjectIDForCharacter(peer)
+	peer.ActiveCOS = &enterworld.CharacterCOS{GID: peerPetGID, RefObjID: 9, Codename: "PET", CurrentHP: 100, Summoned: true,
+		Container: &domain.COSContainer{Capacity: 4}}
+	rt.BindPetSession(testDivision, peer, 1)
+
+	drop := heap(grounditem.Item{
+		RefObjID: picker.MissionInventory[0].RefObjID, Codename: picker.MissionInventory[0].Codename,
+		TypeFlags: picker.MissionInventory[0].TypeFlags, StackCount: 1,
+		OwnerJID: 0x7777777, DroppedAt: rt.Now(),
+	})
+	res := rt.grantPeerCosPickup(testDivision, picker, peer, drop, wire.PickupAnim{Gid: peerPetGID}, petPickupAt{
+		now: rt.Now(), command: true,
+	})
+	if len(res.Broadcast) != 0 || len(peer.ActiveCOS.Container.Rows) != 0 || len(rt.Ground.All(testDivision)) != 1 {
+		t.Fatalf("grantPeerCosPickup bypassed OwnerJID recheck: res=%+v rows=%+v", res, peer.ActiveCOS.Container.Rows)
+	}
+}

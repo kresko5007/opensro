@@ -443,7 +443,7 @@ test("asset worker admits and publishes the navigation lane within its request b
 		async () => new Response( bytes( "/assets/world/dungeon/dungeon-resources.json" ) )
 	);
 	const loader = createLoader( r => {
-		if ( r.kind !== "progress" ) results.push( r );
+		if ( ![ "progress", "job-progress", "job-decoding", "job-fetching" ].includes( r.kind ) ) results.push( r );
 	} );
 	t.after( () => loader.dispose() );
 	loader.receive( {
@@ -579,9 +579,12 @@ function portalInterior( p, e, regionId ) {
 	};
 }
 test("every published dungeon portal crosses its linked seam through the movement navigation owner", async () => {
-	const nav = createNavigation(), resources = createNavigationResources(), failures = [];
+	const nav = createNavigation(),
+		resources = createNavigationResources(),
+		failures = [],
+		entries = json( "/assets/world/dungeon/dungeon-resources.json" ).entries;
 	let total = 0;
-	for ( const e of json( "/assets/world/dungeon/dungeon-resources.json" ).entries ) {
+	for ( const e of entries ) {
 		const p = await resources.resolve(
 			bytes( "/assets/world/dungeon/dungeon-resources.json" ),
 			e.sectorId,
@@ -604,7 +607,7 @@ test("every published dungeon portal crosses its linked seam through the movemen
 	const fs = await import( "node:fs" );
 	fs.mkdirSync( "temp/artifacts", { recursive: true } );
 	fs.writeFileSync( "temp/artifacts/topology-corpus-failures.json", JSON.stringify( failures ) );
-	assert.equal( total, 308 );
+	assert.equal( total, entries.length === 8 ? 2798 : 308 );
 	assert.deepEqual( failures, [] );
 });
 

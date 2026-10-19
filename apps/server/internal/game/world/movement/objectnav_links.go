@@ -7,7 +7,11 @@ objectnav_links.go - authored placement links and collision passage queries
 */
 package movement
 
-import "math"
+import (
+	"math"
+
+	"opensro.online/server/internal/game/world/simulation"
+)
 
 // A reachable link is not itself an exit: rescue must traverse its destination
 // cell and prove a terrain exit there. The visited set terminates linked cycles.
@@ -80,6 +84,117 @@ func objectLinkedLaneSealed(set []resolvedObjectNav, source int, mesh *objectNav
 	return true
 }
 
+/*
+================
+objectDeckStandSealed
+
+Traverses the object-nav cell lane from stand, rebinding across sector
+boundaries when an outline link edge (flags&8 != 0) lies in an adjacent sector
+whose NVM carries the resolved target placement (native 0x009A0485 + 0x009A04AE).
+================
+*/
+func (v *WaterValidator) objectDeckStandSealed(stand *objectDeckStand) bool {
+	if stand == nil {
+		return false
+	}
+	if v == nil || stand.surface == nil {
+		return objectLinkedLaneSealed(stand.set, stand.objectIndex, stand.mesh, stand.cellIndex)
+	}
+	type visitKey struct {
+		seedRegionID uint16
+		setDX, setDZ int
+		object, cell int
+	}
+	queue := []*objectDeckStand{stand}
+	seen := map[visitKey]bool{}
+	enqueueLink := func(cur *objectDeckStand, edge int) bool {
+		if cur == nil || cur.objectIndex < 0 || cur.objectIndex >= len(cur.set) || len(cur.set[cur.objectIndex].meshes) != 1 {
+			return false
+		}
+		for _, link := range cur.placement.links {
+			if link.edge != edge || link.target == 65535 {
+				continue
+			}
+			for targetIdx, entry := range cur.set {
+				if entry.placement.ordinal != link.target || len(entry.meshes) != 1 {
+					continue
+				}
+				other := entry.meshes[0]
+				if link.targetEdge < 0 || link.targetEdge >= len(other.outline.srcCell) {
+					return false
+				}
+				next := *cur
+				next.objectIndex = targetIdx
+				next.meshIndex = 0
+				next.mesh = other
+				next.placement = entry.placement
+				next.cellIndex = int(other.outline.srcCell[link.targetEdge])
+				queue = append(queue, &next)
+				return true
+			}
+			return false
+		}
+		return false
+	}
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		key := visitKey{
+			seedRegionID: cur.surface.seedRegionID,
+			setDX:        cur.setDX,
+			setDZ:        cur.setDZ,
+			object:       cur.objectIndex,
+			cell:         cur.cellIndex,
+		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		if len(seen) > 65536 {
+			return false
+		}
+		m := cur.mesh
+		if cur.cellIndex < 0 || cur.cellIndex >= m.cellCount() {
+			return false
+		}
+		for i, flags := range m.internal.flags {
+			src, dst := int(m.internal.srcCell[i]), int(m.internal.dstCell[i])
+			if src == cur.cellIndex && flags&2 == 0 {
+				queue = append(queue, cur.withCell(dst))
+			}
+			if dst == cur.cellIndex && flags&1 == 0 {
+				queue = append(queue, cur.withCell(src))
+			}
+		}
+		for edge, flags := range m.outline.flags {
+			if int(m.outline.srcCell[edge]) != cur.cellIndex {
+				continue
+			}
+			if flags == 0 {
+				return false
+			}
+			if flags&8 == 0 {
+				continue
+			}
+			if enqueueLink(cur, edge) {
+				continue
+			}
+			va, vb := int(m.outline.vertA[edge])*3, int(m.outline.vertB[edge])*3
+			mx := 0.5 * (float64(m.vertices[va]) + float64(m.vertices[vb]))
+			mz := 0.5 * (float64(m.vertices[va+2]) + float64(m.vertices[vb+2]))
+			c, s := math.Cos(cur.placement.yaw), math.Sin(cur.placement.yaw)
+			edgeWX := c*mx - s*mz + cur.anchorX + cur.placement.x
+			edgeWZ := s*mx + c*mz + cur.anchorZ + cur.placement.z
+			edgeSectorX := int(math.Floor(edgeWX / simulation.NativeRegionSize))
+			edgeSectorZ := int(math.Floor(edgeWZ / simulation.NativeRegionSize))
+			if rebound := v.rebindStandToSector(cur, edgeSectorX, edgeSectorZ); rebound != nil && rebound != cur {
+				enqueueLink(rebound, edge)
+			}
+		}
+	}
+	return true
+}
+
 // Native 403fb0 indexes the region's original placement vector, never the
 // filtered list of successfully resolved meshes. Missing/ambiguous targets block.
 /*
@@ -145,13 +260,25 @@ resolveSurfacePassages
 ================
 */
 func resolveSurfacePassages(set []resolvedObjectNav, from, to [3]float64, owned bool) objectPassages {
+	return resolveSurfacePassagesIndexed(set, nil, from, to, owned)
+}
+
+/*
+================
+resolveSurfacePassagesIndexed
+
+resolveSurfacePassages with the set's ordinal -> index map supplied by a
+caller that owns an immutable set (a dungeon surface builds it once); nil
+builds it at the first link, as before.
+================
+*/
+func resolveSurfacePassagesIndexed(set []resolvedObjectNav, indices map[int]int, from, to [3]float64, owned bool) objectPassages {
 	x0, y0, z0 := from[0], from[1], from[2]
 	x1, y1, z1 := to[0], to[1], to[2]
 	dx, dz := x1-x0, z1-z0
 	var passages objectPassages
-	// Built at the first link: most placements have none, and building it
-	// for every monster step allocated about 60 MB a minute.
-	var indices map[int]int
+	// Built at the first link when not supplied: most placements have none,
+	// and building it for every monster step allocated about 60 MB a minute.
 	crossing := func(obj *resolvedObjectNav, edge int, leaving bool) (float64, bool) {
 		if len(obj.meshes) != 1 {
 			return 0, false
@@ -160,20 +287,26 @@ func resolveSurfacePassages(set []resolvedObjectNav, from, to [3]float64, owned 
 		if edge < 0 || edge >= len(m.outline.flags) {
 			return 0, false
 		}
-		a, b := portalEndpoint(obj.placement, m, edge, 0), portalEndpoint(obj.placement, m, edge, 1)
+		p := obj.placement
+		c, s := obj.cosYaw, obj.sinYaw
+		if c == 0 && s == 0 {
+			c, s = math.Cos(p.yaw), math.Sin(p.yaw)
+		}
+		va, vb := int(m.outline.vertA[edge])*3, int(m.outline.vertB[edge])*3
+		ax, ay, az := float64(m.vertices[va]), float64(m.vertices[va+1]), float64(m.vertices[va+2])
+		bx, by, bz := float64(m.vertices[vb]), float64(m.vertices[vb+1]), float64(m.vertices[vb+2])
+		a := [3]float64{float64(float32(c*ax - s*az + p.x)), float64(float32(ay + p.y)), float64(float32(s*ax + c*az + p.z))}
+		b := [3]float64{float64(float32(c*bx - s*bz + p.x)), float64(float32(by + p.y)), float64(float32(s*bx + c*bz + p.z))}
 		startX, startZ, deltaX, deltaZ := x0, z0, dx, dz
 		cx, cz := objectCellCentroid2D(m, int(m.outline.srcCell[edge]))
-		p := obj.placement
-		c, s := math.Cos(p.yaw), math.Sin(p.yaw)
 		if owned {
 			// The mesh walker intersects in object space. The rounded world
 			// endpoints belong to link matching, not to this cell's exit.
 			x, z := x0-p.x, z0-p.z
 			startX, startZ = c*x+s*z, -s*x+c*z
 			deltaX, deltaZ = c*dx+s*dz, -s*dx+c*dz
-			va, vb := int(m.outline.vertA[edge])*3, int(m.outline.vertB[edge])*3
-			a = [3]float64{float64(m.vertices[va]), float64(m.vertices[va+1]), float64(m.vertices[va+2])}
-			b = [3]float64{float64(m.vertices[vb]), float64(m.vertices[vb+1]), float64(m.vertices[vb+2])}
+			a = [3]float64{ax, ay, az}
+			b = [3]float64{bx, by, bz}
 		} else {
 			cx, cz = c*cx-s*cz+p.x, s*cx+c*cz+p.z
 		}
@@ -198,7 +331,10 @@ func resolveSurfacePassages(set []resolvedObjectNav, from, to [3]float64, owned 
 			return false
 		}
 		p := obj.placement
-		c, s := math.Cos(p.yaw), math.Sin(p.yaw)
+		c, s := obj.cosYaw, obj.sinYaw
+		if c == 0 && s == 0 {
+			c, s = math.Cos(p.yaw), math.Sin(p.yaw)
+		}
 		x, z := x0+dx*t-p.x, z0+dz*t-p.z
 		h, ok := objectCellPlaneYAt(m, int(m.outline.srcCell[edge]), c*x+s*z, -s*x+c*z)
 		return ok && (owned || math.Abs(h+p.y-(y0+(y1-y0)*t)) <= 2)

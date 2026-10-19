@@ -103,8 +103,10 @@ func (rt *Runtime) advanceBerserk(now int64) []simulation.DivisionFrames {
 		job := value.(berserkExpiry)
 		unlock := rt.lockDivision(job.division)
 		c := rt.findCharacter(job.division, job.name)
+		var sourceGID uint32
 		var frames []wire.Frame
 		if c != nil {
+			sourceGID = enterworld.ObjectIDForCharacter(c)
 			rt.deps.UpdateDeferred(c, "berserk-expire", func() bool {
 				if c.BerserkUntilMs != job.until || now < c.BerserkUntilMs {
 					return false
@@ -113,7 +115,7 @@ func (rt *Runtime) advanceBerserk(now int64) []simulation.DivisionFrames {
 				// AJStateChanger kind4 preserves current invisible body4.
 				if c.NativeBodyStatus != 4 {
 					if c.TransitionBodyStatus(domain.BodyStatusTransition{}) {
-						frames = append(frames, bodyStatusFrame(enterworld.ObjectIDForCharacter(c), 0))
+						frames = append(frames, bodyStatusFrame(sourceGID, 0))
 					}
 					frames = append(frames, rt.refreshMovementEffects(job.division, c, now)...)
 				}
@@ -127,7 +129,7 @@ func (rt *Runtime) advanceBerserk(now int64) []simulation.DivisionFrames {
 		}
 		unlock()
 		if len(frames) > 0 {
-			batch := simulation.DivisionFrames{DivisionID: job.division}
+			batch := simulation.DivisionFrames{DivisionID: job.division, SourceGID: sourceGID}
 			for _, f := range frames {
 				batch.Frames = append(batch.Frames, simulation.Frame{Opcode: f.Opcode, Payload: f.Payload})
 			}
@@ -140,6 +142,20 @@ func (rt *Runtime) advanceBerserk(now int64) []simulation.DivisionFrames {
 // 410880, consumed as unsigned16 by593800. Preserve native CRT modulo
 // sampling: threshold800 is not an exact uniform8-percent probability.
 func berserkKillAward(playerLevel, monsterLevel int64, rarity uint8, roll uint32) int {
+	return berserkKillAwardWithGainRate(playerLevel, monsterLevel, rarity, 100, roll)
+}
+
+/*
+================
+berserkKillAwardWithGainRate
+
+Formulae_CalculateBerserkPointGain (0x00410880..0x004109dc): after computing
+the base and monster-rarity threshold, native reads parameter 0xb8 ('hwir',
+base 100, +20 from SKILL_TC_CROWN_BUFF_01 20163) and scales
+threshold = param_0xb8 * threshold / 100 before the uint16 truncation.
+================
+*/
+func berserkKillAwardWithGainRate(playerLevel, monsterLevel int64, rarity uint8, gainPercent uint32, roll uint32) int {
 	chance := 8.0
 	if monsterLevel-playerLevel < -3 {
 		chance = math.Max(.25, math.Min(8, 8-float64(playerLevel-monsterLevel-5)*.25))
@@ -152,6 +168,9 @@ func berserkKillAward(playerLevel, monsterLevel int64, rarity uint8, roll uint32
 		threshold *= 5
 	case 6:
 		threshold *= 2
+	}
+	if gainPercent != 0 && gainPercent != 100 {
+		threshold = gainPercent * threshold / 100
 	}
 	if roll%10000 < uint32(uint16(threshold)) {
 		return count
@@ -172,7 +191,11 @@ func (rt *Runtime) grantBerserkForKill(actor *enterworld.Character, roster rewar
 	if err != nil {
 		return nil
 	}
-	count := berserkKillAward(rewardLevel(actor), int64(impact.Instance.Ref.Level), impact.Instance.Rarity(), r)
+	gainPercent := uint32(100)
+	if rt.hasCrownHonorBuff(roster.division, actor) {
+		gainPercent = 120
+	}
+	count := berserkKillAwardWithGainRate(rewardLevel(actor), int64(impact.Instance.Ref.Level), impact.Instance.Rarity(), gainPercent, r)
 	if count == 0 {
 		return nil
 	}

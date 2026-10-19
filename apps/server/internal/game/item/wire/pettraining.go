@@ -45,6 +45,9 @@ const (
 // PetGearRefFirst and PetGearRefLast bound the port pet gear rows
 // (scripts/build/shared/portItemRows.mjs). Those ETC items carry their blue
 // options on the wire like equipment; the client mirrors the range.
+// This is an intrinsic layout, not an enable flag: saved expansion items must
+// remain decodable after operators disable the expansion. Native refs keep
+// their original type-based layout.
 const (
 	PetGearRefFirst = 30100
 	PetGearRefLast  = 30399

@@ -20,11 +20,11 @@ import (
 TestPetTrainingUpgradeRewritesNothing
 
 Legacy lab schemas 23-25 and main schema 26 preserve learned pet ranks and
-equipment byte-for-byte while moving to schema 27; a repeated upgrade is idle.
+equipment byte-for-byte while moving to schema 28; a repeated upgrade is idle.
 ================
 */
 func TestPetTrainingUpgradeRewritesNothing(t *testing.T) {
-	for _, sourceVersion := range []int{prePetTrainingVersion, preSequentialPetTreeVersion, preGuildFoundedVersion, preMergedPetVersion} {
+	for _, sourceVersion := range []int{prePetTrainingVersion, preSequentialPetTreeVersion, preGuildFoundedVersion, preAcademyHonorVersion, preMergedPetVersion} {
 		t.Run(fmt.Sprint(sourceVersion), func(t *testing.T) {
 			dir := t.TempDir()
 			s := openTest(t, dir, newTestClock())

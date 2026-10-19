@@ -12,7 +12,8 @@ commands and cannot bypass actor eligibility.
 // CGInterface_ExecuteActionCommand 695420: 1000 + 6 asks the selected
 // player to trade.
 const ACTION_EXCHANGE = 1006;
-import { guildSoldierRefusal } from "@/engine/foundation/gameplay/guild-manager";
+import { defaultUiTuning, type UiTuning, uiTuningFrom } from "@/engine/foundation/ui/ui-tuning";
+import { guildBanRefused, guildSoldierRefusal } from "@/engine/foundation/gameplay/guild-manager";
 import { advanceGuildWarClock } from "@/engine/foundation/gameplay/guild-war";
 import {
 	ACTION_FORTRESS_RETURN,
@@ -75,7 +76,7 @@ import {
 	type InteractionApproachState
 } from "@/engine/foundation/gameplay/interaction-approach";
 import { targetNotice } from "@/engine/foundation/gameplay/target-notices";
-import { constantNativeNotice } from "@/engine/foundation/gameplay/native-notice";
+import { constantNativeNotice, resolveNativeNotice } from "@/engine/foundation/gameplay/native-notice";
 import {
 	STALL_ALCHEMY_CATEGORY,
 	STALL_ALCHEMY_CODE,
@@ -103,7 +104,14 @@ import {
 	partyActiveJob,
 	partyPurposeAllowed
 } from "@/engine/foundation/gameplay/party-matching";
-import { gmRequest, gmReply, gmItemReferences, type GmReply } from "@/engine/foundation/gameplay/gm-command";
+import {
+	gmCatalog as decodeGmCatalog,
+	gmRequest,
+	gmReply,
+	gmItemReferences,
+	type GmCatalog,
+	type GmReply
+} from "@/engine/foundation/gameplay/gm-command";
 import { decodeReverseMapPoints, type ReverseMapPoint } from "@/engine/foundation/gameplay/reverse-return-map";
 import {
 	fortressBootstrap,
@@ -166,12 +174,20 @@ import {
 	type SystemNotice
 } from "@/engine/foundation/gameplay/system-notices";
 import {
+	ACADEMY_OPEN_FEE,
 	academyBootstrap,
+	academyCompulsoryGraduateRequest,
+	academyDisbandRequest,
+	academyGraduateRequest,
+	academyHonorRankRequest,
+	academyKickRequest,
+	academyLeaveRequest,
 	academyRequest,
 	academyPacket,
-	academyNoticeRequest
+	academyNoticeRequest,
+	academyOpenRequest
 } from "@/engine/foundation/gameplay/academy";
-import { academyAcknowledgment } from "@/engine/foundation/gameplay/academy-notices";
+import { academyAcknowledgment, academyStatusNotice } from "@/engine/foundation/gameplay/academy-notices";
 import { pkStatusBootstrap, pkStatusPacket } from "@/engine/foundation/gameplay/pk-status";
 import {
 	guideBootstrap,
@@ -231,6 +247,7 @@ import {
 import { skillBindings, quickSlotPacket } from "@/engine/foundation/gameplay/quickslots";
 import { decodeCosRecord } from "@/engine/foundation/gameplay/cos-record";
 import { decodeWorldClock } from "@/engine/foundation/gameplay/world-clock";
+import { vitalsUpdate } from "@/engine/foundation/gameplay/vitals";
 import { createQuests } from "./quests/quests";
 import { createNpcConversation } from "./npc/npc";
 import { createChat } from "./chat/chat";
@@ -313,9 +330,14 @@ const ACTION_STATE_ARM = 1;
 const QUEUED_COMMANDS = 2;
 const ITEM_NOTICE_CATEGORY = 1;
 const ITEM_INTERACTION_REFUSAL = 0x35;
-// 6FCD50's skill-use notices: category 4, code 0x21 refuses a rider.
+// 6FCD50's skill-use notices: category 4, code 0x11 refuses a targetless press
+// of a target-required skill, code 0x21 refuses a rider.
 const SKILL_NOTICE_CATEGORY = 4;
+const SKILL_NO_TARGET_REFUSAL = 0x11;
 const SKILL_RIDING_REFUSAL = 0x21;
+// The guild notices' category; 0x1F refuses a ban of the master or oneself.
+const GUILD_NOTICE_CATEGORY = 0x10;
+const GUILD_BAN_REFUSED = 0x1f;
 // Server 0x3011 (529D6D), the victim's death kind; CPSMission 74FE50 here.
 const DEATH_NOTICE = 0x37ce;
 // 75B8D0: the transport bag's trade level [u8].
@@ -370,8 +392,14 @@ export function createGameplay(
 	> = {};
 	let partyMatching = emptyPartyMatching();
 	let gmItems = gmItemReferences( {} );
+	// Port-only: the compact catalogues a GM's console helper filters. Built
+	// only for a GM entry; ordinary characters never pay for the list. The
+	// snapshot repeats them until the UI acknowledges receipt.
+	let gmCatalog: GmCatalog | null = null, gmCatalogPending = false;
 	// The server's port-only storage auto-stack rule (storageAutoStack).
 	let storageAutoStack = false;
+	// The shard's client tuning from the world-entry bootstrap (ui-tuning.ts).
+	let uiTuning: UiTuning = defaultUiTuning();
 	// The server's port-only Bandit Den countdown rule (fastDenReturn).
 	let fastDenReturn = false;
 	// The server's port-only trade-scale rule (tradeTiers).
@@ -423,7 +451,7 @@ export function createGameplay(
 		moveReservation = createMoveReservation(),
 		betaMap = createBetaPlayerMap(),
 		// The wolf tree's worn gear resolves through the bag's references.
-		petTraining = createPetTraining( ( ref, slot, magic ) => inventory.referenceItem( ref, slot, magic ) );
+		petTraining = createPetTraining( ( ref, slot, magic ) => inventory.petGearItem( ref, slot, magic ) );
 	/*
 ================
 sendFrame
@@ -666,7 +694,8 @@ the bootstrap or the references change.
 			forgePresented = rows.map( row => ({
 				...row,
 				...inventory.reference( row.refObjId ),
-				maxStack: cosItemCaps.get( row.refObjId )
+				maxStack: cosItemCaps.get( row.refObjId ),
+				item: inventory.referenceItem( row.refObjId, 1 )
 			}) );
 		}
 		return forgePresented;
@@ -783,6 +812,9 @@ fails; retry persistence without restoring stale slot occupancy.
 	let jobKillNotices = true;
 	// The Experimental "Drop & plus notices" row, on the same terms.
 	let dropPlusNotices = true;
+	// The Experimental "Homing projectiles" row: off by default so projectiles
+	// fly to their launch-captured endpoint as natively.
+	let homingProjectiles = false;
 	let approach: InteractionApproachState = { phase: "idle" };
 	let returnScroll: ReturnScrollCast | undefined, teleportMode = 0;
 	const cosSelection = createCosSelection();
@@ -1041,6 +1073,8 @@ selected entities, cooldowns or world-entry state.
 		selectionDecal = null;
 		uniqueRefs = uniqueReferences( {} );
 		gmItems.clear();
+		gmCatalog = null;
+		gmCatalogPending = false;
 		gmReplies = [];
 		tradeStars = 0;
 		notices = [];
@@ -1152,6 +1186,7 @@ The Experimental window's gameplay rows (experimentalGameplay).
 			predictedRunUp = value.predictedRunUp === true;
 			jobKillNotices = value.jobKillNotices !== false;
 			dropPlusNotices = value.dropPlusNotices !== false;
+			homingProjectiles = value.homingProjectiles === true;
 		},
 		/*
 ================
@@ -1185,6 +1220,7 @@ resends nothing. Wiping them here made the next 0x3E58 type-6 row throw
 			inventory.takeBindingMoves();
 			gmItems = gmItemReferences( value );
 			storageAutoStack = (value as { storageAutoStack?: unknown; } | null)?.storageAutoStack === true;
+			uiTuning = uiTuningFrom( value );
 			fastDenReturn = (value as { fastDenReturn?: unknown; } | null)?.fastDenReturn === true;
 			tradeTiers = (value as { tradeTiers?: unknown; } | null)?.tradeTiers === true;
 			jobSuitHidesArmor = (value as { jobSuitHidesArmor?: unknown; } | null)?.jobSuitHidesArmor === true;
@@ -1201,6 +1237,8 @@ resends nothing. Wiping them here made the next 0x3E58 type-6 row throw
 				if ( flag !== undefined && typeof flag !== "boolean" ) throw Error( "Invalid entry eligibility" );
 			}
 			eligibility = { gm: identity?.gmPrivilege === true, pcRoomEvent: identity?.pcRoomEvent === true };
+			gmCatalog = eligibility.gm ? decodeGmCatalog( value ) : null;
+			gmCatalogPending = gmCatalog !== null;
 			potionTimers.fill( emptyAutoPotionTimer() );
 			autoPotionInputBlocked = false;
 			autoPotionItemMallOpen = false;
@@ -1321,6 +1359,7 @@ resends nothing. Wiping them here made the next 0x3E58 type-6 row throw
 			cosWindows = [];
 			paramJobs.reset();
 			countJobs.reset();
+			storage.reset();
 			for (
 				const row of (value as {
 					refItemSnapshot?: ({ refObjId: number; } & Parameters<typeof cosTimerReference>[0])[];
@@ -1545,8 +1584,18 @@ state here before a command can claim a native wire conversation.
 			entity: EntityState | undefined,
 			local?: EntityState
 		): WireFrame | null {
+			if ( command.kind === "gm-catalog-ack" ) {
+				gmCatalogPending = false;
+				return null;
+			}
 			dirty = true;
 			soundClock = now;
+			if ( command.kind === "local-notice" ) {
+				// A refusal the UI found before sending (guild-names.ts) joins the
+				// notices the server's refusals use, so both show alike.
+				notices = [ ...notices.slice( -99 ), { ...command.notice, sequence: ++noticeSequence } ];
+				return null;
+			}
 			if ( command.kind === "berserk" ) {
 				return localGid && feedback.gauge() === 5 ?
 					sendFrame( { opcode: 0x7341, payload: Uint8Array.of( 1 ) } ) :
@@ -1793,7 +1842,12 @@ state here before a command can claim a native wire conversation.
 
 			if ( command.kind === "gm-command" ) {
 				if ( !eligibility.gm || !localGid ) return null;
-				const frame = gmRequest( command.line, gmItems, local?.heading ?? 0, worldReferences.monster );
+				const frame = gmRequest(
+					command.line,
+					gmItems,
+					local?.heading ?? 0,
+					{ monster: worldReferences.monster, targetGid: targeting.selectionIntent() }
+				);
 				return frame ? sendFrame( frame ) : null;
 			}
 			if ( command.kind === "rebirth" ) {
@@ -1868,12 +1922,54 @@ state here before a command can claim a native wire conversation.
 				dirty = true;
 				return null;
 			}
+			if ( command.kind === "academy-open" ) {
+				if ( !academy || !localGid ) throw Error( "Academy session is not initialized" );
+				// 5D26F0 case 6: the confirm's Yes prints OPEN_GOLD and sends
+				// nothing while the balance is under the fee.
+				if ( BigInt( progression.gold ?? "0" ) < BigInt( ACADEMY_OPEN_FEE ) ) {
+					notices = [ ...notices.slice( -99 ), {
+						key: "UIIT_MSG_TC_ERROR_OPEN_GOLD",
+						value: 0,
+						sequence: ++noticeSequence
+					} ];
+					dirty = true;
+					return null;
+				}
+				return sendFrame( academyOpenRequest() );
+			}
 			if ( command.kind === "academy-page" || command.kind === "academy-join" ) {
 				if ( !academy || !localGid ) throw Error( "Academy session is not initialized" );
 				const next = academyRequest( academy, command, progression.level );
 				send( next.frame );
 				academy = next.state;
 				return next.frame;
+			}
+			if ( command.kind === "academy-honor-rank" ) {
+				// 5D9CF0 row 0x2E sends 0x72D0 with the selected storage NPC's GID.
+				if ( !academy || !localGid || targeting.state().target !== command.gid ) {
+					throw Error( "Select a storage NPC" );
+				}
+				return sendFrame( academyHonorRankRequest( command.gid ) );
+			}
+			if ( command.kind === "academy-disband" ) {
+				if ( !academy || !localGid ) throw Error( "Academy session is not initialized" );
+				return sendFrame( academyDisbandRequest() );
+			}
+			if ( command.kind === "academy-leave" ) {
+				if ( !academy || !localGid ) throw Error( "Academy session is not initialized" );
+				return sendFrame( academyLeaveRequest() );
+			}
+			if ( command.kind === "academy-graduate" ) {
+				if ( !academy || !localGid ) throw Error( "Academy session is not initialized" );
+				return sendFrame( academyGraduateRequest( command.satisfaction ) );
+			}
+			if ( command.kind === "academy-kick" ) {
+				if ( !academy || !localGid ) throw Error( "Academy session is not initialized" );
+				return sendFrame( academyKickRequest( command.name ) );
+			}
+			if ( command.kind === "academy-compulsory-graduate" ) {
+				if ( !academy || !localGid ) throw Error( "Academy session is not initialized" );
+				return sendFrame( academyCompulsoryGraduateRequest( command.name ) );
 			}
 			// 6A5570: an unnamed pet's one name (pet-name.ts); the client's own
 			// checks ran in the name box.
@@ -2100,13 +2196,14 @@ state here before a command can claim a native wire conversation.
 			if ( command.kind === "cos-pet-attack" ) {
 				// 6A2350 case 2: an attack pet (class 3) attacks the player's target
 				// with 0x769E [u32 pet][u8 2][u32 target] and remembers it at
-				// +0xAB2C. A monster is always a target; a player arrives only
-				// admitted by the core (player-attack.ts petPlayerAttack).
+				// +0xAB2C. A monster is always a target; a player or a pet arrives
+				// only admitted by the core (player-attack.ts petPlayerAttack /
+				// petCosAttack).
 				// command.gid names the target; the record set holds only owned pets.
 				const record = cosRecords.get( command.pet );
 				if (
 					!record || record.band !== 3 || record.dead || record.hp === 0 ||
-					(entity?.kind !== "monster" && entity?.kind !== "player")
+					(entity?.kind !== "monster" && entity?.kind !== "player" && entity?.kind !== "cos")
 				) {
 					throw Error( "No attack pet or attackable target" );
 				}
@@ -2142,11 +2239,10 @@ state here before a command can claim a native wire conversation.
 				return sendFrame( { opcode: 0x7618, payload } );
 			}
 			if ( command.kind === "cos-behavior" ) {
+				// 6A9910 / 6A1B10 / 6A2350 case 6 look up only CCosDataManager_FindCharData
+				// (830140, cosRecords), never the visible actor registry.
 				const record = cosRecords.get( command.gid );
-				if (
-					!record || entity?.gid !== record.gid || entity.kind !== "cos" || entity.ownerGid !== localGid ||
-					entity.refObjId !== record.refObjId
-				) throw Error( "No owned COS behavior authority" );
+				if ( !record ) throw Error( "No owned COS behavior authority" );
 				return sendFrame( cosBehaviorRequest( record, command.mode ) );
 			}
 			if (
@@ -2157,6 +2253,14 @@ state here before a command can claim a native wire conversation.
 				// then contents, before composing the guild notice request.
 				if ( command.kind === "guild-notice" && (!command.subject || !command.contents) ) {
 					const notice = constantNativeNotice( 0x10, !command.subject ? 0x22 : 0x23 );
+					if ( notice ) notices = [ ...notices.slice( -99 ), { ...notice, sequence: ++noticeSequence } ];
+					dirty = true;
+					return null;
+				}
+				if (
+					command.kind === "guild-kick" && guildBanRefused( social.guild, social.localName, command.name )
+				) {
+					const notice = constantNativeNotice( GUILD_NOTICE_CATEGORY, GUILD_BAN_REFUSED );
 					if ( notice ) notices = [ ...notices.slice( -99 ), { ...notice, sequence: ++noticeSequence } ];
 					dirty = true;
 					return null;
@@ -2616,8 +2720,15 @@ state here before a command can claim a native wire conversation.
 				if ( metadata && !metadata.targetRequired ) command = { kind: "skill", skillId: command.skillId };
 				else if ( metadata?.targetRequired && !command.gid ) {
 					// A row that admits its caster (targetSelf) aims at the caster when
-					// nothing is selected, as the server resolves the same row.
-					if ( !metadata.targetSelf || !localGid ) throw Error( "This skill requires a target" );
+					// nothing is selected, as the server resolves the same row; 6FCFF2..6FD025
+					// refuses any other target-required press with notice 4/0x11
+					// (UIIT_SKILL_USE_FAIL_NONESELECTETARGET).
+					if ( !metadata.targetSelf || !localGid ) {
+						const notice = constantNativeNotice( SKILL_NOTICE_CATEGORY, SKILL_NO_TARGET_REFUSAL );
+						if ( notice ) notices = [ ...notices.slice( -99 ), { ...notice, sequence: ++noticeSequence } ];
+						dirty = true;
+						return null;
+					}
 					const frame = combat.skill( skillId, localGid );
 					if ( pressAdmitted( metadata, local ) ) movement.holdForCast( now );
 					predictCast( metadata, undefined, local, now );
@@ -2978,26 +3089,26 @@ Packet handling must not depend on which HUD panel is currently open.
 				if ( academy ) {
 					const next = academyPacket( academy, frame );
 					if ( next ) {
-						// 774C64/69: an authoritative notice update also shows child 23.
-						if ( frame.opcode === 0x3ac5 && frame.payload[0] === 7 ) {
-							notices = [ ...notices.slice( -99 ), {
-								key: "UIIT_MSG_TC_COMMON_KNOW_REMIND_UPDATE",
-								value: 0,
-								notificationBanner: true,
-								bannerOnly: true,
-								sequence: ++noticeSequence
-							} ];
+						const statusNotice = academyStatusNotice( academy, next, frame );
+						if ( statusNotice ) {
+							notices = [ ...notices.slice( -99 ), { ...statusNotice, sequence: ++noticeSequence } ];
 						}
-						// 769C6B / 769DA3: matching failures use academy category 1D.
-						if ( (frame.opcode === 0xb701 || frame.opcode === 0xb592) && frame.payload[0] === 2 ) {
+						// 769C6B / 769DA3 / 771750: matching and honor-ranking failures use academy category 1D.
+						if (
+							(frame.opcode === 0xb701 || frame.opcode === 0xb592 || frame.opcode === 0xb2d0) &&
+							frame.payload[0] === 2
+						) {
 							const notice = constantNativeNotice( 0x1d, frame.payload[1]! );
 							if ( notice ) {
 								notices = [ ...notices.slice( -99 ), { ...notice, sequence: ++noticeSequence } ];
 							}
 						}
-						// 774D6E: membership-seed refusal uses the same academy dispatcher.
-						if ( frame.opcode === 0x3ac5 && frame.payload[0] === 10 && frame.payload[1] === 2 ) {
-							const notice = constantNativeNotice( 0x1d, frame.payload[2]! );
+						// 76FBA0: an opening prints OPEN_SUCCESS to chat; a refusal
+						// goes through the category-0x1D dispatcher.
+						if ( frame.opcode === 0xb2ec ) {
+							const notice = frame.payload[0] === 1 ?
+								{ key: "UIIT_MSG_TC_OPEN_SUCCESS", value: 0 } :
+								constantNativeNotice( 0x1d, frame.payload[1]! );
 							if ( notice ) {
 								notices = [ ...notices.slice( -99 ), { ...notice, sequence: ++noticeSequence } ];
 							}
@@ -3131,11 +3242,15 @@ Packet handling must not depend on which HUD panel is currently open.
 					if ( !gid || !refObjId ) throw Error( "Invalid COS reference" );
 					const record = cosRecords.get( gid );
 					if ( record ) {
-						cosRecords.set( gid, {
+						const next = {
 							...record,
 							refObjId,
 							...(record.band === 3 ? { satiety: 10000 } : {})
-						} );
+						};
+						cosRecords.set( gid, next );
+						// 77A570 case 7 @0x77AC91: 59DAA0 finds the summoner item by GID
+						// and updates its companion reference (CSOItem_SetAuxParam1).
+						inventory.bindCompanion( next );
 						dirty = true;
 					}
 					return false;
@@ -3152,7 +3267,11 @@ Packet handling must not depend on which HUD panel is currently open.
 				if ( named ) {
 					const record = cosRecords.get( named.gid );
 					if ( record ) {
-						cosRecords.set( named.gid, { ...record, name: named.name } );
+						const next = { ...record, name: named.name };
+						cosRecords.set( named.gid, next );
+						// 77A570 case 5 @0x77AADB: 59DAA0 finds the summoner item by GID
+						// and updates its companion name (CSOItem_SetCompanionName).
+						inventory.bindCompanion( next );
 						dirty = true;
 					}
 					return false;
@@ -3575,6 +3694,27 @@ Packet handling must not depend on which HUD panel is currently open.
 							sendWhenLive( cosBehaviorRequest( record, record.commandMode & ~0x80 ), true );
 						}
 					}
+					// 74FD56..74FE15: selector 2 failures dispatch category 4
+					// (74FDEB) and clear the assist target (+0xAB2C, 74FE0B);
+					// pickup (74FDCC) and every other selector (74FD6C) dispatch
+					// category 0x0C (12, e.g. 0xB4/0xB5 full-bag notices).
+					if ( p[0] === 2 ) {
+						const resolution = p[1] === 2 ?
+							resolveNativeNotice( 4, p[2]!, {
+								country: localCountry,
+								war: fortressActive( fortress ),
+								pkProhibited: false
+							} ) :
+							resolveNativeNotice( 12, p[2]! );
+						if ( resolution.kind === "notice" ) {
+							notices = [ ...notices.slice( -99 ), { ...resolution.notice, sequence: ++noticeSequence } ];
+						}
+						if ( p[1] === 2 && petAssists.has( cosResult.gid ) ) {
+							const next = new Map( petAssists );
+							next.delete( cosResult.gid );
+							petAssists = next;
+						}
+					}
 					dirty = true;
 					return true;
 				}
@@ -3619,6 +3759,7 @@ Packet handling must not depend on which HUD panel is currently open.
 					if ( cosRecords.has( gid ) ) {
 						cosSelection.remove( gid, cosRecords );
 						cosRecords.delete( gid );
+						if ( !readEntity( gid ) ) combat.remove( gid );
 						if ( activeCos?.gid === gid ) {
 							activeCos = undefined;
 							cosResult = undefined;
@@ -3775,6 +3916,19 @@ Packet handling must not depend on which HUD panel is currently open.
 						storage.apply( next );
 						dirty = true;
 						return true;
+					}
+				}
+				if ( frame.opcode === 0x33a6 ) {
+					const { gid } = vitalsUpdate( frame.payload );
+					// CPSMission_OnVitalsUpdate0x33A6 (0x0077a080): resolves gid via
+					// GidObjectRegistry_FindEntityByGid (0x0077a0d7) or the local
+					// player's CCosDataManager_FindCharData (0x0077a0f7); if neither
+					// exists (0x0077a100: je 0x77a199), consumes the packet and returns.
+					if (
+						gid !== localGid && !readEntity( gid ) && !cosRecords.has( gid ) &&
+						!combat.state().vitals.some( row => row.gid === gid )
+					) {
+						return false;
 					}
 				}
 				const item = inventory.receive( frame.opcode, frame.payload, now, {
@@ -4286,6 +4440,7 @@ The published plane when something changed since the last take, else null.
 				gmReplies,
 				tradeStars,
 				eligibility,
+				...(gmCatalogPending && gmCatalog ? { gmCatalog } : {}),
 				autoPotion,
 				selectionDecal,
 				notices,
@@ -4297,9 +4452,11 @@ The published plane when something changed since the last take, else null.
 				countJobs: countJobs.state(),
 				reverseReturnChoice: countJobs.choosing() !== null,
 				...(storageAutoStack ? { storageAutoStack } : {}),
+				uiTuning,
 				...(tradeTiers ? { tradeTiers } : {}),
 				...(jobSuitHidesArmor ? { jobSuitHidesArmor } : {}),
 				...(moonlitThiefSuit ? { moonlitThiefSuit } : {}),
+				...(homingProjectiles ? { homingProjectiles } : {}),
 				...(reverseMapPoints.length ? { reverseMapPoints } : {}),
 				storage: presentedStorage(),
 				playerModels: localPlayerModels(),

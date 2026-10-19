@@ -115,6 +115,10 @@ export function createPresentationActions() {
 	// server's cast adopts its clock: effects and sounds belong to that cast.
 	const predictedEvents = new Map<number, ReturnType<typeof advanceAction>["events"]>();
 	const deathFinalizes = new Map<number, number>();
+	// Cast tokens whose clock a model swap retired with the old body. The cast
+	// can stay published in gameplay.casts after the swap (death, transform);
+	// its motion belonged to the old mesh and never restarts on the new one.
+	const swapRetired = new Set<number>();
 	const warm = {
 		warmSkills: undefined as readonly number[] | undefined,
 		warmBody: undefined as string | undefined,
@@ -218,9 +222,21 @@ export function createPresentationActions() {
 			const predictionToken = gameplay?.castPrediction?.token;
 			const adopting = new Set( (gameplay?.casts ?? []).map( cast => cast.predictedToken ) );
 			for ( const [token, clock] of actionClocks ) {
+				const entity = clock.caster === undefined ? undefined : entitiesByGid.get( clock.caster ),
+					body = entity ? resourceFor( entity ) : undefined;
+				if ( clock.glb && (!body || clock.glb !== body.glb) ) {
+					// 8E64F0 / 85C060 reload the visual mesh; the clock's clips belong
+					// to the old body. Retire the token with it: the cast may stay
+					// published, but it never builds a new clock on the new mesh.
+					actionClocks.delete( token );
+					swapRetired.add( token );
+					continue;
+				}
 				if ( castTokens.has( token ) || token === predictionToken || adopting.has( token ) ) continue;
-				const entity = clock.caster === undefined ? undefined : entitiesByGid.get( clock.caster );
-				if ( entity && entity.appearanceState?.[0] !== 2 && !health?.dead( entity.gid ) ) {
+				if (
+					entity && body &&
+					entity.appearanceState?.[0] !== 2 && !health?.dead( entity.gid )
+				) {
 					// Model-owned installations outlive the skill decoration. Stop
 					// its WAIT/SHOT once, retaining READY's native natural exit.
 					advanceAction( clock, seconds, undefined, clock.cancelledAt ?? seconds );
@@ -233,6 +249,11 @@ export function createPresentationActions() {
 			}
 			for ( const token of predictedEvents.keys() ) {
 				if ( token !== predictionToken && !adopting.has( token ) ) predictedEvents.delete( token );
+			}
+			for ( const token of swapRetired ) {
+				if ( !castTokens.has( token ) && token !== predictionToken && !adopting.has( token ) ) {
+					swapRetired.delete( token );
+				}
 			}
 			for ( const [gid, clock] of groundClocks ) {
 				const entity = entitiesByGid.get( gid );
@@ -295,6 +316,12 @@ export function createPresentationActions() {
 				gameplay?.casts ?? [];
 			for ( const cast of animated ) {
 				if ( cast.resultOnly ) continue;
+				// A model swap retired this cast's motion with the old body; the
+				// retained cast does not restart from READY on the new mesh.
+				if (
+					swapRetired.has( cast.token ) ||
+					(cast.predictedToken !== undefined && swapRetired.has( cast.predictedToken ))
+				) continue;
 				const entity = entitiesByGid.get( cast.caster ), resource = entity ? resourceFor( entity ) : undefined;
 				if ( !entity || !resource ) continue;
 				let clock = actionClocks.get( cast.token );
@@ -365,6 +392,7 @@ export function createPresentationActions() {
 						0;
 					clock = {
 						caster: cast.caster,
+						glb: resource.glb,
 						started: seconds - age,
 						previous: 0,
 						phases: phases as ActionSchedule["phases"],
@@ -470,6 +498,7 @@ export function createPresentationActions() {
 			actionClocks.clear();
 			predictedEvents.clear();
 			deathFinalizes.clear();
+			swapRetired.clear();
 		}
 	};
 }

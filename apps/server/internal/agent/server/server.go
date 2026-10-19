@@ -24,8 +24,10 @@ import (
 	"net/http"
 	"net/url"
 	"opensro.online/server/internal/releaseprotocol"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -60,6 +62,21 @@ type AccountAuthority interface {
 	PasswordHash(accountID string) ([]byte, bool)
 	IDs() []string
 	Len() int
+}
+
+/*
+================
+sessionEpochAuthority
+
+Optional capability implemented by auth.Accounts for persistent session
+epoch tracking and revocation notifications.
+================
+*/
+type sessionEpochAuthority interface {
+	SessionEpoch(accountID string) (uint64, bool)
+	RevokeSessions(ctx context.Context, accountID string) (uint64, error)
+	RevokedEpochs() map[string]uint64
+	SetRevokeObserver(fn func(accountID string, epoch uint64))
 }
 
 /*
@@ -124,7 +141,12 @@ type Server struct {
 	readiness        *readiness.Gate
 	bugReports       *bugreport.Service
 	// startedAt is when this Agent was built, for /title/build's uptime.
-	startedAt time.Time
+	startedAt        time.Time
+	revokedMu        sync.Mutex
+	revokedNonces    map[string]time.Time
+	accountMinEpoch  map[string]uint64
+	shardInstance    map[string]string
+	shardSyncedEpoch map[string]map[string]uint64
 }
 
 /*
@@ -181,7 +203,7 @@ func New(config Config) (*Server, error) {
 	if _, err := rand.Read(clientKey); err != nil {
 		return nil, fmt.Errorf("agent server: client tag key: %w", err)
 	}
-	return &Server{
+	srv := &Server{
 		history:                 config.History,
 		historyHandler:          config.HistoryHandler,
 		accounts:                config.Accounts,
@@ -204,7 +226,20 @@ func New(config Config) (*Server, error) {
 		readiness:               config.Readiness,
 		bugReports:              config.BugReports,
 		startedAt:               now(),
-	}, nil
+		revokedNonces:           make(map[string]time.Time),
+		accountMinEpoch:         make(map[string]uint64),
+		shardInstance:           make(map[string]string),
+		shardSyncedEpoch:        make(map[string]map[string]uint64),
+	}
+	if epochAuth, ok := config.Accounts.(sessionEpochAuthority); ok {
+		for accountID, epoch := range epochAuth.RevokedEpochs() {
+			if epoch >= 2 {
+				srv.accountMinEpoch[accountID] = epoch
+			}
+		}
+		epochAuth.SetRevokeObserver(srv.RevokeAccount)
+	}
+	return srv, nil
 }
 
 /*
@@ -419,12 +454,212 @@ func (server *Server) bearerClaims(r *http.Request) (auth.AgentSessionClaims, bo
 		return auth.AgentSessionClaims{}, false
 	}
 	// A signed session stays valid until it expires; the account behind it
-	// is re-read on every use, so a disabled or removed account is refused
-	// at once (liveSession does the same for the browser cookie).
-	if _, active := server.accounts.PasswordHash(claims.AccountID); !active {
+	// and its session epoch are re-read on every use, so a logged-out,
+	// password-rotated, disabled, or removed account is refused at once.
+	if !server.sessionActive(claims) {
 		return auth.AgentSessionClaims{}, false
 	}
 	return claims, true
+}
+
+/*
+================
+sessionActive
+
+Checks that the account is enabled, the token's nonce has not been revoked,
+and the token's session epoch matches the account's current epoch.
+================
+*/
+func (server *Server) sessionActive(claims auth.AgentSessionClaims) bool {
+	now := server.now()
+	server.revokedMu.Lock()
+	if exp, revoked := server.revokedNonces[claims.Nonce]; revoked {
+		if now.Before(exp) {
+			server.revokedMu.Unlock()
+			return false
+		}
+		delete(server.revokedNonces, claims.Nonce)
+	}
+	minEpoch := server.accountMinEpoch[claims.AccountID]
+	server.revokedMu.Unlock()
+
+	if minEpoch > 0 && claims.Epoch < minEpoch {
+		return false
+	}
+	if _, active := server.accounts.PasswordHash(claims.AccountID); !active {
+		return false
+	}
+	if epochAuth, ok := server.accounts.(sessionEpochAuthority); ok {
+		currentEpoch, active := epochAuth.SessionEpoch(claims.AccountID)
+		if !active {
+			return false
+		}
+		if minEpoch > currentEpoch {
+			currentEpoch = minEpoch
+		}
+		if claims.Epoch == 0 {
+			return currentEpoch == 1
+		}
+		return claims.Epoch == currentEpoch
+	}
+	return true
+}
+
+/*
+================
+revokeTokenNonce
+================
+*/
+func (server *Server) revokeTokenNonce(nonce string, expiresAt time.Time) {
+	if nonce == "" {
+		return
+	}
+	now := server.now()
+	server.revokedMu.Lock()
+	for priorNonce, exp := range server.revokedNonces {
+		if !now.Before(exp) {
+			delete(server.revokedNonces, priorNonce)
+		}
+	}
+	server.revokedNonces[nonce] = expiresAt
+	server.revokedMu.Unlock()
+}
+
+/*
+================
+RevokeAccount
+
+Advances the minimum accepted session epoch for accountID on this Agent and
+pushes a signed revocation notice to each enabled GameWorld shard.
+================
+*/
+func (server *Server) RevokeAccount(accountID string, epoch uint64) {
+	if epoch < 2 {
+		epoch = 2
+	}
+	server.revokedMu.Lock()
+	if epoch > server.accountMinEpoch[accountID] {
+		server.accountMinEpoch[accountID] = epoch
+	} else {
+		epoch = server.accountMinEpoch[accountID]
+	}
+	server.revokedMu.Unlock()
+
+	now := server.now()
+	for _, definition := range server.catalog.Definitions() {
+		if !definition.Enabled || strings.TrimSpace(definition.ControlURL) == "" {
+			continue
+		}
+		if server.pushShardRevocation(definition, accountID, epoch, now) {
+			server.markShardEpochSynced(definition.ID, "", accountID, epoch)
+		}
+	}
+}
+
+/*
+================
+pushShardRevocation
+================
+*/
+func (server *Server) pushShardRevocation(
+	definition shard.Definition,
+	accountID string,
+	epoch uint64,
+	now time.Time,
+) bool {
+	token, err := server.sessionSigner.MintAccountRevocation(
+		definition.ID,
+		accountID,
+		epoch,
+		now,
+	)
+	if err != nil {
+		return false
+	}
+	target := strings.TrimSuffix(definition.ControlURL, "/") + agentapi.AccountRevokePath
+	req, err := http.NewRequest(http.MethodPost, target, strings.NewReader(token))
+	if err != nil {
+		return false
+	}
+	resp, err := server.client.Do(req)
+	if err != nil {
+		return false
+	}
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	_ = resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
+}
+
+/*
+================
+markShardEpochSynced
+================
+*/
+func (server *Server) markShardEpochSynced(shardID, instanceID, accountID string, epoch uint64) {
+	server.revokedMu.Lock()
+	defer server.revokedMu.Unlock()
+	if instanceID != "" && server.shardInstance[shardID] != instanceID {
+		return
+	}
+	synced := server.shardSyncedEpoch[shardID]
+	if synced == nil {
+		synced = make(map[string]uint64)
+		server.shardSyncedEpoch[shardID] = synced
+	}
+	if epoch > synced[accountID] {
+		synced[accountID] = epoch
+	}
+}
+
+/*
+================
+syncShardRevocations
+
+Tracks the active GameWorld instance for heartbeat.ShardID and pushes any
+account revocations not yet acknowledged by that instance once the shard is
+past its startup phase.
+================
+*/
+func (server *Server) syncShardRevocations(heartbeat shard.Heartbeat) {
+	definition, found := server.catalog.Resolve(heartbeat.ShardID)
+	if !found || !definition.Enabled || strings.TrimSpace(definition.ControlURL) == "" {
+		return
+	}
+	type pendingRevocation struct {
+		accountID string
+		epoch     uint64
+	}
+	var pending []pendingRevocation
+	server.revokedMu.Lock()
+	if server.shardInstance[heartbeat.ShardID] != heartbeat.InstanceID {
+		server.shardInstance[heartbeat.ShardID] = heartbeat.InstanceID
+		delete(server.shardSyncedEpoch, heartbeat.ShardID)
+	}
+	if heartbeat.Phase != shard.PhaseStarting {
+		synced := server.shardSyncedEpoch[heartbeat.ShardID]
+		for accountID, epoch := range server.accountMinEpoch {
+			if epoch >= 2 && synced[accountID] < epoch {
+				pending = append(pending, pendingRevocation{
+					accountID: accountID,
+					epoch:     epoch,
+				})
+			}
+		}
+	}
+	server.revokedMu.Unlock()
+
+	if len(pending) == 0 {
+		return
+	}
+	sort.Slice(pending, func(i, j int) bool {
+		return pending[i].accountID < pending[j].accountID
+	})
+	now := server.now()
+	for _, item := range pending {
+		if server.pushShardRevocation(definition, item.accountID, item.epoch, now) {
+			server.markShardEpochSynced(heartbeat.ShardID, heartbeat.InstanceID, item.accountID, item.epoch)
+		}
+	}
 }
 
 /*

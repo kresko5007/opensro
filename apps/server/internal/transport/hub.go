@@ -71,6 +71,14 @@ type Hub struct {
 	divisions  map[string]map[uint64]*Session
 	sessionDiv map[uint64]string
 
+	// Character command restrictions by character (the bind-key spelling,
+	// division:lower(name)), recorded from the session restriction choke
+	// point so a restriction outlives its session: by-character readers
+	// (the site chat feed) must not see a mute end at logoff. Guarded by
+	// its own lock, held only for a map read or write.
+	restrictionMu sync.RWMutex
+	restrictions  map[string]*characterRestrictions
+
 	nextID        atomic.Uint64
 	nextControlID atomic.Uint64
 
@@ -156,6 +164,7 @@ func newHub(cfg Config) *Hub {
 		sessionAccount:  make(map[uint64]string),
 		divisions:       make(map[string]map[uint64]*Session),
 		sessionDiv:      make(map[uint64]string),
+		restrictions:    make(map[string]*characterRestrictions),
 		handlers:        newHandlerRegistry(),
 		handshakeSlots:  make(chan struct{}, cfg.MaxPendingHandshakes),
 	}
@@ -629,7 +638,7 @@ func (h *Hub) lookupByToken(token [ResumeTokenLen]byte) *Session {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	sess, ok := h.byToken[token]
-	if !ok {
+	if !ok || sess.evicted.Load() {
 		return nil
 	}
 	if subtle.ConstantTimeCompare(sess.resumeToken[:], token[:]) != 1 {
@@ -834,6 +843,37 @@ func (h *Hub) admitAccountSession(account string, s *Session) {
 
 /*
 ================
+EvictAccount
+
+Marks every live session owned by account as evicted, removes its resume
+token immediately so it cannot reattach, and closes it with
+ByeReasonUnauthorized. Exclusive character bindings remain registered until
+BindExclusive replaces them or retireSession finishes teardown.
+================
+*/
+func (h *Hub) EvictAccount(account string) int {
+	if account == "" {
+		return 0
+	}
+	var evict []*Session
+	h.mu.Lock()
+	for _, candidate := range h.accountSessions[account] {
+		delete(h.byToken, candidate.resumeToken)
+		if candidate.evicted.Load() {
+			continue
+		}
+		candidate.markEvicted()
+		evict = append(evict, candidate)
+	}
+	h.mu.Unlock()
+	for _, victim := range evict {
+		victim.CloseWhenDrained(ByeReasonUnauthorized)
+	}
+	return len(evict)
+}
+
+/*
+================
 fireOpen
 ================
 */
@@ -868,6 +908,9 @@ shutdown
 ================
 */
 func (h *Hub) shutdown(ctx context.Context) {
+	if journal := h.metrics.spikes; journal != nil {
+		journal.Close()
+	}
 	h.mu.Lock()
 	h.closed = true
 	sessions := make([]*Session, 0, len(h.sessions))

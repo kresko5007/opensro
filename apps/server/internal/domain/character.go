@@ -217,7 +217,18 @@ type Character struct {
 	// 4E6EC0 records it, the 0x37CE notice carries it, and the rebirth
 	// (50FEE0) revives a team death where it fell. Every revival clears it
 	// (CGObjPC_TeleportToTown 4DF2EE). Runtime-only, as natively.
-	DeathKind        uint8  `json:"-"`
+	DeathKind uint8 `json:"-"`
+	// SiegeDeathAtMs is CGObjPC+0x1CD4 kept as the death instant:
+	// CGObjPC::OnDeath (52CDB0, misnamed CGObjPC_ProcessSiegeDeath)
+	// sets the counter to 180 ticks at 52CFBA on every death, OnTick
+	// (52D9EB) decays it one a tick while a siege war runs and the corpse
+	// waits, and the rebirth (5100D0) refuses outright while it still
+	// reads above 165. The port measures elapsed ticks from the stamp
+	// instead of ticking every corpse. One tick is one second, inferred
+	// from the native constants: a 180-tick corpse clock and a 15-tick
+	// refusal window are round, meaningful spans in seconds and noise
+	// at any finer rate. Zero: no death is on the clock.
+	SiegeDeathAtMs   int64  `json:"-"`
 	NativeBodyStatus uint8  `json:"-"`
 	BodyStatusOwner  uint64 `json:"-"`
 	// TransformRefObjID is the transform block (CGObjPC+0x21A0): the monster
@@ -325,6 +336,10 @@ type Character struct {
 	// timed job (2, 5) of 600 s CGObjPC_HandleSiegeReturn705D (51A5B0)
 	// creates; zero when none runs.
 	FortressReturnUntilMs int64 `json:"fortressReturnUntilMs,omitempty"`
+	// CampDisbandedAtMs is when the character last dissolved a training camp
+	// (SR_GameServer 0x005dd3f0: 7-day / 604,800 s reopen cooldown, error
+	// 0x681C -> client 0x1C UIIT_MSG_TC_ERROR_NOT_OPEN_7D).
+	CampDisbandedAtMs int64 `json:"campDisbandedAtMs,omitempty"`
 
 	// InventorySize is the inventory capacity byte the client was given at
 	// its last world entry (13 equipment sockets plus the bag); zero is the

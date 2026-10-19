@@ -3,11 +3,12 @@
 
 enchant-sparks.test.mjs - the Experimental enchant sparks on +8 and higher
 
-Port-only, not native (owner, 2026-10-13). v1.150 ships the
-system_enchant*_a_01.efp programs but never names them, so the original
-draws none. With the Experimental row on, a weapon or shield at +8 or
-higher wears its class's sparks on the bones and scales its rare twin
-authors; with it off (the default), or below +8, nothing changes.
+Port-only, not native (owner, 2026-10-13; default on, 2026-10-17). v1.150
+ships the system_enchant*_a_01.efp programs but never names them, so the
+original draws none. With the Experimental row on (the default), a weapon
+or shield at +8 or higher wears its class's sparks on the bones and scales
+its rare twin authors; with it off (the native-look opt-out), or below +8,
+nothing changes.
 
 ===========================================================================
 */
@@ -64,6 +65,11 @@ function armamentDress() {
 	return {
 		equipment: {
 			[SWORD]: record( WEAPON_SLOT, "res/item/china/weapon/sword_01.bsr", "/assets/char/equipment/sword.glb" ),
+			[RARE_SWORD]: record(
+				WEAPON_SLOT,
+				"res/item/china/weapon/sword_01.bsr",
+				"/assets/char/equipment/sword.glb"
+			),
 			[SHIELD]: record( SHIELD_SLOT, "res/item/china/shield/shield_01.bsr", "/assets/char/equipment/shield.glb" )
 		}
 	};
@@ -76,12 +82,12 @@ sparksOf
 The spark particles of one assembly, as [effect, bone] pairs.
 ================
 */
-function sparksOf( dress, plus, enchantSparks ) {
+function sparksOf( dress, plus, enchantSparks, weapon = SWORD ) {
 	const assembly = assembleEquipmentAppearance( {
 		resource: { codename: "CHAR_CH_MAN_ADVENTURER" },
 		dress,
 		equipment: [
-			{ slot: WEAPON_SLOT, refObjId: SWORD, plus },
+			{ slot: WEAPON_SLOT, refObjId: weapon, plus },
 			{ slot: SHIELD_SLOT, refObjId: SHIELD, plus }
 		],
 		avatars: [],
@@ -114,8 +120,8 @@ test("each weapon class wears its own spark program on its rare twin's bones and
 	assert.equal( sparks[HARP][0].effectPath, SPARK + "harp_a_01.efp" );
 	// A beginner item borrows its sibling's twin; it shares the model.
 	assert.deepEqual( sparks[BEGINNER_SWORD], sparks[SWORD] );
-	// The rare twin keeps its own glow, and a siege hammer is never enchanted.
-	assert.equal( sparks[RARE_SWORD], undefined );
+	// A Seal (_RARE) item gets the same spark row alongside its own rare glow, and a siege hammer is never enchanted.
+	assert.deepEqual( sparks[RARE_SWORD], sparks[SWORD] );
 	assert.ok( glows[RARE_SWORD] );
 	assert.equal( sparks[HAMMER], undefined );
 	for ( const rows of Object.values( sparks ) ) {
@@ -141,7 +147,10 @@ test("sparks show only with the row on and only at +8 or higher, on real private
 	assert.deepEqual( sparksOf( dress, 8, true ), on );
 	assert.deepEqual( sparksOf( dress, 12, true ), on );
 	assert.deepEqual( sparksOf( dress, 7, true ), [] );
-	// The default, and the native client: the row off draws nothing extra.
+	assert.deepEqual( sparksOf( dress, 9, true, RARE_SWORD ), on );
+	assert.deepEqual( sparksOf( dress, 7, true, RARE_SWORD ), [] );
+	// The native-look opt-out (and an unset renderer flag): the row off draws nothing extra.
 	assert.deepEqual( sparksOf( dress, 10, false ), [] );
 	assert.deepEqual( sparksOf( dress, 10, undefined ), [] );
+	assert.deepEqual( sparksOf( dress, 9, false, RARE_SWORD ), [] );
 });

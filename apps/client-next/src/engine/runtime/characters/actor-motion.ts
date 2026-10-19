@@ -126,6 +126,22 @@ export function createActorMotion( owner: ActorOwner ) {
 			if ( !state ) {
 				state = { modifierId: allocateActor(), clip: "", started: seconds };
 				states.set( entity.gid, state );
+			} else if ( state.modifierResource && state.modifierResource.glb !== resource.glb ) {
+				// 8E64F0 (death model) reloads the visual mesh from the corpse BSR
+				// (LoadVisualMeshFromBSR), replacing its CCObjAnimation; in the port,
+				// any base-mesh GLB change on the same GID (death model or 85C060
+				// transform skin) swaps the clip catalog and must discard prior
+				// mesh installations.
+				state.locomotion = undefined;
+				state.postureClip = undefined;
+				state.postureStarted = undefined;
+				state.pickupStarted = undefined;
+				state.combatIdle = undefined;
+				state.stallMotion = undefined;
+				state.dispatch?.reset();
+				state.activations?.clear();
+				const idle = presentationState.idleStates.get( entity.gid )?.idle;
+				if ( idle?.clip && !resource.clips.includes( idle.clip ) ) idle.clip = undefined;
 			}
 			const previousOverride = avatarOverrides.get( entity.gid );
 			const selectedOverride = overrideCommit === undefined ?
@@ -253,7 +269,9 @@ export function createActorMotion( owner: ActorOwner ) {
 				state.navigationHold = undefined;
 			}
 			if ( state.navigationHold ) {
-				renderPose = state.navigationHold.pose;
+				// The hold freezes XYZ; the yaw keeps tracking the cast
+				// target (8DC440 castFacing), as renderPose already does.
+				renderPose = { ...state.navigationHold.pose, angle: renderPose.angle };
 				moving = false;
 			}
 			const activePosture = presentationState.idleStates.get( entity.gid )?.posture;
@@ -321,15 +339,31 @@ export function createActorMotion( owner: ActorOwner ) {
 				};
 			}
 			state.actionMode = entity.movementMode;
+			// A cast that stops the walk leaves state 9. When the stop and
+			// the cast arrive in one server burst (0xB2F5 with 0xB245), this
+			// frame already reports moving=false, so requiring
+			// requestedMoving missed every real cast and the body then
+			// glided across the correction under its cast animation
+			// (BR-261015-0827-9B2B). The hold pose is the last drawn one:
+			// this frame's pose() has already spent the correction. A cast
+			// record alone is not enough: gameplay.casts retains completed
+			// (phase 3, projectile still flying) and cancelled casts, and
+			// latching a hold for those would freeze an ordinary walk stop.
+			const activeCast = !!cast && cast.cancelledAtMs === undefined &&
+				(actionLayersByActor.get( entity.gid )?.length ?? 0) > 0;
 			if (
-				requestedMoving && refresh.effects.some( e => e.kind === "leave" && e.state === 9 ) &&
+				(requestedMoving || waiting || activeCast) &&
+				refresh.effects.some( e => e.kind === "leave" && e.state === 9 ) &&
 				!refresh.navigation
 			) {
 				state.navigationHold = displaced ? undefined : {
 					revision: movementRevision,
-					pose: renderPose,
+					pose: requestedMoving ? renderPose : state.lastDrawnPose ?? renderPose,
 					mode: entity.movementMode
 				};
+				if ( state.navigationHold ) {
+					renderPose = { ...state.navigationHold.pose, angle: renderPose.angle };
+				}
 				moving = false;
 			}
 			// 8EADF0 tries the selected item override before the ordinary
@@ -603,7 +637,7 @@ export function createActorMotion( owner: ActorOwner ) {
 				state.postureClip && resource.clips.includes( state.postureClip ) &&
 				state.postureStarted !== undefined
 			) {
-				const elapsed = seconds - state.postureStarted,
+				const elapsed = Math.max( 0, seconds - state.postureStarted ),
 					duration = resources.duration( resource.glb, state.postureClip );
 				if ( elapsed < duration + .2 ) {
 					layers.splice(
@@ -672,7 +706,8 @@ export function createActorMotion( owner: ActorOwner ) {
 				!dead && reaction && resource.clips.includes( reaction ) && state.hitStarted !== undefined &&
 				seconds - state.hitStarted < resources.duration( resource.glb, reaction ) + .2
 			) {
-				const age = seconds - state.hitStarted, duration = resources.duration( resource.glb, reaction );
+				const age = Math.max( 0, seconds - state.hitStarted ),
+					duration = resources.duration( resource.glb, reaction );
 				layers.unshift( {
 					clip: reaction,
 					time: Math.min( age, duration ),
@@ -687,14 +722,16 @@ export function createActorMotion( owner: ActorOwner ) {
 				state.pickupStarted = seconds;
 			}
 			const idle = presentationState.idleStates.get( entity.gid )?.idle;
-			if ( !stall && idle?.clip ) {
-				const idleClip = idle.clip, age = seconds - idle.started;
+			if ( !stall && idle?.clip && resource.clips.includes( idle.clip ) ) {
+				const idleClip = idle.clip, age = Math.max( 0, seconds - idle.started );
 				const idleLayers = bindLayers(
 					oneShotLayers( idleClip, clip, age, resources.duration( resource.glb, idleClip ), .2 ),
 					"idle",
 					idle.started
 				).map( layer =>
-					layer.lane === "event" ? { ...layer, weight: Math.min( layer.weight, age / .4 ) } : layer
+					layer.lane === "event" ?
+						{ ...layer, weight: Math.max( 0, Math.min( layer.weight, age / .4 ) ) } :
+						layer
 				);
 				layers.splice( 0, layers.length, ...idleLayers );
 			}
@@ -705,7 +742,7 @@ export function createActorMotion( owner: ActorOwner ) {
 			) {
 				layers.splice( 0, layers.length - 1, {
 					clip: "pick",
-					time: seconds - state.pickupStarted,
+					time: Math.max( 0, seconds - state.pickupStarted ),
 					loop: false,
 					weight: 1,
 					lane: "event",
@@ -805,6 +842,7 @@ export function createActorMotion( owner: ActorOwner ) {
 					"stand";
 			state.modifierResource = resource;
 			state.modifierLayers = layers;
+			state.lastDrawnPose = { ...renderPose };
 			next.set( entity.gid, {
 				shadowSize: !entity.groundItem ? published.shadowSizes.get( entity.refObjId ) : undefined,
 				modelAnimation: resource.modifierBindings?.length ?
@@ -868,7 +906,7 @@ export function createActorMotion( owner: ActorOwner ) {
 					undefined,
 				time: layers.length === 1 && layers[0]!.clip === clip ?
 					layers[0]!.time :
-					seconds - state.started,
+					Math.max( 0, seconds - state.started ),
 				loop: looping,
 				scale: Math.fround( baseScale * appearance.scale )
 			} );

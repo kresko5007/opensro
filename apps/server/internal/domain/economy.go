@@ -73,6 +73,7 @@ var economyDoorReasons = map[string]economyDoorReason{
 	"storage-transfer": {gain: "storage_withdraw", loss: "storage_deposit"},
 	"guild-storage":    {gain: "guild_storage", loss: "guild_storage"},
 	"job-join":         {loss: "job_fee"},
+	"job-alias":        {loss: "job_fee"},
 	"job-outcome":      {gain: "weekly_reward_paid"},
 	// A kill pays gold only as a most-wanted bounty (port-only).
 	"player-abnormal-kill": {gain: "most_wanted_bounty"},
@@ -86,6 +87,7 @@ var economyDoorReasons = map[string]economyDoorReason{
 	"fortress-war-apply":        {loss: "fortress_fee"},
 	"fortress-structure-repair": {loss: "fortress_fee"},
 	"guild-level-up":            {loss: "guild_fee"},
+	"training-camp-open":        {loss: "academy_fee"},
 	"guild-war-begin":           {loss: "guild_war_stake"},
 	"guild-war-compensation":    {gain: "guild_war_compensation"},
 	"mercenary-attribute":       {loss: "guild_fee"},
@@ -163,6 +165,7 @@ var economyReasonKinds = map[string]string{
 	"job_fee":                EconomyKindBurn,
 	"fortress_fee":           EconomyKindBurn,
 	"guild_fee":              EconomyKindBurn,
+	"academy_fee":            EconomyKindBurn,
 	"guild_war_stake":        EconomyKindBurn,
 	"teleport_fee":           EconomyKindBurn,
 	"exchange":               EconomyKindTransfer,

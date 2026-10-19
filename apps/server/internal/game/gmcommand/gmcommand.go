@@ -96,6 +96,28 @@ func HandleGmCommand(deps Dependencies, presence PresenceView, divisionID string
 			}
 		}
 		return Outcome{Ack: EncodeRequestFailure(request), Refusal: "monster-load-refused"}
+	case SubZoe:
+		if len(status) > 0 {
+			if owner, ok := status[0].(interface {
+				KillGMZoe(string, string, uint32, uint8) bool
+			}); ok && owner.KillGMZoe(divisionID, sender.Name, request.RefObjID, request.Amount) {
+				return Outcome{Ack: []byte{AckResultOK, SubZoe}}
+			}
+		}
+		return Outcome{Ack: EncodeRequestFailure(request), Refusal: "zoe-refused"}
+	case SubMobKill:
+		// sub_751ec0 selects case 5 (no tail) for result 1 and the generic
+		// system message for result 2, like every other relayed command.
+		if len(status) > 0 {
+			if owner, ok := status[0].(interface {
+				KillGMMonster(string, string, uint32, bool) bool
+			}); ok && owner.KillGMMonster(divisionID, sender.Name, request.TargetGID, request.MobKillMode == 0) {
+				return Outcome{Ack: []byte{AckResultOK, SubMobKill}}
+			}
+		}
+		return Outcome{Ack: EncodeRequestFailure(request), Refusal: "monster-kill-refused"}
+	case SubInitQ, SubResetQ, SubCompQ, SubRemoveQ:
+		return handleQuestTool(divisionID, sender, request, status)
 	case SubInvisible, SubInvincible:
 		if len(payload) != 1 || len(status) == 0 || status[0] == nil {
 			return Outcome{Ack: EncodeRequestFailure(request), Refusal: "body-status-unavailable"}
@@ -120,6 +142,48 @@ func HandleGmCommand(deps Dependencies, presence PresenceView, divisionID string
 		return Outcome{Ack: EncodeRequestFailure(request), Refusal: "gotown-refused"}
 	case SubToTown, SubMoveToUser, SubRecallUser:
 		return handlePlayerTeleport(divisionID, sender, request, status)
+	case SubMoveToNPC:
+		if len(status) > 0 && request.HasName && request.Name != "" {
+			if owner, ok := status[0].(interface {
+				MoveToNpcGM(string, string, string) bool
+			}); ok && owner.MoveToNpcGM(divisionID, sender.Name, request.Name) {
+				return Outcome{Ack: []byte{AckResultOK, SubMoveToNPC}}
+			}
+		}
+		return Outcome{Ack: EncodeRequestFailure(request), Refusal: "movetonpc-refused"}
+	case SubOpenWorld:
+		if len(status) > 0 {
+			if owner, ok := status[0].(interface {
+				InstanceGM(string, uint16, uint16) bool
+			}); ok && owner.InstanceGM(divisionID, request.WorldID, request.LayerID) {
+				return Outcome{Ack: []byte{AckResultOK, SubOpenWorld}}
+			}
+		}
+		return Outcome{Ack: EncodeRequestFailure(request), Refusal: "instance-refused"}
+	case SubSiegeStructure:
+		if len(status) > 0 {
+			if owner, ok := status[0].(interface {
+				SiegeStructureGM(string, string, uint8, uint32, uint32, uint8) bool
+			}); ok && owner.SiegeStructureGM(divisionID, sender.Name, request.SiegeAction, request.FortressID, request.EventStructID, request.SiegeParam) {
+				return Outcome{Ack: []byte{AckResultOK, SubSiegeStructure}}
+			}
+		}
+		return Outcome{Ack: EncodeRequestFailure(request), Refusal: "siege-structure-refused"}
+	case SubSiegePeriod:
+		if len(status) > 0 {
+			if owner, ok := status[0].(interface {
+				SiegePeriodGM(string, uint8) bool
+			}); ok && owner.SiegePeriodGM(divisionID, request.SiegeAction) {
+				return Outcome{Ack: []byte{AckResultOK, SubSiegePeriod}}
+			}
+		}
+		return Outcome{Ack: EncodeRequestFailure(request), Refusal: "siege-period-refused"}
+	case SubFlagWorld:
+		// 0x0051FCF3..0x0051FD7D (subcmd 0x30): reads u8 flagCmd, sends
+		// 0x74B0 [u8(3), u32(flagCmd)] to ShardManager (CFlagWorldMgr Capture
+		// the Flag, a v1.188 battle-arena feature outside v1.150), and
+		// unconditionally replies [1, 0x30].
+		return Outcome{Ack: []byte{AckResultOK, SubFlagWorld}}
 	case SubSetTime:
 		return handleSetTime(request, status)
 	case SubWorldStatus:
@@ -195,6 +259,51 @@ func handlePlayerTeleport(divisionID string, sender *enterworld.Character, reque
 		moved = owner.RecallUserGM(divisionID, sender.Name, request.Name)
 	}
 	if !moved {
+		return refusal
+	}
+	return Outcome{Ack: []byte{AckResultOK, request.Subcmd}}
+}
+
+// QuestTools is the action-owned port for the GM's quest commands
+// (action/gmquest.go): each acts on the GM's own journal.
+type QuestTools interface {
+	InitQuestGM(division, name, codename string) bool
+	RemoveQuestGM(division, name, codename string) bool
+	CompleteQuestGM(division, name, codename string) bool
+	ResetQuestsGM(division, name string) bool
+}
+
+// handleQuestTool honors /INITQ, /RESETQ, /COMPQ and /REMOVEQ (subs 0x1B,
+// 0x1C, 0x1D, 0x1E). 751EC0 selects case 5 (no tail) for result 1 and the
+// generic system message for result 2, like every other relayed command. An
+// empty codename is a refusal; the owner refuses an unknown or inactive quest.
+func handleQuestTool(divisionID string, sender *enterworld.Character, request Request, status []BodyStatusCommands) Outcome {
+	refusal := Outcome{Ack: EncodeRequestFailure(request), Refusal: fmt.Sprintf("gmcommand: quest tool 0x%02X refused", request.Subcmd)}
+	if len(status) == 0 {
+		return refusal
+	}
+	owner, ok := status[0].(QuestTools)
+	if !ok {
+		return refusal
+	}
+	var done bool
+	switch request.Subcmd {
+	case SubResetQ:
+		done = owner.ResetQuestsGM(divisionID, sender.Name)
+	default:
+		if !request.HasName || request.Name == "" {
+			return refusal
+		}
+		switch request.Subcmd {
+		case SubInitQ:
+			done = owner.InitQuestGM(divisionID, sender.Name, request.Name)
+		case SubCompQ:
+			done = owner.CompleteQuestGM(divisionID, sender.Name, request.Name)
+		case SubRemoveQ:
+			done = owner.RemoveQuestGM(divisionID, sender.Name, request.Name)
+		}
+	}
+	if !done {
 		return refusal
 	}
 	return Outcome{Ack: []byte{AckResultOK, request.Subcmd}}

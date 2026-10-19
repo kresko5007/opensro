@@ -24,7 +24,7 @@ Normal rank/unique tables, level-gap admission, ordinary loot cap and beta
 equipment rates all participate before the factor. Gold, consumables, NPC
 stock and unsupported equipment degrees do not produce pet gear. The original
 equipment remains on the ground too. Pet blue count, tier eligibility and
-roll floors still use the design workbook; NPC shop protection remains active.
+roll floors still use the design JSON; NPC shop protection remains active.
 
 ## Safe DB edit
 

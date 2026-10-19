@@ -41,6 +41,7 @@ import {
 	movementDuration
 } from "@/engine/foundation/gameplay/native-movement";
 import { createNavigation } from "./navigation/navigation";
+import { minimapPoseKey } from "@/engine/foundation/gameplay/minimap-floor-key";
 import { admitPose, decodeMovementReceipt, receiptWorld } from "@/engine/foundation/gameplay/movement-wire";
 import type { Pose } from "@/engine/contracts/gameplay";
 import { displacementSegment } from "@/engine/foundation/gameplay/cast-displacement";
@@ -62,9 +63,12 @@ const NAVIGATION_REJECT = 0x10000000;
 const APPROACH_HEADING_TOLERANCE = Math.PI / 8;
 const MOVEMENT_RECEIPT_TIMEOUT_MS = 10000;
 // What reconcile does when the walk to a server position is blocked
-// (86D9D0's fourth argument): keep the nav cell, or find it at the point.
+// (86D9D0's fourth argument): keep the nav cell, find it at the point, or
+// walk from the predicted pose when reachable and otherwise resolve at the
+// server receipt's pose.
 const KEEP_CELL = "keep-cell";
 const RESOLVE_CELL = "resolve-cell";
+const RECEIPT_CELL = "receipt-cell";
 // A walk kept across a stop at its start (correctsWalkStart) waits this long
 // past one measured round trip for its receipt, then walks back to the stop.
 const KEPT_WALK_GRACE_MS = 250;
@@ -392,8 +396,8 @@ the entity table's stale terrain (Lord's arena), and the correction's own
 float Y is the better witness.
 ================
 	*/
-	function reconcile( from: Pose, blocked: "keep-cell" | "resolve-cell" ): Pose {
-		if ( pose && (owner || blocked === KEEP_CELL) ) {
+	function reconcile( from: Pose, blocked: "keep-cell" | "resolve-cell" | "receipt-cell" ): Pose {
+		if ( pose && (owner || blocked !== RESOLVE_CELL) ) {
 			const query: { slide: boolean; sourceOwner?: NavOwner; owner?: NavOwner; } = {
 				slide: false,
 				sourceOwner: owner
@@ -493,9 +497,25 @@ catches up no faster than CATCHUP_SPEED_FACTOR.
 		if ( walked[0] * ahead[0] + walked[1] * ahead[1] > remaining * (remaining + ENDPOINT_EPSILON) ) {
 			return { kind: "settle", reason: "passed the server's stop", tail, remaining };
 		}
+		const routeQuery = { slide: false, sourceOwner: predictedOwner, status: 0 };
+		const route = navigation.clip( predicted, to, routeQuery );
+		if ( !route ) return { kind: "server", reason: "route blocked", tail, remaining };
 		if (
-			!navigation.available( predicted )
-		) return { kind: "server", reason: "route blocked", tail, remaining };
+			(routeQuery.status & (NAVIGATION_STOP | NAVIGATION_REJECT)) !== 0 ||
+			poseDistance( route, to ) >= ENDPOINT_EPSILON
+		) {
+			const serverCheck = navigation.clip( predicted, authoritative, {
+				slide: false,
+				sourceOwner: predictedOwner
+			} );
+			const serverRoute = navigation.clip( authoritative, to, { slide: false, sourceOwner: owner } );
+			if (
+				serverCheck && poseDistance( serverCheck, authoritative ) >= .01 ||
+				!serverRoute || poseDistance( route, serverRoute ) >= ENDPOINT_EPSILON
+			) {
+				return { kind: "server", reason: "route blocked", tail, remaining };
+			}
+		}
 		if ( tail < ENDPOINT_EPSILON ) return { kind: "keep", reason: "at the stop", segment: null, tail, remaining };
 		const duration = tail <= remaining ?
 			server.duration * tail / remaining :
@@ -1360,7 +1380,16 @@ request
 			const clipped = navigation.available( pose ) ? to : null;
 			const frame = { opcode: OP_PREDICTED_MOVE, payload };
 			send( frame );
-			record( { kind: "movement-diagnostic", event: "request", simulationAtMs: now, requestId: id, target: to } );
+			record( {
+				kind: "movement-diagnostic",
+				event: "request",
+				simulationAtMs: now,
+				requestId: id,
+				mode: 1,
+				cos: cosGid !== undefined,
+				acknowledged,
+				target: to
+			} );
 			nextId = id;
 			beginTransition( "input" );
 			pending.set( id, { to, from: pose, previous: lastGoal, sent: now } );
@@ -1489,7 +1518,16 @@ over complete navigation coverage; otherwise the receipt starts the walk.
 			payload.set( body, 5 + offset );
 			const frame = { opcode: OP_PREDICTED_MOVE, payload };
 			send( frame );
-			record( { kind: "movement-diagnostic", event: "request", simulationAtMs: now, requestId: id, heading } );
+			record( {
+				kind: "movement-diagnostic",
+				event: "request",
+				simulationAtMs: now,
+				requestId: id,
+				mode: 0,
+				cos: cosGid !== undefined,
+				acknowledged,
+				heading
+			} );
 			nextId = id;
 			beginTransition( "input" );
 			const leg = directionSegment( pose, heading, now, "client", 1, true );
@@ -1518,9 +1556,11 @@ receive
 				event: "receipt",
 				simulationAtMs: now,
 				requestId: r.id,
+				acknowledged,
 				serverTimeMs: r.serverTimeMs,
 				accepted: r.accepted,
 				stale: r.id <= acknowledged,
+				...(!r.accepted && r.error ? { error: r.error } : {}),
 				...(sent === undefined ? {} : { simulationRoundTripMs: Math.max( 0, now - sent ) })
 			};
 			if ( r.id <= acknowledged ) {
@@ -1599,7 +1639,7 @@ receive
 					limit: blocked ? poseDistance( start, to ) : Infinity
 				};
 				const walkingOwner = owner;
-				authoritative = reconcile( start, KEEP_CELL );
+				authoritative = reconcile( start, RECEIPT_CELL );
 				if ( segment?.direction && !blocked ) owner = walkingOwner;
 				else {
 					// Nothing was predicted: follow the server's leg.
@@ -1625,7 +1665,7 @@ receive
 			if ( command.direction !== undefined ) walk = null;
 			beginTransition( "receipt" );
 			const predictedOwner = owner;
-			authoritative = reconcile( replacement?.from ?? to, KEEP_CELL );
+			authoritative = reconcile( replacement?.from ?? to, RECEIPT_CELL );
 			// A receipt confirms an endpoint, not the client's old frame. The
 			// server's endpoint is the one that counts, and it is accepted from
 			// wherever the prediction has walked to as long as that walk can
@@ -1649,7 +1689,7 @@ receive
 			} else if ( reconciled.kind === "settle" ) {
 				// The prediction already passed the server's stop: settle on the
 				// stop, never back at the server's start.
-				pose = authoritative = reconcile( to, KEEP_CELL );
+				pose = authoritative = reconcile( to, RECEIPT_CELL );
 				replacement = null;
 			} else pose = authoritative;
 			segment = replacement ? bindOwners( { ...replacement, from: pose } ) : null;
@@ -1770,7 +1810,7 @@ state
 				movementDiagnostics: { total: reanchorReports, recent: recentReanchors.slice() },
 				navigationFloor: navigation.floor( pose, owner ),
 				minimapFloors: Object.fromEntries(
-					minimapQueries.map( p => [ [ p.regionId, p.x, p.y, p.z ].join( ":" ), navigation.floor( p ) ] )
+					minimapQueries.map( p => [ minimapPoseKey( p ), navigation.floor( p ) ] )
 				),
 				navigationRegion,
 				navigationBlock: navigation.block( pose, owner ),

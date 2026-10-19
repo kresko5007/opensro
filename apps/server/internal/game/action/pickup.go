@@ -31,6 +31,19 @@ the movement ack toward the item.
 ==================
 */
 func (rt *Runtime) armApproach(divisionID, worldKey, pendingKey string, character *enterworld.Character, groundItem grounditem.Item, approach grounditem.Approach, now time.Time) OpResult {
+	// CGCharAutoCommandActor_Handler_UseItem (4AE0C0) state 1
+	// (4AE1FB..4AE26C) walks to an out-of-range drop via
+	// CGCharAutoNavigator_StartPursuit (4B0350 at 4AE267), which refuses
+	// when CGObjChar_IsAttackLocked (4AAB40) reports an open cast
+	// (char+C08). The port has no persistent auto-command actor to retry
+	// the walk on later ticks: armApproach is the single-shot scheduling
+	// step for one 7074 interact, so refusing to arm while
+	// PlayerAttackLocked (the port's char+C08 cast fold plus its char+C0C
+	// standing-wall fold) is the equivalent of refusing that walk.
+	if rt.PlayerAttackLocked(divisionID, character.Name) {
+		rt.Pending.Clear(pendingKey)
+		return OpResult{}
+	}
 	// The approach is a real move: live plane + record goal write commit as
 	// one unit (ADR-1 S5; WorldStore.mu nests under store.mu per the lock
 	// table).
@@ -159,7 +172,7 @@ func (rt *Runtime) grantPickupTo(g pickupGrant) (result OpResult) {
 	divisionID, worldKey, groundItem, characterSnapshot := g.division, g.worldKey, g.item, g.snapshot
 	picker, character := g.picker, g.recipient
 	defer func() {
-		result = routeSharedPickup(result, picker, character)
+		result = routeSharedPickup(result, picker, character, g.actor == nil)
 		// A granted pickup publishes its scoop; only then does the party learn of it.
 		if len(result.Broadcast) > 0 {
 			result.Recipients = append(result.Recipients, rt.partyLootNotice(divisionID, picker, character, groundItem, rt.Now().UnixMilli())...)

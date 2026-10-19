@@ -33,9 +33,9 @@ tier; D9 does not guarantee six blues or perfect rolls.
 
 ## Source and compatibility
 
-Edit `pet-design.xlsx` here: Degrees owns equipment requirements, maximum blues,
-six-blue weights and roll floors; Rules owns the global six-blue ceiling.
-Legacy workbook drop chances/rank multipliers no longer control runtime drops.
+Edit `pet-design.json` here: `gear` owns equipment requirements, maximum blues,
+six-blue weights and roll floors; `rules` owns the global six-blue ceiling.
+Legacy design drop chances/rank multipliers no longer control runtime drops.
 Run `python scripts/tools/pet_design_export.py` to regenerate the server,
 client and asset-pipeline projections. Do not hand-edit generated files.
 

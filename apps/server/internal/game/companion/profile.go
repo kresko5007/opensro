@@ -1,7 +1,7 @@
 /*
 ===========================================================================
 
-profile.go - workbook species roles (port-only attack-pet expansion)
+profile.go - design species roles (port-only attack-pet expansion)
 
 ===========================================================================
 */

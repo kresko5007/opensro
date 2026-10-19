@@ -56,6 +56,7 @@ import { createMagicOptionGrant } from "./magic-option/magic-option";
 import { itemStateDelta } from "@/engine/foundation/gameplay/item-state-delta";
 import { itemSlotFlashKinds } from "@/engine/foundation/ui/item-slot-effects";
 import { itemMagicDefinitions } from "@/engine/foundation/ui/item-tooltip-magic";
+import { itemMaxDurability } from "@/engine/foundation/ui/item-tooltip-stats";
 import type { GachaPrizeRow, ItemProcessCommand } from "@/engine/contracts/item-process";
 import {
 	saleResult,
@@ -210,8 +211,14 @@ presentShop
 	const refs = new Map<number, number>(), names = new Map<number, string>();
 	const icons = new Map<number, string>();
 	const tooltipRefs = new Map<number, ItemTooltipReference>();
-	// The Magic Pang window's twelve prizes with the reference icons, rebuilt when icons arrive.
-	let gachaRows: { iconCount: number; rows: readonly GachaPrizeRow[]; } | null = null;
+	// The Magic Pang window's twelve prizes with the reference icons, rebuilt when references change.
+	let gachaRows: {
+		iconCount: number;
+		refCount: number;
+		nameCount: number;
+		tooltipCount: number;
+		rows: readonly GachaPrizeRow[];
+	} | null = null;
 	// The chat line a voucher update raises, taken by the gameplay owner after each packet.
 	let exchangeNotice: SystemNotice | null = null;
 	let magicRefs = itemMagicReferences( undefined );
@@ -237,6 +244,33 @@ present
 	}
 	/*
 	================
+	referenceItem
+
+	A plain instance of a reference (no plus, no options, full durability),
+	presented like a bag row: the item a catalogue slot shows before any
+	instance exists (Magic Pang prizes, fortress forge rows). Native binds
+	the same plain record into those slots (CIFSlot_SetBoundItem 56D190),
+	so the hover help is the fresh item's. Undefined while the reference
+	itself has not arrived.
+	================
+	*/
+	function referenceItem( refObjId: number, quantity: number ): InventoryItem | undefined {
+		const typeFlags = refs.get( refObjId );
+		if ( typeFlags === undefined ) return undefined;
+		const item = present( {
+			slot: 0,
+			refObjId,
+			typeFlags,
+			quantity,
+			plus: 0,
+			durability: 0,
+			variance: "0",
+			magic: []
+		} );
+		return { ...item, durability: itemMaxDurability( item ) };
+	}
+	/*
+	================
 	gachaPrizeRows
 
 	The Magic Pang prizes with reference icons. Icons arrive after the first frame, so
@@ -244,15 +278,27 @@ present
 	================
 	*/
 	function gachaPrizeRows(): readonly GachaPrizeRow[] {
-		if ( gachaRows?.iconCount === icons.size ) return gachaRows.rows;
+		if (
+			gachaRows?.iconCount === icons.size &&
+			gachaRows.refCount === refs.size &&
+			gachaRows.nameCount === names.size &&
+			gachaRows.tooltipCount === tooltipRefs.size
+		) return gachaRows.rows;
 		const rows = gachaPrizes().map( prize => ({
 			entry: prize.entry,
 			refObjId: prize.refObjId,
 			quantity: prize.quantity,
 			nameSymbol: prize.nameSymbol,
-			icon: icons.get( prize.refObjId )
+			icon: icons.get( prize.refObjId ),
+			item: referenceItem( prize.refObjId, prize.quantity )
 		}) );
-		gachaRows = { iconCount: icons.size, rows };
+		gachaRows = {
+			iconCount: icons.size,
+			refCount: refs.size,
+			nameCount: names.size,
+			tooltipCount: tooltipRefs.size,
+			rows
+		};
 		return rows;
 	}
 	/*
@@ -357,6 +403,7 @@ applyShopItems
 		names.clear();
 		for ( const [id, name] of nextNames ) names.set( id, name );
 		published = null;
+		gachaRows = null;
 	}
 	/*
 ================
@@ -453,21 +500,31 @@ data and never fails the session.
 bindCompanion
 
 830EC0 -> 59C2E0 binds the private COS record to its summoner inventory
-slot. The separate 3645 receipt owns the native active/dead state byte.
+slot, and 59DAA0 (CIFInventory_FindSummonerByCompanionGID) locates that
+CSOItem by its bound companion GID (auxParam2) after a bag slot move.
+The separate 3645 receipt owns the native active/dead state byte.
 ================
  */
 		bindCompanion( record: import("@/engine/contracts/gameplay").CosRecord ) {
-			if ( record.inventorySlot === undefined ) return;
-			const previous = slots.get( record.inventorySlot );
+			let slot = record.inventorySlot;
+			for ( const [candidateSlot, candidate] of slots ) {
+				if ( candidate.summon?.gid === record.gid ) {
+					slot = candidateSlot;
+					break;
+				}
+			}
+			if ( slot === undefined ) return;
+			const previous = slots.get( slot );
 			// Native 59C2E0 ignores an absent slot; it does not create an item.
 			if ( !previous ) return;
 			if ( (previous.typeFlags & 0x7fe) !== 0xcc ) {
 				throw Error( "Companion record has no summoner item" );
 			}
-			slots.set( record.inventorySlot, {
+			slots.set( slot, {
 				...previous,
 				summon: {
 					...previous.summon,
+					gid: record.gid,
 					state: record.dead ? 4 : 2,
 					refObjId: record.refObjId,
 					name: record.name,
@@ -571,13 +628,19 @@ A reference's name and icon by id, for rows that are no item (the forge).
 		/*
 ================
 referenceItem
+================
+		*/
+		referenceItem,
+		/*
+================
+petGearItem
 
 A fresh item of a known reference in a slot that is no bag slot (a pet's
 worn gear and its blue options, pet-training.ts), with the bag's name, icon
 and tooltip; null for a reference this client was never told about.
 ================
 		*/
-		referenceItem( refObjId: number, slot: number, magic: readonly string[] = [] ): InventoryItem | null {
+		petGearItem( refObjId: number, slot: number, magic: readonly string[] = [] ): InventoryItem | null {
 			const typeFlags = refs.get( refObjId );
 			if ( typeFlags === undefined ) return null;
 			return present( {
@@ -623,6 +686,7 @@ references
 			}
 			published = null;
 			presentations = new WeakMap();
+			gachaRows = null;
 			shopSource = undefined;
 		},
 		/*
@@ -634,6 +698,7 @@ bootstrap
 			bindingMoves = [];
 			itemCooldowns = [];
 			presentations = new WeakMap();
+			gachaRows = null;
 			alchemy.reset();
 			companionRentals.reset();
 			gacha.reset();
@@ -1567,6 +1632,7 @@ receive
 				names.clear();
 				for ( const [id, name] of nextNames ) names.set( id, name );
 				published = null;
+				gachaRows = null;
 				mallDelivery = null;
 				return true;
 			}
@@ -2182,6 +2248,7 @@ clear
 			itemCooldowns = [];
 			shopCompletionRevision = 0;
 			presentations = new WeakMap();
+			gachaRows = null;
 			tooltipRefs.clear();
 			magicRefs = itemMagicReferences( undefined );
 			alchemy.reset();

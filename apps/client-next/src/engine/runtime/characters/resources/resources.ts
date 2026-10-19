@@ -472,12 +472,27 @@ function createPetCounterRippleResource(): { model: CharacterModel; images: Nati
 	} );
 }
 
-const PROCEDURAL_EFFECT_MODELS = new Map<string, () => { model: CharacterModel; images: NativeTexture[]; }>( [
-	[ "/assets/effects/pet-counter-ripple", createPetCounterRippleResource ],
-	[ "/assets/effects/iron-hide-shield", createIronHideShieldResource ],
-	[ "/assets/effects/challenging-roar-aura", createChallengingRoarAuraResource ],
-	[ "/assets/effects/challenging-roar-shockwave", createChallengingRoarShockwaveResource ]
-] );
+/*
+================
+createProceduralEffect
+
+Explicit calls keep effect execution visible to the capability contract.
+================
+*/
+function createProceduralEffect( path: string ) {
+	switch ( path ) {
+		case "/assets/effects/pet-counter-ripple":
+			return createPetCounterRippleResource();
+		case "/assets/effects/iron-hide-shield":
+			return createIronHideShieldResource();
+		case "/assets/effects/challenging-roar-aura":
+			return createChallengingRoarAuraResource();
+		case "/assets/effects/challenging-roar-shockwave":
+			return createChallengingRoarShockwaveResource();
+		default:
+			return null;
+	}
+}
 
 /*
 ================
@@ -738,15 +753,12 @@ export function createCharacterResources( assets: AssetOwner, renderer: Renderer
 		*/
 		ready( path: string ) {
 			if ( disposed ) return false;
-			const synth = PROCEDURAL_EFFECT_MODELS.get( path );
-			if ( synth && !costs.has( path ) ) {
-				let built = proceduralCache.get( path );
-				if ( !built ) {
-					built = synth();
-					proceduralCache.set( path, built );
-				}
-				costs.set( path, characterBytes( built.model, built.images ) );
+			let built = proceduralCache.get( path );
+			if ( !built ) {
+				built = createProceduralEffect( path ) ?? undefined;
+				if ( built ) proceduralCache.set( path, built );
 			}
+			if ( built && !costs.has( path ) ) costs.set( path, characterBytes( built.model, built.images ) );
 			// A failing source keeps its own retry deadline and stays wanted so
 			// retainWanted does not drop the deadline and refetch every frame.
 			if ( !loaded.has( path ) && (failures.get( path )?.retryAt ?? -Infinity) > now ) {
@@ -754,9 +766,8 @@ export function createCharacterResources( assets: AssetOwner, renderer: Renderer
 				return false;
 			}
 			if ( !plan( [ path ] ) ) return false;
-			if ( synth ) {
+			if ( built ) {
 				if ( !loaded.has( path ) ) {
-					const built = proceduralCache.get( path )!;
 					renderer.setCharacterModel( path, built.model, built.images );
 					durations.set(
 						path,

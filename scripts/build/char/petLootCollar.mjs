@@ -12,7 +12,7 @@ the normal avatar exporter supplies the runtime's native material contract.
 ===========================================================================
 */
 import { avatarToGlb } from "./exportGlb.mjs";
-import { fileURLToPath } from "node:url";
+import { petLootAtlas } from "./petLootAtlas.mjs";
 
 const SEGMENTS = 24;
 const COLLAR_SCALE = 1.8;
@@ -37,6 +37,7 @@ and modest facets retain the low-poly readability of the surrounding loot.
 ================
 */
 export function createPetLootCollar() {
+	const pngBytes = petLootAtlas();
 	const meshes = new Map();
 	/*
 	================
@@ -185,7 +186,7 @@ export function createPetLootCollar() {
 		}) ),
 		materials: new Map(
 			Object.keys( MATERIAL_TILES ).map( name => [ name, {
-				pngPath: fileURLToPath( new URL( "./pet-loot-textures/caravan-atlas.png", import.meta.url ) ),
+				pngBytes,
 				colors: { diffuse: [ 0.588, 0.588, 0.588, 1 ], ambient: [ 0.588, 0.588, 0.588, 1 ] },
 				flags: 0x140
 			} ] )

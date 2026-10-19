@@ -38,7 +38,8 @@ export interface ExperimentalOptions {
 	// 2026-10-15); an explicit false is the native snap.
 	readonly smoothCamera: boolean;
 	// Port-only, not native: the unused enchant sparks on +8 and higher
-	// weapons and shields (equipmentEnchantSparks).
+	// weapons and shields (equipmentEnchantSparks). On by default (owner
+	// 2026-10-17); an explicit false restores the native v1.150 look.
 	readonly enchantSparks: boolean;
 	// Port-only wolf skill tree controls; requires the server's matching opt-in.
 	readonly attackPetTraining: boolean;
@@ -96,6 +97,24 @@ export interface ExperimentalOptions {
 	// runtime/ui/hud/unique-banner.ts). On unless turned off (the balance
 	// advisor's ask, owner-approved 2026-10-15); off is the original timing.
 	readonly shortNotices: boolean;
+	// Port-only, not native: the guild window's Withdraw asks "Ban [name]?"
+	// (UIIT_MSG_GUILD_QUESTION_EXPULSION_ANYONE) before it bans; 5E4C30 sends
+	// the ban on the click. On unless turned off (the owner's choice,
+	// 2026-10-15); off is the original.
+	readonly confirmGuildBan: boolean;
+	// Port-only, not native: straight AT_MOV_1TAR projectiles re-aim at the
+	// target's live socket each frame (stepHomingProjectile). The original
+	// interpolates between the launch-captured start (+0x58) and end (+0x64)
+	// vectors without re-reading the target (CProjectileTrace_Process 8D8580,
+	// CProjectile_Bezier_Process 879650). Off unless turned on.
+	readonly homingProjectiles: boolean;
+	// Port-only, not native: left-clicking the attack pet's mini panel
+	// (CIFPetMiniInfo 6B3460 / 6B3760) selects the pet and toggles its companion
+	// window (CIFCos 69D920). Natively CIFPetMiniInfo::vftable (BFBDAC) inherits
+	// CIFWnd_GetMessageMap (53CC30 -> BD2CB8, initialized by BB20D0) and leaves
+	// vtable slot 29 at CIFWnd_DefaultLeftButtonDown (4B0740, no-op). On unless
+	// turned off (the owner's choice, 2026-10-18, BUG-086); off is native.
+	readonly petClickOpensWindow: boolean;
 }
 
 /*
@@ -132,10 +151,10 @@ export function renderScales(): readonly RenderScale[] {
 ================
 experimentalOptions
 
-Only an explicit true enables a toggle, except smoothCamera,
+Only an explicit true enables a toggle, except smoothCamera, enchantSparks,
 compressedTextures, sharedActorRoom, greyDisabledTabs, jobKillNotices, dropPlusNotices,
-fitWindowLabels, dropOnBagTab, noticeLinks and shortNotices, which only an
-explicit false turns off.
+fitWindowLabels, dropOnBagTab, noticeLinks, shortNotices, confirmGuildBan and
+petClickOpensWindow, which only an explicit false turns off.
 Missing or invalid render scales restore full resolution; legacy Video
 settings cannot enable scaling. Keys of retired rows (terrainRelief and texturedHorizon, removed at the owner's
 request on 2026-10-11) are never read, so a saved preference holding them
@@ -161,7 +180,7 @@ export function experimentalOptions( value: unknown = null ): ExperimentalOption
 		perPixelLighting: enabled( "perPixelLighting" ),
 		predictedRunUp: enabled( "predictedRunUp" ),
 		smoothCamera: record.smoothCamera !== false,
-		enchantSparks: enabled( "enchantSparks" ),
+		enchantSparks: record.enchantSparks !== false,
 		compressedTextures: record.compressedTextures !== false,
 		sharedActorRoom: record.sharedActorRoom !== false,
 		greyDisabledTabs: record.greyDisabledTabs !== false,
@@ -172,7 +191,10 @@ export function experimentalOptions( value: unknown = null ): ExperimentalOption
 		dropOnBagTab: record.dropOnBagTab !== false,
 		noticeLinks: record.noticeLinks !== false,
 		shortNotices: record.shortNotices !== false,
-		attackPetTraining: enabled( "attackPetTraining" )
+		attackPetTraining: enabled( "attackPetTraining" ),
+		confirmGuildBan: record.confirmGuildBan !== false,
+		homingProjectiles: enabled( "homingProjectiles" ),
+		petClickOpensWindow: record.petClickOpensWindow !== false
 	};
 }
 
@@ -258,6 +280,7 @@ export interface ExperimentalGameplay {
 	readonly predictedRunUp: boolean;
 	readonly jobKillNotices: boolean;
 	readonly dropPlusNotices: boolean;
+	readonly homingProjectiles?: boolean;
 }
 
 /*
@@ -269,6 +292,7 @@ export function experimentalGameplay( options: ExperimentalOptions ): Experiment
 	return {
 		predictedRunUp: options.predictedRunUp,
 		jobKillNotices: options.jobKillNotices,
-		dropPlusNotices: options.dropPlusNotices
+		dropPlusNotices: options.dropPlusNotices,
+		homingProjectiles: options.homingProjectiles
 	};
 }

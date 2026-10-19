@@ -259,10 +259,22 @@ func (server *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	server.passwordFailures.update(clientIP(r), request.ID, server.now(), false, true)
 	server.upgradePasswordCost(r.Context(), accountID, hash, request.Password)
 
-	token, err := server.sessionSigner.Mint(
+	epoch := uint64(1)
+	if epochAuth, ok := server.accounts.(sessionEpochAuthority); ok {
+		if current, active := epochAuth.SessionEpoch(accountID); active {
+			epoch = current
+		}
+	}
+	server.revokedMu.Lock()
+	if minEpoch := server.accountMinEpoch[accountID]; minEpoch > epoch {
+		epoch = minEpoch
+	}
+	server.revokedMu.Unlock()
+	token, err := server.sessionSigner.MintWithEpoch(
 		accountID,
 		definition.ID,
 		server.now().Add(auth.AgentSessionLifetime),
+		epoch,
 	)
 	if err != nil {
 		refuse(5, "INTERNAL", "Token generation failed.")
@@ -313,6 +325,7 @@ func (server *Server) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	server.syncShardRevocations(heartbeat)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 

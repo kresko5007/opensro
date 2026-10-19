@@ -196,6 +196,39 @@ type objectContactOptions struct {
 }
 
 /*
+================
+withinOutlineNudgeMargin
+
+withinOutlineNudgeMargin reports whether (x, z) lies within nudgeEscapeMargin
+of any blocking outline segment of mesh (the 0.01u inward sliver an
+inward-authored vertexDirection in outsideEdgeStart can place a terrain walker
+into).
+================
+*/
+func withinOutlineNudgeMargin(mesh *objectNavMesh, x, z float64) bool {
+	const marginSq = (0.009999999776482582 * 2) * (0.009999999776482582 * 2)
+	edges := &mesh.outline
+	for i := range edges.flags {
+		if edges.flags[i]&1 == 0 {
+			continue
+		}
+		va, vb := int(edges.vertA[i])*3, int(edges.vertB[i])*3
+		ax, az := float64(mesh.vertices[va]), float64(mesh.vertices[va+2])
+		sx, sz := float64(mesh.vertices[vb])-ax, float64(mesh.vertices[vb+2])-az
+		lenSq := sx*sx + sz*sz
+		u := 0.0
+		if lenSq > 0 {
+			u = math.Max(0, math.Min(1, ((x-ax)*sx+(z-az)*sz)/lenSq))
+		}
+		dx, dz := x-(ax+sx*u), z-(az+sz*u)
+		if dx*dx+dz*dz <= marginSq {
+			return true
+		}
+	}
+	return false
+}
+
+/*
 ==================
 objectEdgeGroupChordContactDetail
 
@@ -264,10 +297,15 @@ func objectEdgeGroupChordContactDetail(
 		if !owned && opts.terrainEntry == nil && math.Abs(chordY-edgeY) > objectEdgeContactWindowUnits {
 			continue
 		}
+		ox, oz := x0, z0
+		if !owned && opts.walkerAt != nil {
+			at := opts.walkerAt(t)
+			ox, oz = x0+(x1-x0)*at, z0+(z1-z0)*at
+		}
 		// Approach side: a straight chord crosses the edge LINE once, so
-		// the chord start's side is the approach side (start exactly on
+		// the walker's start side is the approach side (start exactly on
 		// the line falls back to the far end's opposite side).
-		originSide := sX*(z0-az) - sZ*(x0-ax)
+		originSide := sX*(oz-az) - sZ*(ox-ax)
 		if originSide == 0 {
 			originSide = -(sX*(z1-az) - sZ*(x1-ax))
 		}
@@ -278,22 +316,36 @@ func objectEdgeGroupChordContactDetail(
 			// orient the crossing. Fail open.
 			continue
 		}
-		if outline && flags&8 != 0 && linked != nil && linked(i, originSide*srcSide > 0, t) {
+		fromSrcSide := originSide*srcSide > 0
+		inNudgeMargin := false
+		if !owned && opts.walk != nil && outline && fromSrcSide {
+			// Native CRTNavMeshObj_Move (428F40 / 9B5A80) dispatches an unowned
+			// terrain walker to CRTNavMeshObj_EnterFromOutside (428300 / 9B4D30),
+			// never to the owned-cell stepper. When a prior blocked outline hit
+			// nudged the terrain walker 0.01u inward via an inward-authored
+			// vertexDirection (outsideEdgeStart, 4287A8..4288A6), its next step
+			// starts on the srcCell side within vertexStep of that outline while
+			// still owned by terrain: an outward chord escaping that nudge sliver
+			// must not re-block, and an inward chord hitting a far outline edge
+			// must block via outsideEdgeStart without capturing object ownership.
+			const nudgeEscapeMargin = 0.009999999776482582 * 2
+			if originSide*originSide <= nudgeEscapeMargin*nudgeEscapeMargin*(sX*sX+sZ*sZ) {
+				continue
+			}
+			inNudgeMargin = withinOutlineNudgeMargin(mesh, ox, oz)
+		}
+		if outline && flags&8 != 0 && linked != nil && linked(i, fromSrcSide, t) {
 			continue
 		}
-		reflection := opts.exits && outline && originSide*srcSide > 0 && flags&0x1a == 0
-		if !reflection && !objectNavEdgeBlocks(flags, outline, originSide*srcSide > 0) {
+		reflection := (owned || opts.walk == nil) && opts.exits && outline && fromSrcSide && flags&0x1a == 0
+		if !reflection && !objectNavEdgeBlocks(flags, outline, fromSrcSide) {
 			continue
 		}
 		bestT = t
 		found = true
 		if response != nil {
-			ox, oz := x0, z0
-			if !owned && opts.walkerAt != nil {
-				at := opts.walkerAt(t)
-				ox, oz = x0+(x1-x0)*at, z0+(z1-z0)*at
-			}
-			*response = nativeObjectContact(mesh, edges, i, originSide*srcSide > 0, ox, oz, y0, x1, z1, reflection)
+			sourceSide := fromSrcSide && !inNudgeMargin
+			*response = nativeObjectContact(mesh, edges, i, sourceSide, ox, oz, y0, x1, z1, reflection)
 			response.outline = outline
 		}
 	}
@@ -387,6 +439,7 @@ objectChordFirstContact
 func (v *WaterValidator) objectChordFirstContact(fromWX, fromWZ, fromY, toWX, toWZ, toY float64, walk *navWalk) (float64, float64, bool, objectContactPoint) {
 	var sectorBuf [8]globalTile
 	chordSectors := v.chordSectors(sectorBuf[:], fromWX, fromWZ, toWX, toWZ)
+	multiSector := len(chordSectors) > 1
 
 	// Nine anchors per crossed sector: a scan of a stack array, not a map
 	// that allocated its buckets on every monster chord (57 MB a minute).
@@ -395,101 +448,83 @@ func (v *WaterValidator) objectChordFirstContact(fromWX, fromWZ, fromY, toWX, to
 	bestT, bestKey := math.Inf(1), math.Inf(1)
 	var rest objectContactPoint
 	found := false
-	probe := func(surface *groundSurface, anchorX, anchorZ int) {
-		if surface == nil {
-			return
-		}
-		dx := anchorX - simulation.SectorX(surface.seedRegionID)
-		dz := anchorZ - simulation.SectorY(surface.seedRegionID)
-		key := objectNavSetKey{surface: surface, offset: offsetKey(dx, dz)}
-		if slices.Contains(checked, key) {
-			return
-		}
-		checked = append(checked, key)
-		set, setReach := v.objectNavSetReach(surface, dx, dz)
-		if len(set) == 0 {
-			return
-		}
-		lx0 := fromWX - float64(anchorX)*simulation.NativeRegionSize
-		lz0 := fromWZ - float64(anchorZ)*simulation.NativeRegionSize
-		lx1 := toWX - float64(anchorX)*simulation.NativeRegionSize
-		lz1 := toWZ - float64(anchorZ)*simulation.NativeRegionSize
-		// A chord that misses every placement of the set contacts none of them,
-		// unless the walk stands on one (the placement test below, set-wide).
-		if setReach.missedBy(lx0, lz0, lx1, lz1) && !walk.ownsInSet(surface, dx, dz) {
-			return
-		}
-		passages := resolveObjectPassages(set, lx0, fromY, lz0, lx1, toY, lz1)
-		anchorWX, anchorWZ := float64(anchorX)*simulation.NativeRegionSize, float64(anchorZ)*simulation.NativeRegionSize
-		for i := range set {
-			// A chord that misses everything this placement holds cannot
-			// contact it (objectnav_reach.go), unless the walk owns one of
-			// its meshes: that walk is scanned whatever the box says.
-			if set[i].reach.missedBy(lx0, lz0, lx1, lz1) && !walk.ownsAnyMesh(&set[i], anchorWX, anchorWZ) {
-				continue
-			}
-			placement := set[i].placement
-			cosYaw, sinYaw := set[i].cosYaw, set[i].sinYaw
-			ox0 := cosYaw*(lx0-placement.x) + sinYaw*(lz0-placement.z)
-			oz0 := -sinYaw*(lx0-placement.x) + cosYaw*(lz0-placement.z)
-			ox1 := cosYaw*(lx1-placement.x) + sinYaw*(lz1-placement.z)
-			oz1 := -sinYaw*(lx1-placement.x) + cosYaw*(lz1-placement.z)
-			oy0 := fromY - placement.y
-			oy1 := toY - placement.y
-			// Native visit order (404510): a terrain walker steps this placement
-			// once it stands in a cell the placement is registered in, against the
-			// rest of the chord; the earliest visit wins over later ones, whatever
-			// their crossing parameters.
-			visit := terrainVisitKey(placement.terrainCells, lx0, lz0, lx1, lz1)
-			var terrainEntry func(float64) bool
-			if placement.terrainCells != nil {
-				terrainEntry = func(t float64) bool { return t >= visit-1e-9 }
-			}
-			for _, mesh := range set[i].meshes {
-				var local objectContactPoint
-				path := walk.pathForMesh(mesh, float64(anchorX)*simulation.NativeRegionSize, float64(anchorZ)*simulation.NativeRegionSize, placement.ordinal)
-				if path == nil && math.IsInf(visit, 1) {
-					continue
-				}
-				walkerAt := func(t float64) float64 { return math.Max(visit, walk.lastExitBefore(t)) }
-				if t, ok := objectMeshChordContactDetail(mesh, ox0, oz0, oy0, ox1, oz1, oy1, math.Inf(1), func(edge int, _ bool, _ float64) bool { return passages.permits(i, edge) }, &local, objectContactOptions{exits: true, path: path, ownedMesh: path != nil, terrainEntry: terrainEntry, walk: walk, walkerAt: walkerAt}); ok {
-					key := visit
-					if path != nil {
-						key = t // an owned mesh is walked cell by cell: its own contact order
-					}
-					if key > bestKey || key == bestKey && t >= bestT {
-						continue
-					}
-					bestKey = key
-					rest = local
-					if rest.valid {
-						rest.x = contactF32(cosYaw*local.x-sinYaw*local.z+placement.x) + float64(anchorX)*simulation.NativeRegionSize
-						rest.z = contactF32(sinYaw*local.x+cosYaw*local.z+placement.z) + float64(anchorZ)*simulation.NativeRegionSize
-						rest.y = contactF32(local.y + placement.y)
-					}
-					bestT = t
-					found = true
-				}
-			}
-		}
-	}
 
 	for _, sector := range chordSectors {
 		if sector.x < 0 || sector.z < 0 || sector.x > 0xff || sector.z > 0xff {
 			continue
 		}
-		chordSurface := v.surfaceForRegion(simulation.RegionIDForSectors(sector.x, sector.z))
-		for dz := -objectAnchorSearchRadiusSectors; dz <= objectAnchorSearchRadiusSectors; dz++ {
-			for dx := -objectAnchorSearchRadiusSectors; dx <= objectAnchorSearchRadiusSectors; dx++ {
-				anchorX, anchorZ := sector.x+dx, sector.z+dz
-				if anchorX < 0 || anchorZ < 0 || anchorX > 0xff || anchorZ > 0xff {
+		probes := v.sectorObjectNavProbes(sector.x, sector.z)
+		for pIdx := range probes {
+			p := &probes[pIdx]
+			if multiSector {
+				if slices.Contains(checked, p.key) {
 					continue
 				}
-				// A multi-region bundle may own the neighbor placement;
-				// a dedicated neighbor bundle may own it instead. Probe
-				// both cache identities and deduplicate by surface+offset.
-				probe(chordSurface, anchorX, anchorZ)
-				probe(v.surfaceForRegion(simulation.RegionIDForSectors(anchorX, anchorZ)), anchorX, anchorZ)
+				checked = append(checked, p.key)
+			}
+			surface, dx, dz := p.surface, p.dx, p.dz
+			anchorWX, anchorWZ := p.baseX, p.baseZ
+			set, setReach := p.set, p.reach
+			lx0 := fromWX - anchorWX
+			lz0 := fromWZ - anchorWZ
+			lx1 := toWX - anchorWX
+			lz1 := toWZ - anchorWZ
+			// A chord that misses every placement of the set contacts none of them,
+			// unless the walk stands on one (the placement test below, set-wide).
+			if setReach.missedBy(lx0, lz0, lx1, lz1) && !walk.ownsInSet(surface, dx, dz) {
+				continue
+			}
+			passages := resolveObjectPassages(set, lx0, fromY, lz0, lx1, toY, lz1)
+			for i := range set {
+				// A chord that misses everything this placement holds cannot
+				// contact it (objectnav_reach.go), unless the walk owns one of
+				// its meshes: that walk is scanned whatever the box says.
+				if set[i].reach.missedBy(lx0, lz0, lx1, lz1) && !walk.ownsAnyMesh(&set[i], anchorWX, anchorWZ) {
+					continue
+				}
+				placement := set[i].placement
+				cosYaw, sinYaw := set[i].cosYaw, set[i].sinYaw
+				ox0 := cosYaw*(lx0-placement.x) + sinYaw*(lz0-placement.z)
+				oz0 := -sinYaw*(lx0-placement.x) + cosYaw*(lz0-placement.z)
+				ox1 := cosYaw*(lx1-placement.x) + sinYaw*(lz1-placement.z)
+				oz1 := -sinYaw*(lx1-placement.x) + cosYaw*(lz1-placement.z)
+				oy0 := fromY - placement.y
+				oy1 := toY - placement.y
+				// Native visit order (404510): a terrain walker steps this placement
+				// once it stands in a cell the placement is registered in, against the
+				// rest of the chord; the earliest visit wins over later ones, whatever
+				// their crossing parameters.
+				visit := terrainVisitKey(placement.terrainCells, lx0, lz0, lx1, lz1)
+				var terrainEntry func(float64) bool
+				if placement.terrainCells != nil {
+					terrainEntry = func(t float64) bool { return t >= visit-1e-9 }
+				}
+				for _, mesh := range set[i].meshes {
+					var local objectContactPoint
+					path := walk.pathForMesh(mesh, anchorWX, anchorWZ, placement.ordinal)
+					if path == nil && math.IsInf(visit, 1) {
+						continue
+					}
+					walkerAt := func(t float64) float64 { return math.Max(visit, walk.lastExitBefore(t)) }
+					if t, ok := objectMeshChordContactDetail(mesh, ox0, oz0, oy0, ox1, oz1, oy1, math.Inf(1), func(edge int, _ bool, _ float64) bool { return passages.permits(i, edge) }, &local, objectContactOptions{exits: true, path: path, ownedMesh: path != nil, terrainEntry: terrainEntry, walk: walk, walkerAt: walkerAt}); ok {
+						key := visit
+						if path != nil {
+							key = t // an owned mesh is walked cell by cell: its own contact order
+						}
+						if key > bestKey || key == bestKey && t >= bestT {
+							continue
+						}
+						bestKey = key
+						rest = local
+						if rest.valid {
+							rest.x = contactF32(cosYaw*local.x-sinYaw*local.z+placement.x) + anchorWX
+							rest.z = contactF32(sinYaw*local.x+cosYaw*local.z+placement.z) + anchorWZ
+							rest.y = contactF32(local.y + placement.y)
+						}
+						bestT = t
+						found = true
+					}
+				}
 			}
 		}
 	}
@@ -510,7 +545,7 @@ func (v *WaterValidator) spawnObjectDeckVerdict(surface *groundSurface, baseX, b
 	if stand == nil {
 		return objectDeckNone
 	}
-	if objectLinkedLaneSealed(stand.set, stand.objectIndex, stand.mesh, stand.cellIndex) {
+	if v.objectDeckStandSealed(stand) {
 		return objectDeckSealed
 	}
 	return objectDeckOpen

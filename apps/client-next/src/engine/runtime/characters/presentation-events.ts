@@ -39,7 +39,14 @@ interface PresentationEventEffects {
 		gameplay:
 			| Pick<
 				GameplayState,
-				"localGid" | "pose" | "casts" | "vitals" | "questMarkers" | "inventory" | "attachedEffects"
+				| "localGid"
+				| "pose"
+				| "casts"
+				| "vitals"
+				| "questMarkers"
+				| "inventory"
+				| "attachedEffects"
+				| "homingProjectiles"
 			>
 			| null,
 		now: number,
@@ -116,6 +123,9 @@ interface PresentationEventFrame {
 	readonly combatStanceEnds: Map<number, number>;
 	readonly triggers: readonly EffectTrigger[];
 	readonly samples: Pick<ReadonlyMap<number, unknown>, "has">;
+	// The pose actor-motion holds (or is about to hold on a cast-burst
+	// frame) for each character, so effects anchor to the drawn body.
+	readonly heldPoses: ReadonlyMap<number, Pose>;
 	readonly localMover: ( gid: number ) => boolean;
 	readonly logicalPose: ( entity: EntityState ) => Pose;
 	readonly appearanceRef: ( entity: EntityState ) => number;
@@ -200,6 +210,7 @@ export function createPresentationEvents() {
 				combatStanceEnds,
 				triggers,
 				samples,
+				heldPoses,
 				localMover,
 				logicalPose,
 				appearanceRef,
@@ -250,6 +261,24 @@ export function createPresentationEvents() {
 			let drawnLocal: import("@/engine/contracts/gameplay").Pose | null = null;
 			const effectEntities = entities.map( entity => {
 				const local = entity.gid === gameplay?.localGid && !!gameplay.pose;
+				// A held body (a cast's navigation hold, including the burst
+				// frame actor-motion holds later this step) anchors its
+				// effects: bone-less ground stages draw at the stage anchor,
+				// which must be the held pose, not the corrected one.
+				const held = heldPoses.get( entity.gid );
+				if ( held ) {
+					if ( local ) {
+						drawnLocal = { ...gameplay!.pose!, regionId: held.regionId, x: held.x, y: held.y, z: held.z };
+					}
+					return {
+						...entity,
+						regionId: held.regionId,
+						x: held.x,
+						y: held.y,
+						z: held.z,
+						heading: held.angle
+					};
+				}
 				if ( !samples.has( entity.gid ) || !localMover( entity.gid ) && !entity.moving ) return entity;
 				const drawn = posePresentation.pose( entity.gid, logicalPose( entity ), seconds );
 				if ( local ) {
@@ -269,7 +298,8 @@ export function createPresentationEvents() {
 					questMarkers: gameplay.questMarkers,
 					inventory: gameplay.inventory,
 					petTraining: gameplay.petTraining,
-					attachedEffects: gameplay.attachedEffects
+					attachedEffects: gameplay.attachedEffects,
+					...(gameplay.homingProjectiles ? { homingProjectiles: gameplay.homingProjectiles } : {})
 				} :
 				gameplay;
 			const effectActors = effects.step(
@@ -288,8 +318,21 @@ export function createPresentationEvents() {
 					const rows = [ ...output.displayed.values() ].map( actor => {
 						const entity = entitiesByGid.get( actor.gid ),
 							native = entity ? logicalPose( entity ) : undefined;
-						const sampled = native ? posePresentation.pose( actor.gid, native, seconds ) : undefined;
-						const currentPose = sampled ?
+						// A held body launches bone projectiles from its held
+						// pose, not the corrected pose posePresentation spent.
+						const held = heldPoses.get( actor.gid );
+						const sampled = !held && native ?
+							posePresentation.pose( actor.gid, native, seconds ) :
+							undefined;
+						const currentPose = held ?
+							{
+								regionId: held.regionId,
+								x: held.x,
+								y: held.y,
+								z: held.z,
+								yaw: characterHeadingYaw( held.angle )
+							} :
+							sampled ?
 							{
 								regionId: sampled.regionId,
 								x: sampled.x,

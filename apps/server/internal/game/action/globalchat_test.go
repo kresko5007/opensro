@@ -87,7 +87,46 @@ func TestGlobalChattingSendsTheLineToTheWholeShard(t *testing.T) {
 	}
 	// The website feed carries the paid line as its own kind (port-only).
 	if lines := rt.PublicChat.Lines(testDivision, nil); len(lines) != 1 || lines[0].Kind != chatfeed.KindGlobal ||
-		lines[0].Character != c.Name || lines[0].Text != "Hello, Silk Road" {
+		lines[0].Character != c.Name || lines[0].Author != c.Name || lines[0].Text != "Hello, Silk Road" {
+		t.Fatalf("feed %+v", lines)
+	}
+	rt.PlayerBannedGM(testDivision, c.Name)
+	if lines := rt.PublicChat.Lines(testDivision, nil); len(lines) != 0 {
+		t.Fatalf("feed after ban %+v", lines)
+	}
+}
+
+/*
+================
+TestGlobalChattingSuitedSenderUsesJobAlias
+
+A suited author's Global line, its shard copies and the website
+transcript all carry the job alias, as on every chat line; the shard
+push still excludes the author by character name, and a /BAN purges the
+retained line by that same character identity.
+================
+*/
+func TestGlobalChattingSuitedSenderUsesJobAlias(t *testing.T) {
+	rt, c, ref := globalChatFixture(t)
+	c.MissionInventory = append(c.MissionInventory, enterworld.InventoryRow{
+		Slot: enterworld.JobSuitSlot, TypeFlags: 0x3ac | 1<<11,
+	})
+	c.Job.Alias = "Merchant"
+	var shard []wire.Frame
+	var except string
+	rt.PushShardPeerFrames = func(_, name string, frames []wire.Frame) { except, shard = name, frames }
+	rt.PublicChat = chatfeed.New()
+	result := rt.HandleItemUse(testDivision, c, globalChatRequest(ref, "Hello, Silk Road"))
+	assertOpcodes(t, result.Frames, wire.OpItemUseResponse, opCommerceItemReferences, wire.OpItemUseVisual, chat.OpChatBroadcast)
+	want := chat.EncodeChatBroadcastNamed(chat.ChatTypeGlobal, "Merchant", "Hello, Silk Road")
+	if !bytes.Equal(result.Frames[3].Payload, want) {
+		t.Fatalf("author line %x, want %x", result.Frames[3].Payload, want)
+	}
+	if except != c.Name || len(shard) != 1 || !bytes.Equal(shard[0].Payload, want) {
+		t.Fatalf("shard push to all but %q: %+v", except, shard)
+	}
+	if lines := rt.PublicChat.Lines(testDivision, nil); len(lines) != 1 || lines[0].Character != "Merchant" ||
+		lines[0].Author != c.Name {
 		t.Fatalf("feed %+v", lines)
 	}
 	rt.PlayerBannedGM(testDivision, c.Name)

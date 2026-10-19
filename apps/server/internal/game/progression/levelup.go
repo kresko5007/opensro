@@ -206,6 +206,33 @@ func (rt *Runtime) GrantExperience(character *enterworld.Character, expDelta, sk
 
 /*
 ==================
+GrantUnscaledExperience
+
+GrantUnscaledExperience applies an unscaled experience grant (such as the
+fixed Academy graduation reward at CTrainingCampMgr_OnGraduateDBSuccess
+0x005DFC30 @ 0x005DFC69: push 0x1E8480, which invokes vtable+0x170
+CGObjPC_ApplyExpDelta 0x004E5250 directly without server rate scaling)
+inside one commit-door closure.
+==================
+*/
+func (rt *Runtime) GrantUnscaledExperience(character *enterworld.Character, expDelta int64) OpResult {
+	if character == nil || expDelta <= 0 {
+		return OpResult{}
+	}
+	var frames []wire.Frame
+	rt.deps.Update(character, "grant-unscaled-exp", func() bool {
+		var changed bool
+		frames, changed = rt.commitExperience(character, expDelta, 0, 0)
+		return changed
+	})
+	return OpResult{
+		Frames:    frames,
+		Broadcast: wire.ProgressionBroadcastFrames(frames),
+	}
+}
+
+/*
+==================
 ExperienceUpdater
 
 ExperienceUpdater returns the progression update used by another

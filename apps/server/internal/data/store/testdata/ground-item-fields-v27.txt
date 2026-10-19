@@ -1,9 +1,3 @@
-# Never edit after it ships: a new persisted field takes schema 23, its upgrade
-# Never edit after it ships: a new persisted field takes schema 25, its upgrade
-# ground-item record fields owned by store schema 22 (persisted_shape_test.go).
-# ground-item record fields owned by store schema 24 (persisted_shape_test.go).
-# step and ground-item-fields-v23.txt.
-# step and ground-item-fields-v25.txt.
 codename
 droppedAtMs
 droppedBy
@@ -61,19 +55,6 @@ summon.satiety
 summon.stateFlags
 summon.summonGeneration
 summon.summoned
-summon.training
-summon.training.bonusPoints
-summon.training.gear
-summon.training.gear[].options
-summon.training.gear[].refObjId
-summon.training.levels
-summon.training.passiveReadyAtMs
-summon.training.rows
-summon.training.rows[].kind
-summon.training.rows[].left
-summon.training.rows[].readyAtMs
-summon.training.slotted
-summon.training.treeVersion
 tradeOwner
 transformRefObjId
 typeFlags

@@ -34,8 +34,10 @@ import {
 } from "../../build/char/npcModelRoster.mjs";
 import { loadCharacterDataRows } from "../../build/char/resolveCharRoster.mjs";
 import { loadBoothModelRoster } from "../../build/char/boothModelRoster.mjs";
+import { buildEffectRecordTable } from "../../build/char/parseSkillEffect.mjs";
 import { parseCharacterBsr, parseSkinnedBms } from "../../build/char/formats.mjs";
 import { loadDataAsset } from "../../build/shared/jmxAssetIO.mjs";
+import { loadQinShiTombSkillRows } from "../../build/shared/qinshiTomb.mjs";
 import { sha256Hex } from "../../build/shared/hash.mjs";
 import { readPublishedAssetBytesSync, readPublishedAssetJsonSync } from "../../lib/publishedAsset.mjs";
 import { gameRoot, publicAssetsRoot, publicRoot, retailTextdataRoot } from "../../build/world/paths.mjs";
@@ -421,17 +423,27 @@ test("every characterInfo death model is published with native motions 4 and 36"
 			assert.equal( manifest.models[codename]?.deathModel, death.codename, `${codename} -> ${death.codename}` );
 		}
 	}
-	assert.equal( deaths.length, 10, "the ten v1.150 characterInfo death BSRs" );
+	// The ten v1.150 characterInfo death BSRs, plus any death model only
+	// the Qin-Shi overlay requires (the whitesnake's, port-only) when the
+	// tomb bake is on.
+	const tombDeaths = deaths.filter( ( entry ) => {
+		const requiredBy = entry.requiredBy ?? [];
+		return requiredBy.length > 0 &&
+			requiredBy.every( ( codename ) => codename.startsWith( "MOB_TQ_" ) || codename.startsWith( "MOB_QT_" ) );
+	} );
+	assert.equal( deaths.length, 10 + tombDeaths.length, "the v1.150 characterInfo death BSRs" );
 	assert.equal( manifest.models.MOB_KK_PENON_F.deathModel, "res/mob/common/penon_f_die.bsr" );
 	assert.equal( manifest.models.MOB_KK_PENON_W.deathModel, "res/mob/common/penon_w_die.bsr" );
 });
 
 test("mission NPC, monster and COS manifest exactly covers its rosters", () => {
 	const manifest = joinedNpcManifest( readJson( path.join( publicAssets, "npc", "manifest.json" ) ) );
+	const rows = loadCharacterDataRows( textdataDir, { codenamePattern: /./, qinshiTombOverlay: true } );
 	const npcRoster = loadSpawnableNpcRoster();
 	const mobRoster = loadModelledMobRoster();
-	const cosRoster = enabledCosReferences( loadCharacterDataRows( textdataDir, { codenamePattern: /./ } ) );
+	const cosRoster = enabledCosReferences( rows );
 	const roster = [ ...npcRoster, ...mobRoster, ...cosRoster ];
+	const deathRows = Object.values( manifest.models ).filter( ( entry ) => entry.kind === "death" );
 
 	assert.equal( manifest.format, "sro-mission-npc-models" );
 	assert.equal( manifest.version, NPC_MANIFEST_VERSION );
@@ -449,8 +461,8 @@ test("mission NPC, monster and COS manifest exactly covers its rosters", () => {
 	);
 	assert.equal(
 		manifest.count,
-		roster.length + structureRows.length + boothRows.length + 4 + 10,
-		"the rosters, structures and booths plus four packetless CICRide resources and ten characterInfo death models"
+		roster.length + structureRows.length + boothRows.length + 4 + deathRows.length,
+		"the rosters, structures and booths plus four packetless CICRide resources and the characterInfo death models"
 	);
 	assert.equal(
 		Object.values( manifest.models ).filter( ( entry ) => entry.kind === "cos" ).length,
@@ -573,5 +585,74 @@ test("item-drop and skill-stage BSR outputs share the collision-free path contra
 				.filter( ( name ) => name.toLowerCase().endsWith( ".glb" ) ).length,
 			0
 		);
+	}
+});
+
+test("Qin-Shi Emperor Tomb .cpd compound models and skillaniset2 overlay bake cleanly when SRO_QINSHI_TOMB=1", async () => {
+	const previousTomb = process.env.SRO_QINSHI_TOMB;
+	const scratchRoot = fs.mkdtempSync( path.join( os.tmpdir(), "sro-tomb-cpd-contract-" ) );
+	const skillEffectPath = path.join( textdataDir, "skilleffect.txt" );
+	try {
+		delete process.env.SRO_QINSHI_TOMB;
+		const offEffectTable = buildEffectRecordTable( textdataDir, skillEffectPath );
+		const tombSkillRows = loadQinShiTombSkillRows().rows;
+		for ( const cols of tombSkillRows ) {
+			assert.equal(
+				offEffectTable.table[Number( cols[1] )],
+				undefined,
+				`SRO_QINSHI_TOMB off leaked Tomb skill ${cols[1]} (${cols[3]})`
+			);
+		}
+
+		process.env.SRO_QINSHI_TOMB = "1";
+		const onEffectTable = buildEffectRecordTable( textdataDir, skillEffectPath );
+		for ( const cols of tombSkillRows ) {
+			assert.ok(
+				onEffectTable.table[Number( cols[1] )] !== undefined,
+				`SRO_QINSHI_TOMB=1 missing effect record for ${cols[1]} (${cols[3]})`
+			);
+		}
+
+		const thiefOut = resourceGlbOutput( "res/mob/qinshi/thief_01.cpd", {
+			namespace: "npc",
+			publicAssetsRoot: scratchRoot
+		} );
+		const thiefBaked = await bakeCharacterResource( "res/mob/qinshi/thief_01.cpd", thiefOut, true );
+		assert.equal( thiefBaked.glb, "/assets/npc/mob/qinshi/thief_01.glb" );
+		assert.ok( fs.existsSync( thiefOut.diskPath ) );
+		for ( const role of [ "stand", "walk", "run", "attack1", "death", "native:sword:33", "native:sword:102" ] ) {
+			assert.ok( thiefBaked.allowedClips.includes( role ), `thief_01.cpd missing ${role}` );
+		}
+
+		const shinmuOut = resourceGlbOutput( "res/char/china/shinmu.cpd", {
+			namespace: "npc",
+			publicAssetsRoot: scratchRoot
+		} );
+		const shinmuBaked = await bakeCharacterResource( "res/char/china/shinmu.cpd", shinmuOut, true );
+		assert.equal( shinmuBaked.glb, "/assets/npc/char/china/shinmu.glb" );
+		assert.ok( fs.existsSync( shinmuOut.diskPath ) );
+		for (
+			const role of [
+				"stand",
+				"walk",
+				"run",
+				"attack1",
+				"death",
+				"native:default:31",
+				"native:spear:35",
+				"native:spear:69",
+				"native:spear:73",
+				"native:spear:75"
+			]
+		) {
+			assert.ok( shinmuBaked.allowedClips.includes( role ), `shinmu.cpd missing ${role}` );
+		}
+	} finally {
+		if ( previousTomb === undefined ) {
+			delete process.env.SRO_QINSHI_TOMB;
+		} else {
+			process.env.SRO_QINSHI_TOMB = previousTomb;
+		}
+		fs.rmSync( scratchRoot, { recursive: true, force: true } );
 	}
 });

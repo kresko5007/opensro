@@ -198,6 +198,11 @@ operations carry identities and choices, never client-calculated rewards.
 */
 export type GameplayCommand =
 	| { readonly kind: "berserk"; }
+	// A native refusal the UI raised itself (a typed guild name), shown as a notice.
+	| {
+		readonly kind: "local-notice";
+		readonly notice: import("@/engine/foundation/gameplay/system-notices").SystemNotice;
+	}
 	| { readonly kind: "recall-appoint"; readonly gid: number; }
 	| { readonly kind: "return-cancel"; }
 	| { readonly kind: "gathering-cancel"; }
@@ -206,6 +211,7 @@ export type GameplayCommand =
 	| { readonly kind: "avatar-move"; readonly equip: boolean; readonly source: number; readonly destination: number; }
 	| import("@/engine/foundation/gameplay/party-matching").PartyMatchCommand
 	| { readonly kind: "gm-command"; readonly line: string; }
+	| { readonly kind: "gm-catalog-ack"; }
 	| { readonly kind: "whisper-block"; readonly name: string; readonly blocked: boolean; }
 	| { readonly kind: "cos-name"; readonly gid: number; readonly name: string; }
 	| { readonly kind: "friend-request"; readonly name: string; }
@@ -318,7 +324,7 @@ export type GameplayCommand =
 	| { readonly kind: "cos-follow"; readonly gid: number; }
 	| { readonly kind: "cos-cancel"; readonly gid: number; }
 	| { readonly kind: "cos-clean"; readonly gid: number; }
-	| { readonly kind: "cos-pet-attack"; readonly gid: number; readonly pet: number; }
+	| { readonly kind: "cos-pet-attack"; readonly gid: number; readonly pet: number; readonly alt?: boolean; }
 	| { readonly kind: "cos-ride"; readonly gid: number; readonly mounted: boolean; }
 	| { readonly kind: "shop-buyback"; readonly id: number; }
 	// 0x746F at the open shop's smith: mode 1 repairs one slot, 2 everything.
@@ -443,6 +449,7 @@ export interface InventoryItem {
 	readonly label?: string;
 	readonly summon?: {
 		readonly state: number;
+		readonly gid?: number;
 		readonly refObjId?: number;
 		readonly name?: string;
 		readonly remainingSeconds?: number;
@@ -688,6 +695,9 @@ export interface GameplayState {
 	readonly tradeStars?: number;
 	readonly eventGroups?: Readonly<Record<number, number>>;
 	readonly eligibility?: { readonly gm: boolean; readonly pcRoomEvent: boolean; };
+	// Port-only: a GM's compact console catalogues, resent until the UI
+	// acknowledges them so no first-publication race can lose the list.
+	readonly gmCatalog?: import("@/engine/foundation/gameplay/gm-command").GmCatalog;
 	readonly autoPotion?: import("@/engine/foundation/gameplay/auto-potion").AutoPotionSettings;
 	readonly storage?: import("@/engine/foundation/gameplay/storage-room").StorageRoom | null;
 	readonly playerModels?: readonly import("@/engine/foundation/gameplay/skin-change").PlayerModel[];
@@ -715,6 +725,8 @@ export interface GameplayState {
 	// The server's port-only SRO_STORAGE_AUTO_STACK rule, published at world
 	// entry: storage quick moves prefer a matching stack (storage-panel.ts).
 	readonly storageAutoStack?: boolean;
+	// The shard's client tuning from the world-entry bootstrap (port-only, ui-tuning.ts).
+	readonly uiTuning?: import("@/engine/foundation/ui/ui-tuning").UiTuning;
 	// The server's port-only SRO_TRADE_TIERS rule, published at world entry:
 	// the trade-scale combo rates a purchase by gold (specialty-deal.ts).
 	readonly tradeTiers?: boolean;
@@ -724,8 +736,11 @@ export interface GameplayState {
 	// The server's port-only SRO_MOONLIT_THIEF_SUIT rule, published at world
 	// entry: level-20 thief suits draw the Moonlit Ash model (equipment-appearance.ts).
 	readonly moonlitThiefSuit?: boolean;
-	// The reverse return scroll's map table: empty unless the server's
-	// port-only SRO_REVERSE_RETURN_MAP option is on (reverse-return-map.ts).
+	// The Experimental "Homing projectiles" row (port-only, default off):
+	// target-bone projectiles re-read the victim's socket in flight instead of
+	// flying to the launch-captured endpoint (effects.ts).
+	readonly homingProjectiles?: boolean;
+	// The server's port-only SRO_REVERSE_RETURN_MAP option is on (reverse-return-map.ts).
 	readonly reverseMapPoints?: readonly import("@/engine/foundation/gameplay/reverse-return-map").ReverseMapPoint[];
 	readonly abnormalRecords?: readonly import("@/engine/foundation/gameplay/abnormal-snapshot").AbnormalRecord[];
 	readonly selectionDecal?: SelectionDecal | null;

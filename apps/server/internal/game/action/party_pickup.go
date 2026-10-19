@@ -35,20 +35,32 @@ const questAlchemyPrefix = "ITEM_QNO_RM_ARCHEMY"
 
 /*
 ================
+isPersonalQuestPickupItem
+
+ItemTID_IsQuestItem (42FDC0: TypeID1=3, TypeID2=3, TypeID3=9)
+without the ITEM_QNO_RM_ARCHEMY prefix (525DE9, 4D5560, 4D5755).
+================
+*/
+func isPersonalQuestPickupItem(item grounditem.Item) bool {
+	flags := item.TypeFlags
+	quest := flags&questNonItemMask == 0 && flags&questClassMask == questClass && flags&questCategoryMask == questCategory && flags&questGroupMask == questItemBand
+	return quest && !strings.HasPrefix(item.Codename, questAlchemyPrefix)
+}
+
+/*
+================
 partyPickupRecipient
 
 Server 525F5F..52606F: item-share bit, rotating member alive (life byte 1,
 525FAE), same packed world, 3D distance <= 1000; fallback is the picker. Quest items stay personal,
-except the native alchemy prefix. Rotation advances even on a later refusal.
+except the native alchemy prefix.
 ================
 */
 func (rt *Runtime) partyPickupRecipient(division string, picker *enterworld.Character, item grounditem.Item, nowMs int64) *enterworld.Character {
 	if rt.NextPartyLootMember == nil {
 		return picker
 	}
-	flags := item.TypeFlags
-	quest := flags&questNonItemMask == 0 && flags&questClassMask == questClass && flags&questCategoryMask == questCategory && flags&questGroupMask == questItemBand
-	if quest && !strings.HasPrefix(item.Codename, questAlchemyPrefix) {
+	if isPersonalQuestPickupItem(item) {
 		return picker
 	}
 	roster := rt.monsterRewardRoster(division, picker, nowMs)
@@ -155,14 +167,61 @@ func withinGoldShareRange(from, to monster.Pose) bool {
 
 /*
 ================
+inSharedLootParty
+
+Whether c is in a live party whose item-share option bit (0x02) is set.
+================
+*/
+func (rt *Runtime) inSharedLootParty(division string, c *enterworld.Character, nowMs int64) bool {
+	roster := rt.monsterRewardRoster(division, c, nowMs)
+	origin, found := roster.actors[enterworld.ObjectIDForCharacter(c)]
+	return found && origin.party != nil && origin.party.Options&sharedLootOption != 0
+}
+
+/*
+================
+isPickupFault
+
+Whether an uncommitted pickup result failed with the given category-1 error byte.
+================
+*/
+func isPickupFault(result OpResult, code uint8) bool {
+	if len(result.Broadcast) != 0 {
+		return false
+	}
+	for _, frame := range result.Frames {
+		if frame.Opcode == wire.OpItemMoveResponse && len(frame.Payload) == 2 &&
+			frame.Payload[0] == 2 && frame.Payload[1] == code {
+			return true
+		}
+	}
+	return false
+}
+
+/*
+================
 routeSharedPickup
 
 Movement/action completion belongs to the picker; inventory, currency and
 quest receipts belong to the awarded member. Public scoop/despawn is shared.
+When a player pickup's rotated recipient has a full bag, CPlayer_ExecuteGroundPickup
+(526343..5263B2) sends 0x1807 (ErrCodeStorageFull) to the recipient and
+returns 0x18DA (ErrCodePartyInventoryFull) to the picker.
 ================
 */
-func routeSharedPickup(result OpResult, picker, recipient *enterworld.Character) OpResult {
-	if picker == recipient || len(result.Broadcast) == 0 {
+func routeSharedPickup(result OpResult, picker, recipient *enterworld.Character, playerPickup bool) OpResult {
+	if picker == recipient {
+		return result
+	}
+	if len(result.Broadcast) == 0 {
+		if playerPickup && isPickupFault(result, wire.ErrCodeStorageFull) {
+			refused := pickupRefusal(wire.ErrCodePartyInventoryFull)
+			refused.Recipients = append(result.Recipients, RecipientFrames{
+				CharacterID: recipient.ID,
+				Frames:      []wire.Frame{{Opcode: wire.OpItemMoveResponse, Payload: wire.EncodeItemMoveError(wire.ErrCodeStorageFull)}},
+			})
+			return refused
+		}
 		return result
 	}
 	var local, private []wire.Frame

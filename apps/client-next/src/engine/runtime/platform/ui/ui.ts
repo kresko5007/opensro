@@ -240,6 +240,7 @@ export function createUiBridge(
 	const layoutKeys = createLayoutKeys();
 	root.addEventListener( "keydown", event => {
 		event.stopPropagation();
+		if ( !event.code ) return;
 		if ( event.isComposing || composing || event.keyCode === 229 ) {
 			if ( event.key === "Enter" && !event.repeat && event.target instanceof HTMLInputElement ) {
 				imeEnter = event.target;
@@ -259,10 +260,32 @@ export function createUiBridge(
 			return;
 		}
 		if (
-			current( event.target )?.value.id === "gm-input" && (code === "ArrowUp" || code === "ArrowDown")
+			current( event.target )?.value.id === "gm-input" &&
+			(code === "ArrowLeft" || code === "ArrowRight") &&
+			event.target instanceof HTMLInputElement && event.target.value === ""
 		) {
+			// An empty GM prompt has no caret to move: the arrows switch the
+			// catalogue tab. Once the GM types a filter they edit text again.
 			event.preventDefault();
-			emit( { kind: "key", code, shift: event.shiftKey, ctrl: event.ctrlKey } );
+			if ( !event.repeat ) emit( { kind: "key", code, shift: event.shiftKey, ctrl: event.ctrlKey } );
+			return;
+		}
+		if (
+			current( event.target )?.value.id === "gm-input" &&
+			(code === "ArrowUp" || code === "ArrowDown" || code === "PageUp" || code === "PageDown" ||
+				code === "Tab" || code === "F3")
+		) {
+			// The GM console's catalogue list owns these keys while it is open;
+			// the console's history still takes the arrows when no list shows.
+			// Tab must not move DOM focus out of the prompt; F3 toggles the
+			// item browser without leaving the prompt. Held arrows and page
+			// keys repeat so a long catalogue can be surfed quickly.
+			event.preventDefault();
+			const repeatable = code === "ArrowUp" || code === "ArrowDown" || code === "PageUp" ||
+				code === "PageDown";
+			if ( !event.repeat || repeatable ) {
+				emit( { kind: "key", code, shift: event.shiftKey, ctrl: event.ctrlKey } );
+			}
 			return;
 		}
 		if ( current( event.target )?.value.captureKeys ) {
@@ -278,7 +301,10 @@ export function createUiBridge(
 		) emit( { kind: "key", code, shift: event.shiftKey, ctrl: event.ctrlKey } );
 		if ( code === "Escape" && !event.repeat ) {
 			emit( { kind: "key", code, shift: event.shiftKey, ctrl: event.ctrlKey } );
-			(event.target as HTMLElement).blur();
+			// The GM prompt owns Escape: it dismisses the catalogue and keeps
+			// the caret, or closes the console through its own focus request.
+			// Blurring here wiped the focus the UI had just restored.
+			if ( current( event.target )?.value.id !== "gm-input" ) (event.target as HTMLElement).blur();
 		}
 		if ( event.key === "Enter" && !event.repeat && event.target instanceof HTMLInputElement ) {
 			event.preventDefault();
@@ -287,6 +313,7 @@ export function createUiBridge(
 	}, { signal: lifetime.signal } );
 	root.addEventListener( "keyup", event => {
 		event.stopPropagation();
+		if ( !event.code ) return;
 		heldKey( layoutKeys.up( event.code, event.key ), false );
 		if (
 			event.key === "Enter" && imeEnter !== null && event.target === imeEnter && !event.isComposing &&

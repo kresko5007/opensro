@@ -284,4 +284,4 @@ export function dollBounds( bounds: readonly number[] ): ViewerBounds {
 }
 
 // Models face -z.
-export const DOLL_FRONT: readonly [number, number] = [ 0, -1 ];
+export const DOLL_FRONT = [ 0, -1 ] as const;

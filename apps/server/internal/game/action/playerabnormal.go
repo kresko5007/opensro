@@ -163,17 +163,21 @@ func (rt *Runtime) PlayerMovementBlocked(division, name string) bool {
 ================
 PlayerAttackLocked
 
-CGObjChar_IsAttackLocked (4AAB40): true while the casting instance at
-char+C08 is set, i.e. a skill action has not yet released its positive-time
-step. CGObjPC_IsMotionChangeLocked (4EF880) feeds it to
-CGObjChar_HandleMoveCommand (4B0EA0), which drops a ground command in that
-state instead of queueing it: a player cannot walk out of a cast.
-
-A standing wall keeps its cast there: the wall path of 5830B0 never releases
-or closes it until the wall retires, and CGObjChar_OnTick (4A8976) stops any
-walk of a caster whose C08 cast is an ordinary one (activity 2). Its caster
-is rooted for the wall's life (the client agrees: its WAIT holds action
-state 2, CanPerformLocomotion 877240).
+CGObjChar_IsAttackLocked (4AAB40..4AAB5A): true while the casting instance
+at char+C08 is set (4AAB40..4AAB4E, [skillComp+1D8], a skill action has not
+yet released its positive-time step) or the standing-instance pointer at
+char+C44 is set (4AAB4F..4AAB5A, [skillComp+214]: the stns +448 slot written
+at 594F4D and cleared at 582C3B). The predicate does not read char+C0C, the
+protective-wall slot ([skillComp+1DC]) that SkillCombat_EngageSkill fills
+at 59369F and wall retirement clears at 582DCE / 585351..58536A; natively
+the standing wall roots through motion state 11 (593690..5936A5). This
+port folds its wallStanding (char+C0C) in beside chainStageBlocked
+(char+C08) so the same root holds on the lanes below.
+CGObjPC_IsMotionChangeLocked (4EF880, vt+0x5A0) feeds it to
+CGObjChar_HandleMoveCommand (4B0EA0 at 4B0F8E), which drops both direct
+ground moves and CGCharAutoNavigator_TickPursuit's internal 0x7021 moves
+(4B0490 at 4B0813 / 4B0A89), and to CGCharAutoCommandActor_Handler_NormalAttack
+(4AD8E0 at 4AD91F): a player cannot walk out of a cast or a standing wall.
 ================
 */
 func (rt *Runtime) PlayerAttackLocked(division, name string) bool {
@@ -513,7 +517,9 @@ func (o *playerAbnormalOwner) Hit(source uint32, credited bool, damage uint32, r
 		return
 	}
 	remaining := int64(o.CurrentHP())
-	damage = o.rt.absorbPetShield(o.division, enterworld.ObjectIDForCharacter(o.c), damage, o.now)
+	if o.sources[source].killer.monster != nil && o.rt.petShieldRecipientAllowed(o.c) {
+		damage = o.rt.absorbPetShield(o.division, enterworld.ObjectIDForCharacter(o.c), damage, o.now)
+	}
 	debit := int64(vitals.HitDebit(uint32(remaining), damage))
 	remaining -= debit
 	o.c.CurrentHP = &remaining
@@ -697,9 +703,11 @@ credited player sources.
 ==================
 */
 type playerAbnormalFrames struct {
-	public  []wire.Frame
-	actor   []wire.Frame
-	sources []privateFrames
+	sourceGID   uint32
+	exceptActor bool
+	public      []wire.Frame
+	actor       []wire.Frame
+	sources     []privateFrames
 }
 
 /*
@@ -720,6 +728,7 @@ func (rt *Runtime) playerAbnormalPublication(division string, c *enterworld.Char
 	out.public = append(out.public, o.endedPublic...)
 	out.actor = append(out.actor, o.endedActor...)
 	gid := enterworld.ObjectIDForCharacter(c)
+	out.sourceGID = gid
 	if o.cancel {
 		rt.ClearCombatIntent(division, c.Name)
 		finals := rt.cancelPreparingProjectile(division, c.Name)
@@ -945,7 +954,16 @@ func playerAbnormalDivisionFrames(division string, actorID int64, frames playerA
 		return fs
 	}
 	if len(frames.public) > 0 {
-		out = append(out, simulation.DivisionFrames{DivisionID: division, Frames: convert(frames.public)})
+		var except int64
+		if frames.exceptActor {
+			except = actorID
+		}
+		out = append(out, simulation.DivisionFrames{
+			DivisionID:        division,
+			SourceGID:         frames.sourceGID,
+			ExceptCharacterID: except,
+			Frames:            convert(frames.public),
+		})
 	}
 	if len(frames.actor) > 0 {
 		out = append(out, simulation.DivisionFrames{DivisionID: division, OnlyCharacterID: actorID, Frames: convert(frames.actor)})

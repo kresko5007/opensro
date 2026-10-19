@@ -107,14 +107,8 @@ func newGameplayPlane(
 		return nil, err
 	}
 	items := action.NewRuntime(deps, deps.MonsterState)
-	items.PetGearDropFactor, err = authorityStore.PetGearDropFactor()
-	if err != nil {
-		return nil, fmt.Errorf("pet loot rules: %w", err)
-	}
-	log.Infof("pet loot: DB factor %.4g per normal equipment drop", items.PetGearDropFactor)
-	items.PetGearAffixes, err = loadPetGearAffixes(authorityStore)
-	if err != nil {
-		return nil, fmt.Errorf("pet blue rules: %w", err)
+	if err := loadPetGearPolicy(items, authorityStore); err != nil {
+		return nil, err
 	}
 	items.CaptureCharacterFrames = func(division, name string) func([]wire.Frame) {
 		return captureCharacterFrames(ts.Hub, division, name)
@@ -351,10 +345,6 @@ func newGameplayPlane(
 	parties := party.NewRuntime(deps, presence)
 	parties.UseMemberVitals(items.GameplayVitals)
 	parties.UseLivePose(items.LiveSpawnFor)
-	parties.UseMasteries(party.MasteriesFromEnv())
-	if party.MasteriesFromEnv() {
-		log.Infof("party: member rows carry the two main masteries (%s, port-only)", party.EnvPartyMasteries)
-	}
 	items.NextPartyLootMember = parties.Registry().NextLootMember
 	items.RewardActorPresent = func(division, name string) bool {
 		s, ok := presence.SessionByName(division, name)
@@ -386,6 +376,9 @@ func newGameplayPlane(
 	guildInvites := guild.NewInviteRuntime(deps, presence)
 	guildInvites.Unions = unions
 	mentorInvites := mentor.NewInviteRuntime(deps, presence)
+	deps.OnCharacterLevelChanged = func(character *enterworld.Character) {
+		mentorInvites.NotifyMemberLevel(ownedShard.ID, character)
+	}
 	connectInvitationLanes(parties, guildInvites, unions, mentorInvites, items)
 	connectWarInvitations(warInvitationLanes{parties: parties, guilds: guildInvites, unions: unions, mentors: mentorInvites, items: items, wars: guildWars})
 
@@ -806,6 +799,7 @@ func (game *gameplayPlane) register(hub *transport.Hub, loadQuests questDefiniti
 			return result.Frames, err
 		},
 	}
+	game.items.GMQuests = gmQuestHooks(quests)
 	game.items.UpdateExperience = stats.ExperienceUpdater()
 	game.items.RefundExperience = stats.ExperienceRefundUpdater()
 	game.items.RecallStatPoints = stats.StatRecallUpdater()
@@ -840,7 +834,7 @@ func (game *gameplayPlane) register(hub *transport.Hub, loadQuests questDefiniti
 				return
 			}
 			if sourceGID, ok := sources[0].CharacterObjectID(); ok {
-				action.BroadcastObservedFrames(hub, divisionID, 0, sourceGID, frames)
+				action.BroadcastObservedFrames(hub, divisionID, sources[0].ID, sourceGID, frames)
 			}
 			return
 		}
@@ -916,6 +910,23 @@ func (game *gameplayPlane) register(hub *transport.Hub, loadQuests questDefiniti
 	game.unions.Register(hub)
 	game.guildWars.Register(hub)
 	game.guildInvites.Register(hub)
+	game.mentorInvites.LevelData = game.deps.Levels
+	game.mentorInvites.GrantGraduateExperience = func(divisionID string, charID int64, expDelta int64) {
+		character := game.deps.CharacterByID(divisionID, charID)
+		if character == nil {
+			return
+		}
+		result := stats.GrantUnscaledExperience(character, expDelta)
+		if len(result.Frames) > 0 {
+			game.items.PushCharacterFrames(divisionID, character.Name, result.Frames)
+		}
+		if len(result.Broadcast) > 0 {
+			game.items.PushDivisionPeerFrames(divisionID, character.Name, result.Broadcast)
+		}
+	}
+	game.mentorInvites.SyncMasterHonorBuffs = game.items.SyncTrainingCampHonorBuffs
+	game.items.HonorPoints = game.mentorInvites.HonorPoints
+	game.items.SpendHonorPoints = game.mentorInvites.SpendHonorPoints
 	game.mentorInvites.Register(hub)
 	return nil
 }
