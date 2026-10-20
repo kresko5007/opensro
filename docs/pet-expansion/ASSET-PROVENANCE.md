@@ -1,23 +1,26 @@
 # Attack-pet asset provenance
 
-No retail archives, generated GLBs/PNGs/WAVs, source image sheets or binary
-spreadsheets are included in this change. Existing licensed client assets are
-resolved by the standard local build. Nothing is injected into a PK2 archive.
+No retail archives or generated GLBs/WAVs are included. Existing licensed
+client assets are resolved by the standard local build. The new original pet
+skill atlas is tracked as source artwork; its published copy belongs to the
+normal generated tree. Nothing is injected into a PK2 archive.
 
 | Addition | Editable source | Origin / build input |
 | --- | --- | --- |
 | Caravan collar ground geometry | `scripts/build/char/petLootCollar.mjs` | Original procedural geometry, owner-selected design |
 | Collar atlas | `scripts/build/char/petLootAtlas.mjs` | Original procedural teal leather/brass/turquoise recipe; no external art |
 | 27 degree icons | `scripts/build/shared/pet_item_icons.py` | Original procedural silhouettes and ornamentation; no external art |
+| 20 pet skill-family symbols | `docs/pet-expansion/assets/pet-skills.png` | Original AI-generated painted atlas, referenced native character skill style; UV cells shared across books |
 | Skill/equipment balance | `docs/pet-expansion/pet-design.json` | Original port-only design, JSON exporter publishes all consumers |
 | Bear standing roar | `apps/client-next/src/engine/foundation/animation/bear-roar.ts` | Original animation adjustment on licensed native bear rig; see recipe for bone operations |
 | Shield, roar aura, retaliation ripple and Guardian recovery | Client `characters/resources/resources.ts` | Original procedural geometry/textures; standard renderer |
 | Pet bodies/rigs, native drop glow and audio | Operator-supplied v1.150 client | Native dependencies remain outside Git; hashes below |
 
 The former AI-authored PNG sheets/atlas and XLSX have been removed from the
-tracked tree. The canonical JSON retains their final balance values; art is
-regenerated from the recipes above. No external non-native binary download is
-required. Generated output belongs in the existing ignored asset tree.
+tracked tree. The canonical JSON retains their final balance values. Gear art
+is regenerated from the recipes above; the new skill atlas is a separate owned
+source asset. No external non-native binary download is required. Generated
+output belongs in the existing ignored asset tree.
 
 ## Pinned native inputs
 

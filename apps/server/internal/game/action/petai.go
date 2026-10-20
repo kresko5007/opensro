@@ -70,9 +70,11 @@ type petSession struct {
 	public         []wire.Frame
 	// trained is the attack-pet expansion's unsaved combat memory
 	// (pettrained.go): attack counter and running self buffs.
-	trained petTrainedRuntime
-	bond    petBondRuntime
-	roar    *petRoarCast
+	counterView [8]byte
+	counterSent bool
+	trained     petTrainedRuntime
+	bond        petBondRuntime
+	roar        *petRoarCast
 	// combat is the attack pet's BATTLE state (petcombat.go); nil follows.
 	combat *petCombatIntent
 	// others holds kill-settlement frames for other characters (a party's
@@ -228,6 +230,18 @@ func (rt *Runtime) advancePetInDivision(key petOwnerKey, nowMs int64) (int64, []
 	rt.petMu.Unlock()
 	if state == nil {
 		return 0, frames, nil, nil, "", nil
+	}
+	if rt.AttackPetExpansion {
+		var counter wire.Frame
+		rt.deps.Read(key.division, func() { counter = petSkillCounterFrame(state, key.gid) })
+		if len(counter.Payload) > 0 {
+			var view [8]byte
+			copy(view[:], counter.Payload)
+			if !state.counterSent || view != state.counterView {
+				frames = append(frames, simFrames([]wire.Frame{counter})...)
+				state.counterView, state.counterSent = view, true
+			}
+		}
 	}
 	characterID := state.character.ID
 	var tetherKey string

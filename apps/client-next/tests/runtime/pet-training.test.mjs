@@ -14,7 +14,7 @@ import "../helpers/native-source-loader.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { defined } from "../helpers/defined.mjs";
-const { createPetTraining, OP_PET_TRAINING_STATE } = await import(
+const { createPetTraining, OP_PET_TRAINING_STATE, OP_PET_SKILL_COUNTERS } = await import(
 	"../../src/engine/runtime/simulation/worker/session/world/gameplay/pet-training/pet-training.ts"
 );
 const {
@@ -202,15 +202,20 @@ test("help, rows and blue lines read the design", () => {
 		nextValue: 6
 	};
 	const help = petSkillHelp( wolf, skill, 12, 0 );
-	assert.match( help, new RegExp( `^${wolf.name} \\(action\\)\\nLevel 1 / ${wolf.maxLevel}\\n` ) );
-	assert.match( help, /Needs pet level 15 \(now 12\) and 1 skill point \(0 free\)\./ );
-	for ( const [level, points, color] of [ [ 12, 1, 0xffff5555 ], [ 15, 0, 0xffff5555 ], [ 15, 1, 0xffffffff ] ] ) {
-		const requirement = petSkillTooltip( wolf, skill, level, points ).find( row =>
-			row.value.startsWith( "Needs pet level" )
+	assert.ok( help.startsWith( wolf.name + "\nActive\nEffect\n" ) );
+	assert.doesNotMatch( help, /Tier|Proficiency|Now:|Click|Level 1/ );
+	for ( const [level, points] of [ [ 12, 1 ], [ 15, 0 ], [ 15, 1 ] ] ) {
+		const tooltip = petSkillTooltip( wolf, skill, level, points );
+		assert.equal(
+			tooltip.find( row => row.value === "Pet level 15" )?.color,
+			level < 15 ? 0xffff5555 : 0xffffffff
 		);
-		assert.equal( requirement?.color, color );
+		assert.equal(
+			tooltip.find( row => row.value === "Skill points 1" )?.color,
+			points < 1 ? 0xffff5555 : 0xffffffff
+		);
+		assert.equal( tooltip.find( row => row.value === "Effect" )?.ornament, "diamond" );
 	}
-	assert.match( help, /numbered quickslot to cast/ );
 	const rows = petRows( {
 		gid: 1,
 		skills: [ skill ],
@@ -456,4 +461,114 @@ test("Iron Hide tooltips and shieldGauge scale health + shield like League of Le
 	);
 	assert.ok( Math.abs( overflow.health + overflow.shield - 1 ) < 1e-9 );
 	assert.equal( overflow.start, overflow.health );
+});
+
+/*
+================
+Authoritative counters and owned art
+================
+*/
+test("counter pushes are bounded, atomic, pet-specific and do not restart cooldowns", () => {
+	const t = createPetTraining( () => null );
+	const p = Uint8Array.from( [ 1, 0, 0, 2, 39, 9, 8, 10 ] );
+	const frame = { opcode: OP_PET_SKILL_COUNTERS, payload: p };
+	t.receive( frame, 1 );
+	assert.equal( t.state(), undefined );
+	t.receive( { opcode: OP_PET_TRAINING_STATE, payload: statePayload( [], [] ) }, 100 );
+	t.receive( frame, 200 );
+	assert.deepEqual( t.state()?.counters, { attacks: 39, bearHits: 9, ownerHits: 8, resolve: 10 } );
+	assert.equal( t.state()?.receivedAtMs, 100 );
+	for ( const [index, invalid] of [ [ 4, 40 ], [ 5, 10 ], [ 6, 10 ], [ 7, 11 ] ] ) {
+		const bad = p.slice();
+		bad[index] = invalid;
+		assert.throws( () => t.receive( { ...frame, payload: bad }, 300 ), /Invalid pet skill counters/ );
+	}
+	assert.throws( () => t.receive( { ...frame, payload: p.subarray( 0, 7 ) }, 300 ) );
+	const previous = t.state();
+	t.receive( { ...frame, payload: Uint8Array.from( [ 2, 0, 0, 2, 0, 0, 0, 0 ] ) }, 300 );
+	assert.equal( t.state(), previous );
+	t.receive( { opcode: OP_PET_TRAINING_STATE, payload: statePayload( [], [] ) }, 400 );
+	assert.deepEqual( t.state()?.counters, previous?.counters );
+	t.clear();
+	t.receive( frame, 500 );
+	assert.equal( t.state(), undefined );
+});
+
+test("each skill family uses its atlas cell and stack badges reuse native level digits", async () => {
+	const { petSkillIconUV, petSkillStack, petStackQuads, petRowHelp } = await import(
+		"../../src/engine/foundation/ui/pet-skill-icons.ts"
+	);
+	const state = {
+		gid: 1,
+		points: 0,
+		attackPercent: 100,
+		defensePercent: 100,
+		rows: [ { timerMs: 0, left: 3, kind: "Attacks" } ],
+		slotted: [],
+		skills: [],
+		gear: [],
+		receivedAtMs: 100,
+		counters: { attacks: 39, bearHits: 9, ownerHits: 8, resolve: 10 }
+	};
+	const skill = {
+		id: 0,
+		level: 10,
+		effectiveLevel: 10,
+		nextPetLevel: 0,
+		action: false,
+		queued: false,
+		learnable: false,
+		live: true,
+		slotted: true,
+		value: 1,
+		nextValue: 1
+	};
+	const cells = new Set();
+	for ( const d of PET_DESIGN.treeSkills ) {
+		const uv = petSkillIconUV( d );
+		cells.add( uv.join( "," ) );
+		assert.ok( uv[0] >= 0 && uv[1] >= 0 && uv[0] + uv[2] <= 1 && uv[1] + uv[3] <= 1 );
+		if ( d.family === "Crushing Paw" ) assert.equal( petSkillStack( state, d, skill ), 9 );
+		if ( d.family === "Unbroken Spirit" ) assert.equal( petSkillStack( state, d, skill ), 10 );
+		if ( d.family === "Murder of Crows" ) assert.equal( petSkillStack( state, d, skill ), 7 );
+		assert.equal( petSkillStack( state, d, { ...skill, level: 0 } ), null );
+	}
+	assert.equal( cells.size, 20 );
+	const r = /** @type {import('../../src/engine/contracts/ui.ts').UiRect} */ ([ 0, 0, 32, 32 ]);
+	assert.equal( petStackQuads( 10, r, r ).length, 3 );
+	assert.deepEqual( petStackQuads( null, r, r ), [] );
+	const d = PET_DESIGN.treeSkills.find( entry => entry.family === "Crushing Paw" && entry.option === 3 );
+	assert.ok( d );
+	assert.match(
+		petRowHelp( { ...state, skills: [ { ...skill, id: d.id } ] }, d.row, 100 ),
+		/Bear hits: 9 \/ 10\nOwner hits: 8 \/ 10/
+	);
+});
+
+/*
+================
+Locked-book requirements remain visible
+================
+*/
+test("unlearned advanced skills retain effects and red individual requirements", () => {
+	const d = defined( petSkillDesign( 24 ) );
+	const skill = {
+		id: d.id,
+		level: 0,
+		effectiveLevel: 0,
+		nextPetLevel: 90,
+		action: false,
+		queued: false,
+		learnable: false,
+		live: true,
+		slotted: false,
+		value: 3,
+		nextValue: 3
+	};
+	const rows = petSkillTooltip( d, skill, 40, 0, false );
+	assert.ok( rows.some( r => r.value === "Maximum HP +3% per stack" ) );
+	for ( const value of [ "Pet level 90", "Skill points 1", "Unbroken Spirit II 10" ] ) {
+		assert.equal( rows.find( r => r.value === value )?.color, 0xffff5555 );
+	}
+	assert.ok( rows.every( r => !/^Tier|^Level|^Now:|Proficiency/.test( r.value ) ) );
 });

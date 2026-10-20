@@ -1,9 +1,9 @@
 /*
 ===========================================================================
 
-petItemIcons.mjs - publish owned degree-specific pet gear inventory icons
+petItemIcons.mjs - publish owned pet gear icons and the skill-family atlas
 
-Port-only: three editable nine-cell source sheets become27 native-size PNGs.
+Port-only: procedural gear icons and an original painted skill-family atlas.
 Full CIF builds and the focused pet-loot family share this publication step.
 
 ===========================================================================
@@ -11,7 +11,7 @@ Full CIF builds and the focused pet-loot family share this publication step.
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { runPython } from "./pythonRun.mjs";
-import { writeIntoPublicTree } from "./publicWrite.mjs";
+import { copyIntoPublicTree, writeIntoPublicTree } from "./publicWrite.mjs";
 import { publicRoot } from "../world/paths.mjs";
 import { PORT_ITEMS } from "./portItemRows.mjs";
 
@@ -34,5 +34,11 @@ export async function buildPetItemIcons() {
 		await writeIntoPublicTree( path.join( publicRoot, publicPath.slice( 1 ) ), Buffer.from( icon.png, "base64" ) );
 		files.push( publicPath );
 	}
+	const atlas = "/assets/images/Media_extracted/icon/port/pet-skills.png";
+	await copyIntoPublicTree(
+		fileURLToPath( new URL( "../../../docs/pet-expansion/assets/pet-skills.png", import.meta.url ) ),
+		path.join( publicRoot, atlas.slice( 1 ) )
+	);
+	files.push( atlas );
 	return files;
 }

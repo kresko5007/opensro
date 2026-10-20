@@ -615,6 +615,12 @@ an empty slot), from the latest server state.
 ================
 */
 export interface PetTraining {
+	readonly counters?: {
+		readonly attacks: number;
+		readonly bearHits: number;
+		readonly ownerHits: number;
+		readonly resolve: number;
+	};
 	readonly stats?: {
 		readonly maxHp: number;
 		readonly magicPercent: number;

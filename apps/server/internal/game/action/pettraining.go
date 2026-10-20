@@ -131,7 +131,15 @@ func (rt *Runtime) handlePetTraining(division string, c *enterworld.Character, p
 	}
 	nowMs := rt.Now().UnixMilli()
 	if operation == petTrainingState {
-		return OpResult{Frames: rt.petTrainingStateFrames(snapshot.CompanionByGID(gid), nowMs)}
+		frames := rt.petTrainingStateFrames(snapshot.CompanionByGID(gid), nowMs)
+		if state := rt.petSessionFor(division, c.Name, gid); state != nil {
+			rt.deps.Read(division, func() {
+				if counter := petSkillCounterFrame(state, gid); len(counter.Payload) > 0 {
+					frames = append(frames, counter)
+				}
+			})
+		}
+		return OpResult{Frames: frames}
 	}
 	state := rt.petSessionFor(division, c.Name, gid)
 	if operation == petTrainingUse && len(payload) == petTrainingLength+4 {
@@ -225,7 +233,7 @@ func (rt *Runtime) petTrainingStateFrames(pet *domain.CharacterCOS, nowMs int64)
 		row := wire.PetSkillRow{ID: s.ID, Level: lvl, EffectiveLevel: eff,
 			NextPetLevel: companion.NextLevelRequirement(s, lvl),
 			Value:        uint16(max(0, s.ValueAt(max(eff, 1))*10)),
-			NextValue:    uint16(max(0, s.ValueAt(min(lvl+1, s.MaxLevel))*10))}
+			NextValue:    uint16(max(0, s.ValueAt(uint8(min(255, int(min(lvl+1, s.MaxLevel))+m.SkillBonus)))*10))}
 		if s.Active {
 			row.Flags |= wire.PetSkillAction
 			if t.Queued == s.ID {

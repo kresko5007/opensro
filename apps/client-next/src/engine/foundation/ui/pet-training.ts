@@ -298,8 +298,7 @@ export function petRowCooldown( state: PetTraining, row: number, nowMs: number )
 ================
 petSkillHelp
 
-The help text of one skill slot: name, kind, level, effect now and next,
-ranks, the next level's requirement and how to use it.
+Accessible text mirrors the compact native-style tooltip. Controls live in row help.
 ================
 */
 export function petSkillHelp(
@@ -308,62 +307,7 @@ export function petSkillHelp(
 	petLevel: number,
 	points: number
 ): string {
-	const rules = PET_DESIGN.rules, lines = [ `${design.name} (${skill.action ? "action" : "passive"})` ];
-	if ( !skill.live ) lines.push( "Planned skill. Unavailable to learn or use." );
-	const bonus = skill.effectiveLevel > skill.level ? ` (+${skill.effectiveLevel - skill.level} from gear)` : "";
-	lines.push( `Level ${skill.level} / ${design.maxLevel}${bonus}` );
-	lines.push( `Tier ${design.option}: pet levels ${design.unlockLevel}–${design.tierEnd}.` );
-	if ( design.option > 1 ) lines.push( `Requires previous tier at level ${design.maxLevel}.` );
-	if ( skill.level > 0 ) lines.push( "Now: " + petEffect( design, skill.value, skill.effectiveLevel ) );
-	else lines.push( "Effect: " + petEffect( design, skill.value ) );
-	if ( skill.nextPetLevel > 0 ) {
-		lines.push( "Next level: " + petEffect( design, skill.nextValue, skill.effectiveLevel + 1 ) );
-		lines.push(
-			`Needs pet level ${skill.nextPetLevel}` + (petLevel < skill.nextPetLevel ? ` (now ${petLevel})` : "") +
-				` and 1 skill point (${points} free).`
-		);
-	} else lines.push( "Maximum level." );
-	if ( design.family === "Guardian's Bond" ) {
-		if ( design.option > 1 ) {
-			lines.push(
-				`Auto-revives ${
-					design.option === 3 ? "owner/party members" : "owner"
-				}: mastered Tier I restores 100% HP/lost EXP; shared 300 s cooldown.`
-			);
-			lines.push(
-				"Transfer follows shields; shared limit 20% bear max HP/s. Leaves 1 HP. No retaliation charge."
-			);
-		}
-		lines.push( "Range: 12 m. Revival limit: pet level +10. Revival cooldown survives resummon/relog." );
-		lines.push( "Monster combat/deaths only. Disabled in town, jobs, PvP and instances." );
-	}
-	if ( design.cooldown !== null ) {
-		const cooldown = Math.max(
-			0,
-			design.cooldown + (design.cooldownPerLevel ?? 0) * (Math.max( 1, skill.effectiveLevel ) - 1)
-		);
-		const shown = design.trigger === "Timer" ? cooldown : Math.max( 1, Math.floor( cooldown + 0.5 ) );
-		lines.push( `Base recharge: ${formatValue( shown )} ${design.cooldownUnit} before gear bonuses.` );
-		if ( skill.action ) lines.push( "Using this skill locks every active in this row." );
-	}
-	if (
-		design.family !== "Challenging Roar" && design.family !== "Iron Hide" && design.family !== "Crushing Paw" &&
-		design.family !== "Guardian's Bond"
-	) {
-		lines.push( `Proficiency ${rules.rank2Level}: ${design.rank2}` );
-		lines.push( `Proficiency ${rules.rank3Level}: ${design.rank3}` );
-	}
-	if ( skill.action && skill.level > 0 ) {
-		lines.push(
-			skill.queued ?
-				"Preparing this ability: the pet will use it when in range." :
-				"Click or use its numbered quickslot to cast. Select an enemy for targeted abilities."
-		);
-	}
-	if ( !skill.action && skill.level > 0 ) {
-		lines.push( skill.slotted ? "Slotted: active in its row." : "Click to slot it (one passive per row)." );
-	}
-	return lines.join( "\n" );
+	return petSkillTooltip( design, skill, petLevel, points ).map( row => row.value ).join( "\n" );
 }
 
 /*
@@ -380,15 +324,190 @@ export function petSkillTooltip(
 	points: number,
 	prerequisiteMet = true
 ): TooltipRow[] {
-	const unmet = petLevel < skill.nextPetLevel || points < 1;
-	return petSkillHelp( design, skill, petLevel, points ).split( "\n" ).map( value => ({
-		value,
-		color: value.startsWith( "Planned skill." ) ||
-				(!prerequisiteMet && value.startsWith( "Requires previous tier" )) ||
-				(unmet && value.startsWith( "Needs pet level" )) ?
-			0xffff5555 :
-			0xffffffff
-	}) );
+	const white = 0xffffffff, gold = 0xffefdaa4, red = 0xffff5555;
+	const rows: TooltipRow[] = [ { value: design.name, color: white } ];
+	const add = ( value: string, color = gold, heading = false ) =>
+		rows.push( {
+			value,
+			color,
+			...(heading ? { heading: true, ornament: "diamond" as const } : {})
+		} );
+	add( skill.action ? "Active" : "Passive" );
+	add( "Effect", gold, true );
+	for ( const value of petSkillEffectLines( design, skill.value, Math.max( 1, skill.effectiveLevel ) ) ) {
+		add( value, white );
+	}
+	if ( skill.effectiveLevel > skill.level ) add( `Skills +${skill.effectiveLevel - skill.level}`, white );
+	if ( design.cooldown !== null ) {
+		const recharge = Math.max(
+			0,
+			design.cooldown + (design.cooldownPerLevel ?? 0) * (Math.max( 1, skill.effectiveLevel ) - 1)
+		);
+		add(
+			`Base recharge: ${
+				formatValue( design.trigger === "Timer" ? recharge : Math.max( 1, Math.round( recharge ) ) )
+			} ${design.cooldownUnit}`,
+			white
+		);
+	}
+	if ( skill.nextPetLevel > 0 ) {
+		const current = petSkillEffectLines( design, skill.value, Math.max( 1, skill.effectiveLevel ) );
+		const next = petSkillEffectLines( design, skill.nextValue, skill.level ? skill.effectiveLevel + 1 : 1 );
+		const changes = skill.level ? next.filter( ( value, i ) => value !== current[i] ) : [];
+		if ( changes.length ) {
+			add( "Next", gold, true );
+			for ( const value of changes ) add( value, white );
+		}
+		add( "Required", gold, true );
+		add( `Pet level ${skill.nextPetLevel}`, petLevel < skill.nextPetLevel ? red : white );
+		add( "Skill points 1", points < 1 ? red : white );
+		if ( design.option > 1 ) {
+			const previous = petSkillDesign( design.id - 1 );
+			add( `${previous?.name ?? "Previous book"} ${design.maxLevel}`, prerequisiteMet ? white : red );
+		}
+	}
+	if ( !skill.live ) add( "Unavailable", red );
+	return rows;
+}
+
+/*
+================
+petSkillEffectLines
+
+Short native-style effect rows. General controls and combat rules live in row help.
+================
+*/
+function petSkillEffectLines( d: PetSkillDesign, value: number, rank: number ): string[] {
+	const v = formatValue( value ),
+		advanced = d.option > 1 || rank >= PET_DESIGN.rules.rank2Level,
+		mastered = d.option > 1 || rank >= PET_DESIGN.rules.rank3Level;
+	switch ( d.family ) {
+		case "Terrifying Howl":
+			return [
+				`Terrify ${Math.max( 2, Math.floor( value ) )} monsters`,
+				`Range ${advanced ? 9 : 6} m`,
+				`Duration ${mastered ? 4 : 3} s`,
+				"Affected monsters cannot attack the wolf"
+			];
+		case "Rending Bite":
+			return [
+				`Physical damage ${v}%`,
+				`Bleeding: ${advanced ? 4 : 2} x pet level every 2 s`,
+				"Bleeding duration 6 s",
+				...(mastered ?
+					[ "Bleeding enemies below 30% HP: execute", "Unique monsters immune to execution" ] :
+					[])
+			];
+		case "Execute":
+			return [
+				`Execute enemies below ${v}% HP`,
+				...(advanced ? [ "Bleeding targets: threshold +5%" ] : []),
+				"Requires a damaging hit; uniques immune"
+			];
+		case "Scent of Blood":
+			return [ `Critical chance +${v}%`, "Against bleeding targets or enemies below 50% HP" ];
+		case "Thick Fur":
+		case "Frost Armor":
+			return [ `Physical defence +${v}%`, `Magical defence +${v}%` ];
+		case "Frost Nova":
+			return [
+				`Magical damage ${v}%`,
+				`Range ${advanced ? 7 : 5} m`,
+				"Maximum targets 8",
+				"Inflicts frostbite; native resistance applies"
+			];
+		case "Deep Freeze":
+			return [
+				`Freeze potency ${v}`,
+				...(advanced ? [ "Spreads to 2 additional targets" ] : []),
+				"Duration follows target resistance"
+			];
+		case "Cold Mastery":
+			return [ `Magical attack +${v}%` ];
+		case "Static Feathers":
+			return [
+				`Chain strike chance ${v}% per attack`,
+				`Maximum targets ${advanced ? 5 : 3}`,
+				"Range 8 m; damage reduction 20%",
+				"Inflicts electric shock"
+			];
+		case "Mend":
+			return [ `Owner HP restored ${formatValue( value * (advanced ? 1.5 : 1) )}%` ];
+		case "Mark Prey":
+			return [
+				`Physical and magical defence -${formatValue( value + (advanced ? 20 : 0) )}%`,
+				"Duration 8 s; native resistance applies"
+			];
+		case "Carrion Feast":
+			return [ `Owner HP restored ${v}%`, "Requires the crow's killing hit" ];
+		case "Swift Wings":
+			return [ `Attack speed +${v}%` ];
+		case "Murder of Crows":
+			return [
+				`Every ${advanced ? 8 : 10} damaging attacks: burst`,
+				`Damage ${v}%`,
+				"Range 4 m; maximum targets 8",
+				...(mastered ? [ "Inflicts Myopia for 2 s", "Attack range reduced 50%" ] : [])
+			];
+		case "Challenging Roar":
+			return [
+				`Taunt ${d.option === 3 ? 6 : 3} targets`,
+				`Range ${formatValue( petRoarRadius( d.option, rank ) )} m`,
+				"Casting time 1 s",
+				...(d.option > 1 ? [ "Includes party monsters" ] : [])
+			];
+		case "Iron Hide":
+			return [
+				`Shield ${formatValue( Math.min( 100, value ) )}% maximum HP`,
+				"Duration 5 s",
+				d.option > 1 ? "Bear, owner and party within 20 m" : "Bear and owner",
+				...(d.option === 3 ?
+					[ "Expiry: remaining shield bursts", "Damage 50% remaining shield", "Burst range 8 m" ] :
+					[])
+			];
+		case "Unbroken Spirit":
+			return [
+				`Maximum HP +${v}% per stack`,
+				"Maximum Resolve 10",
+				"Duration 15 s; renewed on hit",
+				...(d.option > 1 ? [ "Full stacks: slow/knockback resist" ] : []),
+				...(d.option === 3 ?
+					[
+						"Next Roar: range/targets +50%",
+						"Or next shield: capacity +50%",
+						"Consumes full Resolve"
+					] :
+					[])
+			];
+		case "Crushing Paw":
+			return [
+				"Every 10 hits taken: stun attacker",
+				`Stun duration ${v} s`,
+				...(d.option > 1 ? [ "Bear and owner count separately" ] : []),
+				...(d.option === 3 ? [ "Nearby enemies: 50% stun chance", "Range 8 m around the hit recipient" ] : [])
+			];
+		case "Guardian's Bond": {
+			const r = Math.min( 10, rank ), recovery = d.option === 1 ? r * 10 : 100;
+			return [
+				d.option === 3 ? "Auto-revive owner and party" : "Auto-revive owner",
+				`HP and lost EXP restored ${recovery}%`,
+				`Revival recharge ${formatValue( d.option === 1 ? 600 - (r - 1) * 300 / 9 : 300 )} s`,
+				"Range 12 m",
+				"Revival limit: pet level +10",
+				...(d.option > 1 ?
+					[
+						`Damage shared with bear ${formatValue( (d.option === 2 ? 10 : 20) + (r - 1) * 10 / 9 )}%`,
+						"Transfer cap 20% bear HP/s; leaves 1 HP"
+					] :
+					[])
+			];
+		}
+		default:
+			return petEffect( d, value, rank ).replace( /On command, /g, "" ).replace( /Commanded strike /g, "" )
+				.replace( /Party monsters require Tier II\. /g, "" ).split( /(?<=\.)\s+/ ).filter( line =>
+					!line.startsWith( "No separate" )
+				).map( line => line.replace( /\.$/, "" ) );
+	}
 }
 
 /*

@@ -22,6 +22,7 @@ import type { WireFrame } from "@/engine/contracts/network";
 import type { InventoryItem, PetTraining, PetTrainingRow, PetTrainingSkill } from "@/engine/contracts/gameplay";
 
 export const OP_PET_TRAINING_STATE = 0x3fb1;
+export const OP_PET_SKILL_COUNTERS = 0x3fb6;
 const MAX_SKILLS = 32;
 const MAX_GEAR = 8;
 const MAX_OPTIONS = 12;
@@ -50,6 +51,20 @@ a protocol error, never a partial one.
 ================
 		*/
 		receive( frame: WireFrame, now: number ): boolean {
+			if ( frame.opcode === OP_PET_SKILL_COUNTERS ) {
+				const p = frame.payload;
+				if ( p.length !== 8 || p[4]! >= 40 || p[5]! >= 10 || p[6]! >= 10 || p[7]! > 10 ) {
+					throw Error( "Invalid pet skill counters" );
+				}
+				const gid = new DataView( p.buffer, p.byteOffset, p.byteLength ).getUint32( 0, true );
+				if ( state?.gid === gid ) {
+					state = {
+						...state,
+						counters: { attacks: p[4]!, bearHits: p[5]!, ownerHits: p[6]!, resolve: p[7]! }
+					};
+				}
+				return true;
+			}
 			if ( frame.opcode !== OP_PET_TRAINING_STATE ) return false;
 			const p = frame.payload, v = new DataView( p.buffer, p.byteOffset, p.byteLength );
 			let at = 0;
@@ -113,6 +128,7 @@ a protocol error, never a partial one.
 			}
 			if ( at !== p.length ) throw new Error( "Trailing pet training bytes" );
 			state = {
+				...(state?.gid === gid && state.counters ? { counters: state.counters } : {}),
 				gid,
 				points,
 				attackPercent,

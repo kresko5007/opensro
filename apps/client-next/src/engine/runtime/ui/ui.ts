@@ -202,7 +202,6 @@ import { createExperimentalHud, EXPERIMENTAL_TABS } from "./hud/experimental-hud
 import { renderScales, type ExperimentalOptions } from "@/engine/foundation/ui/experimental-options";
 import {
 	PET_GEAR_SLOTS,
-	PET_ROW_NAMES,
 	PET_TRAINING_OP,
 	petRowCooldown,
 	petCooldownQuads,
@@ -213,6 +212,13 @@ import {
 	petAbilities,
 	petSkillTooltip
 } from "@/engine/foundation/ui/pet-training";
+import {
+	PET_SKILL_ATLAS,
+	petSkillIconUV,
+	petSkillStack,
+	petStackQuads,
+	petRowHelp
+} from "@/engine/foundation/ui/pet-skill-icons";
 import { DOLL2_TEXTURE } from "@/engine/foundation/ui/ui";
 import {
 	rememberedWindows,
@@ -11490,14 +11496,19 @@ export function createUi(
 						draggable: !!binding && !locked
 					} );
 					blocks.push( r );
-					const icon = iconPath( skill?.icon ?? petDesign?.icon ?? item?.icon ?? action?.icon );
+					const icon = petDesign ? PET_SKILL_ATLAS : iconPath( skill?.icon ?? item?.icon ?? action?.icon );
 					// A held press outlines the slot; a denied one shakes and tints it.
 					const feedback = skill ? skillPressFeedback( game, skill.id, r, full, quickslotTime ) : undefined;
 					if ( icon ) {
 						paths.push( icon );
 						const ir: UiRect = feedback?.offsetX ? [ r[0] + feedback.offsetX, r[1], r[2], r[3] ] : r;
 						if ( resources.has( icon ) ) {
-							rect( ir, [ 1, 1, 1, petDesign && !petAvailable ? iconAlpha * 0.35 : iconAlpha ], icon );
+							rect(
+								ir,
+								[ 1, 1, 1, petDesign && !petAvailable ? iconAlpha * 0.35 : iconAlpha ],
+								icon,
+								petDesign ? petSkillIconUV( petDesign ) : undefined
+							);
 						}
 					}
 					const cooldown = skill ?
@@ -11508,6 +11519,18 @@ export function createUi(
 						const timer = petCooldownQuads( game.petTraining, petDesign.row, quickslotTime, r, full );
 						for ( const q of timer ) if ( q.texture ) paths.push( q.texture );
 						quads.push( ...timer );
+					}
+					if ( petDesign && petAvailable && game?.petTraining ) {
+						const entry = game.petTraining.skills.find( s => s.id === petDesign.id );
+						if ( entry ) {
+							const badges = petStackQuads(
+								petSkillStack( game.petTraining, petDesign, entry ),
+								r,
+								full
+							);
+							for ( const q of badges ) paths.push( q.texture );
+							quads.push( ...badges );
+						}
 					}
 					if ( skill ) {
 						paths.push( ...quickslotTimerPaths() );
@@ -16760,42 +16783,43 @@ export function createUi(
 							rows.forEach( ( row, i ) => {
 								const gx = ox + 1, gy = oy + 30 + i * 55, action = i < 2;
 								if ( resources.has( bar ) ) rect( [ gx, gy, 328, 60 ], white, bar );
-								const groupIcon = iconPath( row[0]?.design.icon );
-								if ( groupIcon ) image( [ gx + 7, gy + 8, 20, 20 ], groupIcon );
-								const slotted = row.find( entry => entry.skill.slotted ),
-									queued = row.find( entry => entry.skill.queued );
-								const status = action ?
-									queued ?
-										"next attack: " + queued.design.name :
-										petRowCooldown( state!, i, quickslotTime ) || "ready" :
-									slotted ?
-									"slotted: " + slotted.design.name :
-									"no passive slotted";
-								quads.push(
-									...text.quads(
-										`${PET_ROW_NAMES[i]} - ${row[0]?.design.theme ?? ""}`,
-										[ gx + 148, gy + 6, 176, 12 ],
-										full,
-										white
-									)
-								);
-								quads.push(
-									...text.quads( status, [ gx + 148, gy + 24, 176, 12 ], full, white )
-								);
+								const info: UiRect = [ gx + 7, gy + 8, 20, 20 ];
+								image( info, ROOT + "interface/ifcommon/com_question_button_focus.png" );
+								controls.push( {
+									id: "pet-row-info:" + i,
+									label: (row[0]?.design.family ?? "Pet skills") + " information",
+									helpText: petRowHelp( state!, i, quickslotTime ),
+									rect: info,
+									kind: "button"
+								} );
+								for ( let col = row.length; col < 8; col++ ) {
+									image(
+										[ gx + 37 + 36 * col, gy + 3, 32, 32 ],
+										ROOT + "interface/skill/skl_mastery_nothing.png"
+									);
+								}
 								row.forEach( ( { design, skill }, col ) => {
-									const icon = iconPath( design.icon ),
+									const revealed = skill.live && (skill.level > 0 || petLevel >= design.unlockLevel),
+										icon = revealed ?
+											PET_SKILL_ATLAS :
+											ROOT + "interface/skill/skl_mastery_disable.png",
 										r: UiRect = [ gx + 37 + 36 * col, gy + 3, 32, 32 ],
-										alpha = !skill.live ?
-											0.25 :
+										alpha = !revealed ?
+											1 :
 											skill.level === 0 ?
-											0.4 :
+											0x80 / 0xff :
 											!action && !skill.slotted ?
 											0.65 :
 											1;
 									if ( icon ) {
 										paths.push( icon );
 										if ( resources.has( icon ) ) {
-											rect( r, alpha < 1 ? [ 1, 1, 1, alpha ] : white, icon );
+											rect(
+												r,
+												alpha < 1 ? [ 1, 1, 1, alpha ] : white,
+												icon,
+												revealed ? petSkillIconUV( design ) : undefined
+											);
 										}
 									}
 									if ( skill.learnable ) {
@@ -16852,6 +16876,9 @@ export function createUi(
 											}
 										}
 									}
+									const stacks = petStackQuads( petSkillStack( state!, design, skill ), r, full );
+									for ( const q of stacks ) paths.push( q.texture );
+									quads.push( ...stacks );
 									if ( skill.queued ) {
 										quads.push(
 											...text.quads( "next", [ r[0], r[1] - 1, 32, 10 ], full, white, {
@@ -24470,17 +24497,19 @@ export function createUi(
 						hud.data()?.actions.find( r => r.id === (binding.payload & 0xffffff) ) :
 						undefined,
 					item = binding ? game.inventory.find( r => r.slot === quickSlotItemSlot( binding ) ) : undefined,
-					icon = iconPath(
-						skill?.icon ??
-							(binding?.kind === 0x4a ?
-								petSkillDesign( binding.payload - PET_SKILL_SHORTCUT_BASE )?.icon :
-								undefined) ??
-							action?.icon ?? item?.icon
-					);
+					petDesign = binding?.kind === 0x4a ?
+						petSkillDesign( binding.payload - PET_SKILL_SHORTCUT_BASE ) :
+						undefined,
+					icon = petDesign ? PET_SKILL_ATLAS : iconPath( skill?.icon ?? action?.icon ?? item?.icon );
 				if ( icon ) {
 					paths.push( icon );
 					if ( resources.has( icon ) ) {
-						rect( [ carriedShortcut.x - 16, carriedShortcut.y - 16, 32, 32 ], white, icon );
+						rect(
+							[ carriedShortcut.x - 16, carriedShortcut.y - 16, 32, 32 ],
+							white,
+							icon,
+							petDesign ? petSkillIconUV( petDesign ) : undefined
+						);
 					}
 				}
 			}
