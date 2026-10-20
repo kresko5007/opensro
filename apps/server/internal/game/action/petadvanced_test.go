@@ -152,11 +152,11 @@ func TestAdvancedMarkRechargesAndRecastsAfterActualAttacks(t *testing.T) {
 
 /*
 ================
-TestAdvancedLastStandThresholdAndMendMagnitude
+TestGuardianReplacementAndMendMagnitude
 ================
 */
-func TestAdvancedLastStandThresholdAndMendMagnitude(t *testing.T) {
-	t.Run("last-stand-inherited-threshold", func(t *testing.T) {
+func TestGuardianReplacementAndMendMagnitude(t *testing.T) {
+	t.Run("guardian-does-not-retain-old-defense-bonus", func(t *testing.T) {
 		rt, _, c, _ := newPetCombatRuntime(t, 100000, attackPetBand)
 		makeTrainedPet(rt, c, "COS_P_BEAR_040", 90)
 		rt.AttackPetExpansion = true
@@ -166,13 +166,13 @@ func TestAdvancedLastStandThresholdAndMendMagnitude(t *testing.T) {
 		above := rt.petTrainingDefense(c, pet, 1000, combat.Stats{PhysicalDefense: 100, MagicalDefense: 100})
 		pet.CurrentHP = 399
 		below := rt.petTrainingDefense(c, pet, 1000, combat.Stats{PhysicalDefense: 100, MagicalDefense: 100})
-		if above.PhysicalDefense != 100 || below.PhysicalDefense <= above.PhysicalDefense || below.MagicalDefense <= above.MagicalDefense {
-			t.Fatal("advanced Last Stand did not activate strictly below40%")
+		if above.PhysicalDefense != 100 || below.PhysicalDefense != 100 || below.MagicalDefense != 100 {
+			t.Fatal("Guardian retained the replaced Last Stand defense bonus")
 		}
 		rt.AttackPetExpansion = false
 		off := rt.petTrainingDefense(c, pet, 1000, combat.Stats{PhysicalDefense: 100})
 		if off.PhysicalDefense != 100 {
-			t.Fatal("Last Stand changed native-off defense")
+			t.Fatal("Guardian changed native-off defense")
 		}
 	})
 	t.Run("mend-II-heals-inherited-extra-half", func(t *testing.T) {

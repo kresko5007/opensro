@@ -71,6 +71,7 @@ type petSession struct {
 	// trained is the attack-pet expansion's unsaved combat memory
 	// (pettrained.go): attack counter and running self buffs.
 	trained petTrainedRuntime
+	bond    petBondRuntime
 	roar    *petRoarCast
 	// combat is the attack pet's BATTLE state (petcombat.go); nil follows.
 	combat *petCombatIntent
@@ -218,7 +219,8 @@ advancePetInDivision
 func (rt *Runtime) advancePetInDivision(key petOwnerKey, nowMs int64) (int64, []simulation.Frame, []wire.Frame, []RecipientFrames, string, *simulation.Tether) {
 	unlock := rt.lockDivision(key.division)
 	defer unlock()
-	frames := rt.advancePetSatiety(key, nowMs)
+	frames := rt.advancePetBond(key, rt.petSessionFor(key.division, key.name, key.gid), nowMs)
+	frames = append(frames, rt.advancePetSatiety(key, nowMs)...)
 	frames = append(frames, rt.advancePet(key, nowMs)...)
 	rt.petMu.Lock()
 	state := rt.petSessions[key]
@@ -333,7 +335,11 @@ func (rt *Runtime) advancePet(key petOwnerKey, nowMs int64) (output []simulation
 			return nil
 		}
 		frames := state.follower.Stop(nowMs)
-		state.follower = nil
+		// Port-only: a living guardian must keep its real anchor while awaiting its owner's revival timer.
+		_, _, _, _, guardian := rt.bondSource(key, state)
+		if !guardian || enterworld.CurrentHP(snapshot) != 0 {
+			state.follower = nil
+		}
 		return frames
 	}
 	ref, found := refs.CharacterRefByCodename(cos.Codename)

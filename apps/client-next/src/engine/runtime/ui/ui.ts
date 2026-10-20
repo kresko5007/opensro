@@ -2757,10 +2757,6 @@ export function createUi(
 	================
 	*/
 	function activate( id: string ) {
-		// A party chat command (6AD990), parsed once from the line being sent.
-		const partyLine = id === "chat-send" ?
-			partyChatCommand( chatText.slice( chatTabPrefix( chatTab ).length ), hudCopy ) :
-			null;
 		if ( id.startsWith( "gm-helper-row:" ) ) {
 			gmHelper.select( Number( id.slice( "gm-helper-row:".length ) ) );
 			// The row button took DOM focus; Enter must reach the prompt again
@@ -3254,6 +3250,10 @@ export function createUi(
 			if ( view.frontend?.dialog || view.frontend?.creation ) return;
 			id = phase === "world" ? "chat-send" : phase === "character-select" ? "enter" : "login";
 		}
+		// A party chat command (6AD990), parsed once from the line being sent.
+		const partyLine = id === "chat-send" ?
+			partyChatCommand( chatText.slice( chatTabPrefix( chatTab ).length ), hudCopy ) :
+			null;
 		const control = controls.find( c => c.id === id );
 		if ( control?.disabled ) return;
 		// World map town icons are CIFWorldMap hit areas (57F43D button-up), not

@@ -729,6 +729,27 @@ export function createEntities(
 		================
 		*/
 		receive( frame: WireFrame, now = 0 ) {
+			// Port-only Guardian's Bond cue; independent of emotes and native casts.
+			if ( frame.opcode === 0x3fb4 ) {
+				const p = frame.payload;
+				if ( p.length !== 9 ) throw Error( "Invalid pet bond pulse length" );
+				const v = new DataView( p.buffer, p.byteOffset, p.byteLength );
+				const gid = v.getUint32( 0, true ), bear = v.getUint32( 4, true ), kind = v.getUint8( 8 );
+				if ( !gid || !bear || (kind !== 1 && kind !== 2) ) throw Error( "Invalid pet bond pulse" );
+				const entity = entities.get( gid );
+				if ( entity ) {
+					samplePose( {
+						...entity,
+						petBondPulse: {
+							revision: (entity.petBondPulse?.revision ?? 0) + 1,
+							atMs: now,
+							bear,
+							kind
+						}
+					} );
+				}
+				return;
+			}
 			// Port-only retaliation cue; separate from emotes so it cannot interrupt a cast.
 			if ( frame.opcode === 0x3fb3 ) {
 				const p = frame.payload;

@@ -161,9 +161,20 @@ test("pet timers reuse character sweep and expire; event counters do not expire 
 	const design = petSkillDesign( 1 );
 	assert.ok( design );
 	assert.equal( petEffect( design, 3.5 ).includes( "3.5" ), false );
-	const lastStand = PET_DESIGN.treeSkills.find( entry => entry.family === "Last Stand" );
-	assert.ok( lastStand );
-	assert.match( petEffect( lastStand, 31, 8 ), /40% HP/ );
+	const guardian = defined(
+		PET_DESIGN.treeSkills.find( entry => entry.family === "Guardian's Bond" && entry.option === 1 )
+	);
+	assert.match( petEffect( guardian, 0, 1 ), /10% HP/ );
+	assert.match( petEffect( guardian, 0, 10 ), /100% HP/ );
+	assert.match( petEffect( guardian, 0, 1 ), /600 s/ );
+	assert.match( petEffect( guardian, 0, 10 ), /300 s/ );
+	for ( const [option, low, high] of [ [ 2, 10, 20 ], [ 3, 20, 30 ] ] ) {
+		const book = defined(
+			PET_DESIGN.treeSkills.find( entry => entry.family === "Guardian's Bond" && entry.option === option )
+		);
+		assert.match( petEffect( book, 0, 1 ), new RegExp( `Transfers ${low}%` ) );
+		assert.match( petEffect( book, 0, 10 ), new RegExp( `Transfers ${high}%` ) );
+	}
 });
 
 test("a truncated or padded state is refused", () => {

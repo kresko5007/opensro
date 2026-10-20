@@ -106,3 +106,36 @@ test("retaliation pulse validates its recipient and leaves emotes independent", 
 	}
 	entities.dispose();
 });
+
+/*
+================
+Guardian's Bond wire boundaries
+================
+*/
+test("Guardian pulses admit only exact recipient/bear/kind packets", () => {
+	const entities = createEntities();
+	entities.bootstrap( {
+		protocolVersion: 2,
+		nativeResult: 1,
+		refObjSnapshot: [],
+		localPlayerEntry: { modelRef: 1933, startProfile: { regionId: 257, x: 1, y: 2, z: 3, angle: 0 } }
+	} );
+	entities.receive( { opcode: 0x32a6, payload: Buffer.from( [ 7, 0, 0, 0, 0, 0, 0, 0 ] ) }, 0 );
+	const payload = Buffer.from( [ 7, 0, 0, 0, 8, 0, 0, 0, 2 ] );
+	entities.receive( { opcode: 0x3fb4, payload }, 100 );
+	assert.deepEqual( defined( entities.read( 7 ) ).petBondPulse, { revision: 1, atMs: 100, bear: 8, kind: 2 } );
+	payload[8] = 1;
+	entities.receive( { opcode: 0x3fb4, payload }, 200 );
+	assert.equal( defined( defined( entities.read( 7 ) ).petBondPulse ).revision, 2 );
+	for (
+		const bad of [
+			Buffer.alloc( 8 ),
+			Buffer.alloc( 10 ),
+			Buffer.alloc( 9 ),
+			Buffer.from( [ 7, 0, 0, 0, 8, 0, 0, 0, 3 ] )
+		]
+	) {
+		assert.throws( () => entities.receive( { opcode: 0x3fb4, payload: bad }, 0 ), /Invalid pet bond/ );
+	}
+	entities.dispose();
+});

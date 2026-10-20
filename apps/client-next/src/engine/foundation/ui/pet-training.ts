@@ -222,11 +222,18 @@ export function petEffect( design: PetSkillDesign, value: number, effectiveLevel
 				"") +
 			" Cannot cast in town.";
 	}
-	const shown = value;
-	const effect = design.family === "Last Stand" && rank2 ?
-		design.effect.replace( "30% HP", "40% HP" ) :
-		design.effect;
-	return effect.replaceAll( "{v}", formatValue( shown ) );
+	if ( design.family === "Guardian's Bond" ) {
+		const rank = Math.min( 10, effectiveLevel );
+		if ( design.option === 1 ) {
+			return `Revives the owner with ${rank * 10}% HP and ${rank * 10}% lost EXP. ` +
+				`Shared revival cooldown: ${formatValue( 600 - (rank - 1) * 300 / 9 )} s.`;
+		}
+		const transfer = (design.option === 2 ? 10 : 20) + (rank - 1) * 10 / 9;
+		return `Transfers ${formatValue( transfer )}% of ${
+			design.option === 3 ? "owner/party" : "owner"
+		} HP damage to the bear.`;
+	}
+	return design.effect.replaceAll( "{v}", formatValue( value ) );
 }
 
 /*
@@ -305,6 +312,20 @@ export function petSkillHelp(
 				` and 1 skill point (${points} free).`
 		);
 	} else lines.push( "Maximum level." );
+	if ( design.family === "Guardian's Bond" ) {
+		if ( design.option > 1 ) {
+			lines.push(
+				`Auto-revives ${
+					design.option === 3 ? "owner/party members" : "owner"
+				}: mastered Tier I restores 100% HP/lost EXP; shared 300 s cooldown.`
+			);
+			lines.push(
+				"Transfer follows shields; shared limit 20% bear max HP/s. Leaves 1 HP. No retaliation charge."
+			);
+		}
+		lines.push( "Range: 12 m. Revival limit: pet level +10. Revival cooldown survives resummon/relog." );
+		lines.push( "Monster combat/deaths only. Disabled in town, jobs, PvP and instances." );
+	}
 	if ( design.cooldown !== null ) {
 		const cooldown = Math.max(
 			0,
@@ -314,7 +335,10 @@ export function petSkillHelp(
 		lines.push( `Base recharge: ${formatValue( shown )} ${design.cooldownUnit} before gear bonuses.` );
 		if ( skill.action ) lines.push( "Using this skill locks every active in this row." );
 	}
-	if ( design.family !== "Challenging Roar" && design.family !== "Iron Hide" && design.family !== "Crushing Paw" ) {
+	if (
+		design.family !== "Challenging Roar" && design.family !== "Iron Hide" && design.family !== "Crushing Paw" &&
+		design.family !== "Guardian's Bond"
+	) {
 		lines.push( `Proficiency ${rules.rank2Level}: ${design.rank2}` );
 		lines.push( `Proficiency ${rules.rank3Level}: ${design.rank3}` );
 	}

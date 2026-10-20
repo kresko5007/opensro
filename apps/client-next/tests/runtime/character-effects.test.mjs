@@ -1904,3 +1904,46 @@ test("retaliation III draws one faint 8m ground ripple without sound or camera s
 	assert.notEqual( defined( step( 2.1 )[0] ).gid, ring.gid );
 	effects.dispose();
 });
+
+/*
+================
+Guardian's Bond visual and audio lifecycle
+================
+*/
+test("Guardian recovery follows a stationary recipient immediately and never replays sound", () => {
+	const played = [], effects = roarEffects( event => played.push( event ) );
+	const owner = {
+		gid: 11,
+		refObjId: 11,
+		name: "Owner",
+		kind: "local-player",
+		regionId: 0x8001,
+		x: 20,
+		y: 0,
+		z: 30,
+		heading: 0,
+		petBondPulse: { revision: 1, atMs: 0, bear: 12, kind: 2 }
+	};
+	const step = now => effects.step( [ owner ], null, now, () => true, () => 1, [] );
+	const first = defined( step( 0 )[0] );
+	assert.equal( first.model, "/assets/effects/iron-hide-shield" );
+	const peak = defined( step( .75 )[0] );
+	assert.ok( defined( peak.opacity ) > 0 );
+	assert.equal( peak.pose.x, 20 );
+	assert.ok( peak.pose.y > 0 );
+	assert.match( played[0].path, /usk_cleric_rebirth_target_a.wav$/ );
+	step( 1 );
+	step( 1.6 );
+	step( 2 );
+	assert.equal( played.length, 1 );
+	assert.equal( step( 2.1 ).length, 0 );
+	owner.x = 25;
+	owner.petBondPulse = { revision: 2, atMs: 2200, bear: 12, kind: 1 };
+	assert.equal( defined( step( 2.2 )[0] ).pose.x, 25 );
+	assert.match( played[1].path, /usk_cleric_heal_target_a.wav$/ );
+	owner.petBondPulse = { revision: 3, atMs: 2300, bear: 12, kind: 1 };
+	step( 2.3 );
+	assert.equal( played.length, 2, "rapid damage ticks do not spam the healing sound" );
+	assert.equal( effects.takeCameraScripts().length, 0 );
+	effects.dispose();
+});

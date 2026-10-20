@@ -11,7 +11,7 @@ resolved by the standard local build. Nothing is injected into a PK2 archive.
 | 27 degree icons | `scripts/build/shared/pet_item_icons.py` | Original procedural silhouettes and ornamentation; no external art |
 | Skill/equipment balance | `docs/pet-expansion/pet-design.json` | Original port-only design, JSON exporter publishes all consumers |
 | Bear standing roar | `apps/client-next/src/engine/foundation/animation/bear-roar.ts` | Original animation adjustment on licensed native bear rig; see recipe for bone operations |
-| Shield, roar aura, retaliation ripple | Client `characters/resources/resources.ts` | Original procedural geometry/textures; standard renderer |
+| Shield, roar aura, retaliation ripple and Guardian recovery | Client `characters/resources/resources.ts` | Original procedural geometry/textures; standard renderer |
 | Pet bodies/rigs, native drop glow and audio | Operator-supplied v1.150 client | Native dependencies remain outside Git; hashes below |
 
 The former AI-authored PNG sheets/atlas and XLSX have been removed from the
@@ -38,5 +38,7 @@ through the existing BSR build pipeline and licensed preparation manifest.
 | `Data.pk2/prim/snd/cos/cos_bear2_shout1.wav` | `6be49e29a16b263eaf4aa73aeb66eb07436ef77dd68d8923e2acee15a1a29f66` |
 | `Data.pk2/prim/snd/skill2/usk_warrior_guard_phyfence_a.wav` | `ccbf9f30b1c0a39b38b13fb6362ae3be9da046631ddd860440f73000dbff3d60` |
 | `Data.pk2/prim/snd/skill2/usk_warlock_blood_explosion_bomb.wav` | `b163f0a19b2d45d94abff5edaa0910d4f059546f698761e20e0f03bcc706fae0` |
+| `Data.pk2/prim/snd/skill2/usk_cleric_heal_target_a.wav` | `dde1832e90757ce3a0693b41790e2d9ee1201f523378f84715981fda07182996` |
+| `Data.pk2/prim/snd/skill2/usk_cleric_rebirth_target_a.wav` | `881b63c798a992f82ed567ad1b64e6de03931154002e3b8b6bffb13c936c239f` |
 | `Particles.pk2/system/item_drop_equip.efp` | `d1ebc82a2bd4d05f2d1dbaf733ed02c1d8aab46f83d4f68f0a6cf8a570f91d87` |
 | `Particles.pk2/system/item_drop_acc.efp` | `94a506e125dbc817e32177dac8f4276cffa232e7efbd273c4cb75b5bce52b15e` |

@@ -16,6 +16,8 @@ lifecycles that belong in separate owners (see the size ledger).
 ===========================================================================
 */
 import {
+	PET_BOND_TRANSFER_SOUND,
+	PET_BOND_REVIVE_SOUND,
 	PET_ROAR_SOUND,
 	PET_SHIELD_SOUND,
 	PET_SHIELD_BURST_SOUND
@@ -440,6 +442,7 @@ export function createCharacterEffects(
 			shook: boolean;
 		}
 	>();
+	const bondPulses = new Map<number, { revision: number; gid: number; started: number; sounded: number; }>();
 	const counterPulses = new Map<
 		number,
 		{ revision: number; gid: number; started: number; pose: CharacterActor["pose"]; }
@@ -1981,6 +1984,58 @@ export function createCharacterEffects(
 					}
 				}
 				const result: CharacterActor[] = [];
+				// Port-only: gold recovery radiance follows a stationary or moving recipient immediately.
+				for ( const entity of byGid.values() ) {
+					const cue = entity.petBondPulse;
+					if ( !cue ) continue;
+					let pulse = bondPulses.get( entity.gid );
+					if ( !pulse || pulse.revision !== cue.revision ) {
+						const sounded = pulse?.sounded ?? -Infinity;
+						pulse = { revision: cue.revision, gid: allocate(), started: now, sounded };
+						bondPulses.set( entity.gid, pulse );
+						// Damage ticks must not produce a wall of repeated healing sounds.
+						if ( cue.kind === 2 || now - sounded >= 1 ) {
+							pulse.sounded = now;
+							play( {
+								id: `pet-bond:${entity.gid}:${cue.revision}:${cue.atMs}`,
+								path: cue.kind === 2 ? PET_BOND_REVIVE_SOUND : PET_BOND_TRANSFER_SOUND,
+								gain: cue.kind === 2 ? .65 : .2,
+								x: (entity.regionId & 255) * 1920 + entity.x,
+								y: entity.y,
+								z: (entity.regionId >>> 8) * 1920 + entity.z,
+								expires: now + .25
+							} );
+						}
+					}
+					const age = now - pulse.started, u = age / (cue.kind === 2 ? 1.5 : .4);
+					const model = cue.kind === 2 ?
+						"/assets/effects/iron-hide-shield" :
+						"/assets/effects/pet-counter-ripple";
+					if ( u >= 0 && u < 1 && ready( model ) ) {
+						const pose = presentation.get( entity.gid )?.pose ?? {
+							regionId: entity.regionId,
+							x: entity.x,
+							y: entity.y,
+							z: entity.z,
+							yaw: nativeHeadingYaw( entity.heading )
+						};
+						result.push( {
+							gid: pulse.gid,
+							model,
+							clip: "effect",
+							time: age,
+							loop: false,
+							pose: { ...pose, y: pose.y + (cue.kind === 2 ? 20 * u : 0) },
+							scale: cue.kind === 2 ? 16 + 12 * u : 4 + 16 * u,
+							absoluteEffectScale: true,
+							effectEntity: true,
+							pickable: false,
+							opacity: (cue.kind === 2 ? .35 : .2) * Math.sin( Math.PI * u ),
+							materialTint: [ 1, .85, .45 ]
+						} );
+					}
+				}
+				for ( const gid of bondPulses.keys() ) if ( !byGid.has( gid ) ) bondPulses.delete( gid );
 				// Port-only: a quiet, fixed-origin 8 m ripple when the server releases retaliation III.
 				for ( const entity of byGid.values() ) {
 					if ( !entity.petCounterPulse ) continue;
@@ -3762,6 +3817,7 @@ export function createCharacterEffects(
 			roars.clear();
 			roarAppearances.clear();
 			shields.clear();
+			bondPulses.clear();
 			counterPulses.clear();
 			statuses.clear();
 			cameraEvents.length = 0;

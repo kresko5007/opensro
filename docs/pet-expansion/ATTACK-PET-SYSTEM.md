@@ -72,10 +72,33 @@ still needed.
 
 | Pet | Role | Active families | Passive families |
 | --- | --- | --- | --- |
-| Bear | High HP/defense; lower attack | Challenging Roar; Iron Hide | Thick Hide; Last Stand; Crushing Paw |
+| Bear | High HP/defense; lower attack | Challenging Roar; Iron Hide | Thick Hide; Guardian’s Bond; Crushing Paw |
 | Wolf | Physical offense | Terrifying Howl; Rending Bite | Execute; Scent of Blood; Thick Fur |
 | Penguin | Magic/control; lower HP | Frost Nova; Deep Freeze | Cold Mastery; Static Feathers; Frost Armor |
 | Three Footed Crow | Owner support | Mend; Mark Prey | Carrion Feast; Swift Wings; Murder of Crows |
+
+Bear **Guardian’s Bond** replaces Last Stand; learned book IDs and ranks are
+retained. A living summoned bear must be within 12 m. This expansion applies to
+ordinary monster combat, outside towns, jobs, PvP and instances.
+
+| Book | Ranks 1 → 10 |
+| --- | --- |
+| I | Automatically revives the owner with 10% → 100% maximum HP and 10% → 100% of the latest death’s lost EXP. Shared revival cooldown falls linearly from 600 → 300 seconds. No damage transfer. |
+| II | Adds owner damage transfer of 10% → 20%. Inherits mastered book I’s full HP/EXP recovery and 300-second revival cooldown. |
+| III | Transfer rises from 20% → 30%; also protects and revives online party members in range. Inherits book I’s revival. |
+
+Revival admits monster deaths only and targets at most ten levels above the
+bear. The owner has priority, followed by party members in stable GID order.
+One revival consumes the bear’s shared saved cooldown; resummoning or relogging
+does not reset it. EXP recovery uses the existing resurrection/refund authority
+and cannot exceed the latest recorded loss. MP and lost SP are not refunded.
+
+Transfer applies after native damage links, shields and mana redirection. One
+strongest eligible bear applies; bonds do not stack. Allies share a transfer
+limit of 20% of bear maximum HP each second, and transfer leaves at least one HP.
+Transferred costs do not charge hit counters, damage links or retribution.
+Gold recovery pulses and licensed cleric healing/rebirth sounds mark confirmed
+events without changing the bear’s pose. Balance remains subject to testing.
 
 Bear **Crushing Paw** now retaliates after every ten landed physical or spell
 impacts taken. Tier I counts hits on the bear; tier II adds a separate owner

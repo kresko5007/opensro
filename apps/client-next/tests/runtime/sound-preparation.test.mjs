@@ -397,6 +397,9 @@ for ( const enabled of [ false, true ] ) {
 		for ( let i = 0; i < 8; i++ ) owner.step( scene, [ ...entities, { refObjId: 2 } ] );
 		assert.equal( owner.error(), null );
 		assert.equal( owner.paths().includes( "/assets/audio/sfx/prim/snd/cos/cos_bear2_shout1.wav" ), enabled );
+		for ( const name of [ "usk_cleric_heal_target_a.wav", "usk_cleric_rebirth_target_a.wav" ] ) {
+			assert.equal( owner.paths().includes( `/assets/audio/sfx/prim/snd/skill2/${name}` ), enabled );
+		}
 		assert.equal(
 			owner.paths().includes( "/assets/audio/sfx/prim/snd/skill2/usk_warrior_guard_phyfence_a.wav" ),
 			enabled

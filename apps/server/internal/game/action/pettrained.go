@@ -637,7 +637,7 @@ func (rt *Runtime) petOwnerHeal(division string, owner *enterworld.Character, pe
 ================
 petTrainingDefense
 
-The pet's defense against a monster: its gear and passives, including Last Stand.
+The pet's defense against a monster: its gear and passives, without the replaced Last Stand passive.
 ================
 */
 func (rt *Runtime) petTrainingDefense(owner *enterworld.Character, pet *domain.CharacterCOS, maxHP uint32, stats combat.Stats) combat.Stats {
@@ -646,15 +646,6 @@ func (rt *Runtime) petTrainingDefense(owner *enterworld.Character, pet *domain.C
 	}
 	m := companion.ModifiersFor(pet)
 	pct := m.DefensePct
-	if s, lvl, ok := companion.Passive(pet, "Last Stand", m); ok && maxHP > 0 {
-		threshold := uint64(30)
-		if lvl >= companion.D.Rules.Rank2Level || s.Family != "" && s.Option > 1 {
-			threshold = 40
-		}
-		if uint64(pet.CurrentHP)*100 < uint64(maxHP)*threshold {
-			pct += s.ValueAt(lvl)
-		}
-	}
 	scale := 1 + pct/100
 	profile := companion.Profile(pet.Codename)
 	// The reference already includes the species profile; apply it only to new gear.
