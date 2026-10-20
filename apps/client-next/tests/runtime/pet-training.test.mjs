@@ -495,7 +495,7 @@ test("counter pushes are bounded, atomic, pet-specific and do not restart cooldo
 });
 
 test("each skill family uses its atlas cell and stack badges reuse native level digits", async () => {
-	const { petSkillIconUV, petSkillStack, petStackQuads, petRowHelp } = await import(
+	const { petSkillIcon, petSkillIconUV, petSkillStack, petStackQuads, petRowHelp } = await import(
 		"../../src/engine/foundation/ui/pet-skill-icons.ts"
 	);
 	const state = {
@@ -525,6 +525,7 @@ test("each skill family uses its atlas cell and stack badges reuse native level 
 	};
 	const cells = new Set();
 	for ( const d of PET_DESIGN.treeSkills ) {
+		assert.ok( petSkillIcon( d ).endsWith( d.option === 3 ? "/pet-skills.png" : `/pet-skills-${d.option}.png` ) );
 		const uv = petSkillIconUV( d );
 		cells.add( uv.join( "," ) );
 		assert.ok( uv[0] >= 0 && uv[1] >= 0 && uv[0] + uv[2] <= 1 && uv[1] + uv[3] <= 1 );

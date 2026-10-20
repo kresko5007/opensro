@@ -20,9 +20,12 @@ stats are unchanged.
 
 ## Source and export
 
-- Editable original text recipe: `scripts/build/shared/pet_item_icons.py`.
-  It paints each slot with degree-specific metal, gemstones and ornaments at
-  4x native resolution, then downsamples to 32x32. No binary sheet is needed.
+- Original painted source: `docs/pet-expansion/assets/pet-gear-{collar,harness,charm}.png`.
+  Each square3x3 atlas contains degrees1..9, left to right and top to bottom.
+  Native character necklaces/rings supplied the dark background, painted-metal
+  and restrained-highlight style references. The subjects are original artwork.
+- `scripts/build/shared/pet_item_icons.py` deterministically exports all27 cells
+  as32x32 RGBA PNGs. No source-art generation or network call is needed to build.
 - `scripts/build/shared/petItemIcons.mjs` publishes the27 PNGs using the existing
   public-tree writer. Full CIF builds and `pnpm assets refresh pet-loot` both call it.
 - `scripts/build/shared/portItemRows.mjs` binds every slot/degree to
@@ -44,6 +47,5 @@ images distinct32x32 RGBA PNGs with visible object detail, source row preservati
 pet drop geometry/material/glow and family registration. No inventory/character
 data is edited to install these icons. Skill testing remains postponed.
 
-The earlier AI image sheets were replaced with text recipes for repository
-policy. Artwork changes; names, bindings and stats remain unchanged. All 27
-outputs have unique hashes and valid RGBA data.
+The current source atlases replace the earlier procedural placeholders.
+Names, paths, equipment stats and bindings remain unchanged.

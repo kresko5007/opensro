@@ -3,7 +3,7 @@
 
 petItemIcons.mjs - publish owned pet gear icons and the skill-family atlas
 
-Port-only: procedural gear icons and an original painted skill-family atlas.
+Port-only: original painted gear and skill atlases exported to native UI sizes.
 Full CIF builds and the focused pet-loot family share this publication step.
 
 ===========================================================================
@@ -34,11 +34,13 @@ export async function buildPetItemIcons() {
 		await writeIntoPublicTree( path.join( publicRoot, publicPath.slice( 1 ) ), Buffer.from( icon.png, "base64" ) );
 		files.push( publicPath );
 	}
-	const atlas = "/assets/images/Media_extracted/icon/port/pet-skills.png";
-	await copyIntoPublicTree(
-		fileURLToPath( new URL( "../../../docs/pet-expansion/assets/pet-skills.png", import.meta.url ) ),
-		path.join( publicRoot, atlas.slice( 1 ) )
-	);
-	files.push( atlas );
+	for ( const name of [ "pet-skills", "pet-skills-1", "pet-skills-2" ] ) {
+		const atlas = `/assets/images/Media_extracted/icon/port/${name}.png`;
+		await copyIntoPublicTree(
+			fileURLToPath( new URL( `../../../docs/pet-expansion/assets/${name}.png`, import.meta.url ) ),
+			path.join( publicRoot, atlas.slice( 1 ) )
+		);
+		files.push( atlas );
+	}
 	return files;
 }

@@ -2,8 +2,8 @@
 ===========================================================================
 pet-skill-icons.ts - port-only owned pet art, row help and server stack badges.
 
-The unchanged source atlas has five skill families per pet. Books share their
-family symbol; native level badges and book names distinguish progression.
+Each tier atlas has five skill families per pet. Simpler first/second books
+lead into the unchanged third-book art, also used for the row information icon.
 ===========================================================================
 */
 import type { PetTraining, PetTrainingSkill } from "@/engine/contracts/gameplay";
@@ -12,6 +12,15 @@ import { PET_DESIGN } from "./pet-design-data";
 import { petRowCooldown, type PetSkillDesign } from "./pet-training";
 
 export const PET_SKILL_ATLAS = "/assets/images/Media_extracted/icon/port/pet-skills.png";
+
+/*
+================
+petSkillIcon
+================
+*/
+export function petSkillIcon( design: PetSkillDesign ): string {
+	return design.option === 3 ? PET_SKILL_ATLAS : PET_SKILL_ATLAS.replace( ".png", `-${design.option}.png` );
+}
 
 /*
 ================

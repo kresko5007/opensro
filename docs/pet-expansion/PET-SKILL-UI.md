@@ -1,12 +1,13 @@
 # Pet skill UI handoff - 2026-10-20
 
-Implemented on `feat/Attack-pet-expansion`, after ba727457. Not committed yet.
+Base UI committed as910bc004 on `feat/Attack-pet-expansion`.
+The tier artwork and equipment follow-ups are documented below.
 
-- Twenty original painted family icons match the native character skill style.
-  The three sequential books share family art; their names and bottom-right
-  rank distinguish progression. Tree, numbered slots and drag preview all use
-  the same atlas. Source, cell layout and publishing: `assets/README.md`.
-- Removed row-side captions/status. Native question icons on the left expose
+- Sixty original painted icons match the native character skill style:
+  basic I, intermediate II and unchanged III for each of20families. Tree,
+  numbered slots and drag preview select the same book variant. Source, cell
+  layout and publishing: `assets/README.md`.
+- Removed row-side captions/status. Family symbols on the left expose
   controls, unlock rules, shared recharge, restrictions and separate hit counts.
 - All twenty families use compact effect/stat lines with native gold diamond
   sections. Requirements stay at the bottom, individually red when unmet.
@@ -53,3 +54,36 @@ locked books use `skl_mastery_disable.png`, revealed unlearned books use its
 128/255 preview alpha. Locked skill descriptions remain available. Restored
 character skill cells to their original36px pitch as well: the first icon UI
 change had accidentally changed their spacing through a shared text replacement.
+
+## Tier artwork follow-up
+
+Each book now has distinct art: simple I, intermediate II, original III.
+The original `pet-skills.png` remains byte-identical; two additional20-cell
+atlases provide the simpler variants. Tree, quickslot and dragged icon select
+the same book variant. The left row-help icon uses the family symbol instead
+of a question mark; it retains the same accessible name and tooltip.
+
+Verified tier follow-up: twelve training tests and all four client source gates
+pass. Focused publisher rebuilt the UI pack with all three atlases. Original
+III Git blob remains5bd2ecc74cf05753173f7d3917bba61c1f95f2ff. Live LabPetTest/
+LabBear tree shows all three variants and all five row symbols; clicking the
+Resolve row symbol still opens its information tooltip. Client remains open.
+Preview outside Git: E:/CodeProjects/SRO/outputs/pet-design-codex/pet-skill-tier-variants.png.
+No backend or balance changes. Other pets were not live-retested.
+
+## Gear artwork and skill heading follow-up
+
+Removed the pet-level label above skill rows; skill points and the actual
+learning requirements remain. Replaced procedural pet gear placeholders with
+27 original painted inventory icons resembling native character equipment.
+Three3x3 source sheets contain distinctD1..D9 collar/harness/charm designs.
+The existing exporter/publisher keeps every item path, name, stat and drop
+binding unchanged. No backend restart, migration or balance changes needed.
+The asset test verifies27 unique32px RGBA exports; focused publication passed.
+
+Live verification: LabPetTest/LabBear worn D1 collar/harness and D9 charm,
+plus player-bag D9 collar, D5 harness and D1 charm, render the new artwork.
+The Skills header visibly shows only Skill points15. Screenshots outside Git:
+E:/CodeProjects/SRO/outputs/pet-design-codex/pet-equipment-icons-live.png and
+E:/CodeProjects/SRO/outputs/pet-design-codex/pet-skill-header-no-level.png.
+All four client source gates pass. The user approved committing and pushing these art/header changes after verification.

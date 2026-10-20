@@ -214,6 +214,7 @@ import {
 } from "@/engine/foundation/ui/pet-training";
 import {
 	PET_SKILL_ATLAS,
+	petSkillIcon,
 	petSkillIconUV,
 	petSkillStack,
 	petStackQuads,
@@ -11496,7 +11497,9 @@ export function createUi(
 						draggable: !!binding && !locked
 					} );
 					blocks.push( r );
-					const icon = petDesign ? PET_SKILL_ATLAS : iconPath( skill?.icon ?? item?.icon ?? action?.icon );
+					const icon = petDesign ?
+						petSkillIcon( petDesign ) :
+						iconPath( skill?.icon ?? item?.icon ?? action?.icon );
 					// A held press outlines the slot; a denied one shakes and tints it.
 					const feedback = skill ? skillPressFeedback( game, skill.id, r, full, quickslotTime ) : undefined;
 					if ( icon ) {
@@ -16768,7 +16771,7 @@ export function createUi(
 							// skill is slotted.
 							quads.push(
 								...text.quads(
-									`Skill points ${state?.points ?? 0}    Pet level ${petLevel}`,
+									`Skill points ${state?.points ?? 0}`,
 									[ ox + 16, oy + 12, 220, 14 ],
 									full,
 									white
@@ -16784,7 +16787,13 @@ export function createUi(
 								const gx = ox + 1, gy = oy + 30 + i * 55, action = i < 2;
 								if ( resources.has( bar ) ) rect( [ gx, gy, 328, 60 ], white, bar );
 								const info: UiRect = [ gx + 7, gy + 8, 20, 20 ];
-								image( info, ROOT + "interface/ifcommon/com_question_button_focus.png" );
+								const family = row[0]?.design;
+								if ( family ) {
+									paths.push( PET_SKILL_ATLAS );
+									if ( resources.has( PET_SKILL_ATLAS ) ) {
+										rect( info, white, PET_SKILL_ATLAS, petSkillIconUV( family ) );
+									}
+								}
 								controls.push( {
 									id: "pet-row-info:" + i,
 									label: (row[0]?.design.family ?? "Pet skills") + " information",
@@ -16801,7 +16810,7 @@ export function createUi(
 								row.forEach( ( { design, skill }, col ) => {
 									const revealed = skill.live && (skill.level > 0 || petLevel >= design.unlockLevel),
 										icon = revealed ?
-											PET_SKILL_ATLAS :
+											petSkillIcon( design ) :
 											ROOT + "interface/skill/skl_mastery_disable.png",
 										r: UiRect = [ gx + 37 + 36 * col, gy + 3, 32, 32 ],
 										alpha = !revealed ?
@@ -24500,7 +24509,9 @@ export function createUi(
 					petDesign = binding?.kind === 0x4a ?
 						petSkillDesign( binding.payload - PET_SKILL_SHORTCUT_BASE ) :
 						undefined,
-					icon = petDesign ? PET_SKILL_ATLAS : iconPath( skill?.icon ?? action?.icon ?? item?.icon );
+					icon = petDesign ?
+						petSkillIcon( petDesign ) :
+						iconPath( skill?.icon ?? action?.icon ?? item?.icon );
 				if ( icon ) {
 					paths.push( icon );
 					if ( resources.has( icon ) ) {
