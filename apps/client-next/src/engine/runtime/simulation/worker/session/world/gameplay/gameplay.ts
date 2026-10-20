@@ -342,6 +342,10 @@ const GUILD_BAN_REFUSED = 0x1f;
 const DEATH_NOTICE = 0x37ce;
 // 75B8D0: the transport bag's trade level [u8].
 const OP_TRADE_STAR_COUNT = 0x352d;
+// 6FD0AA / 6FD6CE -> 877230 sets *(pDeadreckon + 0x48) = 0x1F4 (500 ms) right
+// after sending a ground-targeted 0x72CD; 878410 ticks it down and 8782D0 /
+// 877D80 / 877540 / 8777B0 refuse to send any movement packet until it expires.
+const GROUND_SKILL_MOVE_SUPPRESS_MS = 500;
 
 /*
 ================
@@ -436,6 +440,9 @@ export function createGameplay(
 		journalBag: ReadonlyMap<number, string> = new Map(),
 		journalClock = 0;
 	let soundClock = 0;
+	// 877230: *(pDeadreckon + 0x48) deadline suppressing ground/angle movement
+	// packets for 500 ms after a ground-targeted skill press sends 0x72CD.
+	let groundSkillMoveSuppressUntil = 0;
 	const feedback = createFeedback();
 	const pickup = createPickup();
 	const actionSession = createActionSession();
@@ -817,6 +824,9 @@ fails; retry persistence without restoring stale slot occupancy.
 	// The Experimental "Homing projectiles" row: off by default so projectiles
 	// fly to their launch-captured endpoint as natively.
 	let homingProjectiles = false;
+	// The Experimental "Keep pet gold pickup when full" row: on unless turned
+	// off (experimentalGameplay); off is the native 0x0077DD61 disable.
+	let smartPetPickup = true;
 	let approach: InteractionApproachState = { phase: "idle" };
 	let returnScroll: ReturnScrollCast | undefined, teleportMode = 0;
 	const cosSelection = createCosSelection();
@@ -1060,6 +1070,7 @@ selected entities, cooldowns or world-entry state.
 		inventoryJournal = [];
 		journalRows = null;
 		journalBag = new Map();
+		groundSkillMoveSuppressUntil = 0;
 		moveReservation.clear();
 		betaMap.clear();
 		petTraining.clear();
@@ -1190,6 +1201,8 @@ The Experimental window's gameplay rows (experimentalGameplay).
 			dropPlusNotices = value.dropPlusNotices !== false;
 			plusSevenNotices = value.plusSevenNotices !== false;
 			homingProjectiles = value.homingProjectiles === true;
+			smartPetPickup = value.smartPetPickup !== false;
+			if ( !smartPetPickup ) cosPickup.spaceChanged();
 		},
 		/*
 ================
@@ -1650,6 +1663,10 @@ state here before a command can claim a native wire conversation.
 			if (
 				combat.guidedActive( localGid, now ) &&
 				[ "move", "ground-move", "attack", "skill", "pickup" ].includes( command.kind )
+			) return null;
+			if (
+				now < groundSkillMoveSuppressUntil &&
+				(command.kind === "move" || command.kind === "ground-move")
 			) return null;
 			if (
 				teleportMode === 1 && [ "move", "ground-move", "attack", "skill", "pickup" ].includes( command.kind )
@@ -2557,6 +2574,7 @@ state here before a command can claim a native wire conversation.
 				if ( inventory.state().shop?.npc !== targeting.state().target ) {
 					throw Error( "Merchant selection changed" );
 				}
+				if ( !((targeting.state().targetCapabilities ?? 0) & 8) ) return null;
 				if ( command.mode === REPAIR_ONE_SLOT ) {
 					// 567290 judges the clicked item before anything is sent.
 					const slot = command.slot,
@@ -2715,6 +2733,9 @@ state here before a command can claim a native wire conversation.
 					const to = movement.groundSkillGoal( command.query, now );
 					if ( !to ) return null;
 					const frame = positionSkillRequest( skillId, to );
+					// 6FD0AA / 6FD6CE -> 877230 sets *(pDeadreckon + 0x48) = 500 ms so
+					// 8782D0 / 877D80 send no ground or angle move during the RTT or dash.
+					groundSkillMoveSuppressUntil = now + GROUND_SKILL_MOVE_SUPPRESS_MS;
 					// 6FD536 -> 8786E0 -> 878100 sends the ground skill request
 					// without stopping the current walk. Travel begins on B245;
 					// the ordinary cast's press hold would freeze this entire RTT.
@@ -2892,6 +2913,7 @@ references
 			}
 		},
 		surface: movement.surface,
+		entityBlock: movement.entityBlock,
 		clipMovement: movement.clipMovement,
 		/*
 ================
@@ -3670,6 +3692,7 @@ Packet handling must not depend on which HUD panel is currently open.
 					if ( record ) {
 						const next = applyCosBehavior( record, result );
 						cosRecords.set( result.gid, next );
+						cosPickup.spaceChanged( result.gid );
 						cosError = null;
 						dirty = true;
 					}
@@ -3692,7 +3715,7 @@ Packet handling must not depend on which HUD panel is currently open.
 						gid: v.getUint32( at, true ),
 						itemGid: p[1] === 8 ? v.getUint32( at + 4, true ) : undefined
 					};
-					if ( cosPickup.result( cosResult, now ) ) {
+					if ( cosPickup.result( cosResult, now, smartPetPickup ) ) {
 						const record = cosRecords.get( cosResult.gid );
 						if ( record && !record.dead && record.hp && record.commandMode !== undefined ) {
 							sendWhenLive( cosBehaviorRequest( record, record.commandMode & ~0x80 ), true );
@@ -3763,6 +3786,7 @@ Packet handling must not depend on which HUD panel is currently open.
 					if ( cosRecords.has( gid ) ) {
 						cosSelection.remove( gid, cosRecords );
 						cosRecords.delete( gid );
+						cosPickup.spaceChanged( gid );
 						if ( !readEntity( gid ) ) combat.remove( gid );
 						if ( activeCos?.gid === gid ) {
 							activeCos = undefined;
@@ -3798,6 +3822,7 @@ Packet handling must not depend on which HUD panel is currently open.
 					if ( !record ) throw Error( "Absent COS transfer owner" );
 					const next = inventory.cosTransferred( record, frame.payload, cosItemCaps );
 					cosRecords.set( gid, next );
+					cosPickup.spaceChanged();
 					dirty = true;
 					return true;
 				}
@@ -3814,6 +3839,7 @@ Packet handling must not depend on which HUD panel is currently open.
 					if ( frame.payload[1] !== 0x11 || !cosPickup.receipt( gid ) ) {
 						inventory.cosGrounded( frame.payload );
 					}
+					if ( frame.payload[1] === 0x12 ) cosPickup.spaceChanged( gid );
 					// 74EF50 resolves a pet pickup (0x11) to the pet bag (0x7A) and
 					// 756CF0's pet branch prints the bag's item line for a ground
 					// source (7571C0 / 757145 / 757007); it has no gold line.
@@ -3838,6 +3864,7 @@ Packet handling must not depend on which HUD panel is currently open.
 					const next = cosContainerResult( record, frame.payload, cosItemCaps );
 					inventory.cosMoved( frame.payload );
 					cosRecords.set( gid, next );
+					cosPickup.spaceChanged( gid );
 					dirty = true;
 					return true;
 				}
@@ -3864,6 +3891,7 @@ Packet handling must not depend on which HUD panel is currently open.
 					const next = soldInventory( cos.inventory, sale.slot, sale.quantity );
 					inventory.cosSold( cos.gid, sale.slot, sale.quantity, sale.context );
 					cosRecords.set( cos.gid, { ...cos, inventory: next } );
+					cosPickup.spaceChanged( cos.gid );
 					dirty = true;
 					return true;
 				}
@@ -3918,6 +3946,7 @@ Packet handling must not depend on which HUD panel is currently open.
 					const next = inventory.storageSettle( room, frame.payload, cosItemCaps );
 					if ( next ) {
 						storage.apply( next );
+						cosPickup.spaceChanged();
 						dirty = true;
 						return true;
 					}
@@ -3942,6 +3971,7 @@ Packet handling must not depend on which HUD panel is currently open.
 					} ),
 					target = targeting.receive( frame.opcode, frame.payload ),
 					fight = combat.receive( frame.opcode, frame.payload, now );
+				if ( item ) cosPickup.spaceChanged();
 				if ( fight && frame.opcode === 0xb245 ) {
 					// 776830: the local player's own cast of a skill that assists,
 					// at a target in the world, sends its attack pets in.
@@ -3983,7 +4013,10 @@ Packet handling must not depend on which HUD panel is currently open.
 
 				// B245 [2, code]: the server refused the targeted command at the
 				// press, before touching movement (an empty MP pool is 0x3004).
-				if ( frame.opcode === 0xb245 && frame.payload[0] === 2 ) movement.castRefused( now );
+				if ( frame.opcode === 0xb245 && frame.payload[0] === 2 ) {
+					groundSkillMoveSuppressUntil = 0;
+					movement.castRefused( now );
+				}
 				if ( item && cast ) returnScroll = cast;
 				if ( returnScroll?.skillId && (fight || item && cast) ) {
 					const effect = combat.state().attachedEffects.find( row =>
@@ -4207,7 +4240,8 @@ before take assembles the presentation snapshot.
 					local,
 					records: cosRecords.values(),
 					sharedOwners,
-					read: readEntity
+					read: readEntity,
+					smartPetPickup
 				} )
 			) {
 				sendFrame( frame );
@@ -4343,6 +4377,7 @@ die
 		die( gid: number, now: number ) {
 			combat.cancelGuided( gid, now );
 			if ( gid === localGid ) {
+				groundSkillMoveSuppressUntil = 0;
 				movement.life( 2, now );
 				potionFacts = { ...potionFacts, alive: false };
 				selectionDecal = null;
@@ -4535,6 +4570,7 @@ World transfer retires spatial work while retaining character/session data.
 			actionSession.clear();
 			pickup.clear();
 			cosPickup.clear();
+			groundSkillMoveSuppressUntil = 0;
 			moveReservation.clear();
 			quests.clearGathering();
 			approach = interactionApproachTransition( approach, { kind: "cancel" } );

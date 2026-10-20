@@ -225,7 +225,10 @@ type Runtime struct {
 
 	// GachaCatalog is the strict v1.150 gachaitemset/gachanpcmap authority.
 	// The composition root installs it before Register admits 0x7338/0x7053.
-	GachaCatalog  *gacha.Catalog
+	GachaCatalog *gacha.Catalog
+	// GachaPoolV2 says the catalog carries the port-only prize pool
+	// (EnvGachaPoolV2); rolls are logged so the pool's supply is visible.
+	GachaPoolV2   bool
 	Alchemy       *alchemy.Catalog
 	AlchemyRoll   alchemy.Roll
 	compoundMu    sync.Mutex
@@ -331,6 +334,10 @@ type Runtime struct {
 	// The zero value is off.
 	SealRates progression.SealRates
 
+	// SunRate widens the degree-9 Sun class of the rare table (port-only,
+	// not native, beta balance; owner 2026-10-20). The zero value is off.
+	SunRate progression.SunRate
+
 	// ElixirDrops keeps every elixir out of monster drops (port-only, not
 	// native, beta balance; owner 2026-10-13). The zero value is native.
 	ElixirDrops progression.ElixirDrops
@@ -391,6 +398,8 @@ type Runtime struct {
 	// SunEventOnly keeps degree-9 Seal of Sun gear out of drops and NPC
 	// shops (port-only, not native; action/sunevent.go).
 	SunEventOnly progression.SunEventOnly
+	// UniqueRules: the unique reward switches (progression/uniquerules.go; port-only, not native). Zero is native.
+	UniqueRules progression.UniqueRules
 
 	// PetExpPace is the closed-beta growth multiplier for an attack pet's
 	// EXP gain, read at the owner's level (progression GrowthRates.ExpPace,
@@ -813,73 +822,6 @@ func failureResult(errorCode uint8) OpResult {
 			},
 		},
 	}
-}
-
-/*
-==================
-characterSnapshot
-
-characterSnapshot copies mutable character state while the authority read
-door is held. Identity fields (ID and Name) never change after creation,
-but inventory, progression, deletion state, and world state must never be
-read through the live pointer outside a door.
-==================
-*/
-func (rt *Runtime) characterSnapshot(
-	divisionID string,
-	character *enterworld.Character,
-) *enterworld.Character {
-	if character == nil {
-		return nil
-	}
-
-	var snapshot *enterworld.Character
-
-	rt.deps.Read(divisionID, func() {
-		snapshot = character.Snapshot()
-	})
-
-	return snapshot
-}
-
-/*
-==================
-writeBackWorld
-
-writeBackWorld persists the accepted ground pose onto the character record.
-Authored displacement state keeps its existing destination semantics; the
-ordinary ground mover never persists a destination it has not reached.
-
-The write-back owns ONLY spawn/movementMode/spawnSet; every other world
-field (dungeonMinimap, movementSourceSeeded, updatedAt, moveSegment echo,
-and any future record keys) copies through untouched, like the Node
-handlers' {...world} spread (item-lane mirror of SCOUT-B FINDING 500).
-Copy-then-swap so aliases of the old record (the character snapshot's
-shallow copy) stay unchanged.
-==================
-*/
-func writeBackWorld(character *enterworld.Character, state simulation.WorldState) {
-	spawn := state.PersistedSpawn()
-	regionID := int64(spawn.RegionID)
-	x, y, z := spawn.X, spawn.Y, spawn.Z
-	angle := int64(spawn.Angle)
-	mode := int64(state.MovementMode)
-	next := enterworld.CharacterWorld{}
-	if character.World != nil {
-		next = *character.World
-	}
-
-	next.Spawn = &enterworld.WorldSpawn{
-		RegionID: &regionID,
-		X:        &x,
-		Y:        &y,
-		Z:        &z,
-		Angle:    &angle,
-	}
-
-	next.MovementMode = &mode
-	next.SpawnSet = state.SpawnSet
-	character.World = &next
 }
 
 // ---- 0x72CD pickup ----

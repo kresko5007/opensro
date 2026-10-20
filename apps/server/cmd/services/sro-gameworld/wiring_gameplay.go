@@ -96,13 +96,7 @@ func newGameplayPlane(
 	authoredAreas *worldarea.Catalog,
 	textdata *enterworld.TextdataCatalogs,
 ) (*gameplayPlane, error) {
-	deps, err := newBootstrapDependencies(
-		authorityStore,
-		devPaths,
-		characterRoster,
-		ownedShard,
-		textdata,
-	)
+	deps, err := newBootstrapDependencies(authorityStore, devPaths, characterRoster, ownedShard, textdata)
 	if err != nil {
 		return nil, err
 	}
@@ -197,6 +191,14 @@ func newGameplayPlane(
 	items.SunEventOnly = progression.SunEventOnlyFromEnv()
 	if items.SunEventOnly.Enabled() {
 		log.Infof("loot: degree-9 Seal of Sun gear neither drops nor is sold (%s)", progression.EnvSunEventOnly)
+	}
+	// SRO_UNIQUE_GAP_EXEMPT / SRO_UNIQUE_POP_TICKET (port-only, not native):
+	// uniques ignore the level-gap admission; one Magic Pop ticket per kill.
+	items.UniqueRules = progression.UniqueRulesFromEnv()
+	if items.UniqueRules.GapExempt || items.UniqueRules.PopTicket {
+		log.Infof("loot: unique rewards (port-only): gap exemption %t, pop ticket %t (%s, %s)",
+			items.UniqueRules.GapExempt, items.UniqueRules.PopTicket,
+			progression.EnvUniqueGapExempt, progression.EnvUniquePopTicket)
 	}
 	// SRO_TRADE_TIERS (port-only, not native) prices the shops' trade goods
 	// as ConfigureCommerce loads them, so it is set first.
@@ -327,10 +329,7 @@ func newGameplayPlane(
 	unions.GuildWars = warAuthority
 
 	communitySeeds := community.SeedFramesFunc(presence, deps.Letters)
-	deps.CommunitySeedFramesFor = func(
-		divisionID string,
-		character *enterworld.Character,
-	) []enterworld.Packet {
+	deps.CommunitySeedFramesFor = func(divisionID string, character *enterworld.Character) []enterworld.Packet {
 		frames := communitySeeds(divisionID, character)
 		frames = guild.AppendSeedFrame(frames, deps.Guilds, presence, divisionID, character)
 		if frame, ok := unions.SeedFrame(divisionID, character); ok {
@@ -708,16 +707,22 @@ func (game *gameplayPlane) register(hub *transport.Hub, loadQuests questDefiniti
 	if game.items.SealRates.Enabled() {
 		log.Infof("progression: beta seal rates ON (%s): degrees 1-8 Star/Moon/Sun x3, degree 9 Star x3 Moon x2 Sun x1, on top of rare (SoX) x%d", progression.EnvBetaSealRates, max(game.items.RareRate, 1))
 	}
+	// Port-only, not native, beta balance (owner 2026-10-20): the degree-9
+	// Sun class of the rare table widens by the rate. The event rule still
+	// wins over it - Sun then drops nothing, which must not be silent.
+	game.items.SunRate = progression.SunRateFromEnv()
+	if game.items.SunRate.Active() {
+		log.Infof("loot: degree-9 Seal of Sun drops at class mass x%d on levels 76-90 (%s=%d)", game.items.SunRate.MassMultiplier(), progression.EnvSunDropRate, game.items.SunRate.Rate())
+		if game.items.SunEventOnly.Enabled() {
+			log.Warnf("loot: %s is on while %s=%d: the event rule excludes every degree-9 Sun drop, so the rate widens a class that drops nothing; turn one of them off", progression.EnvSunEventOnly, progression.EnvSunDropRate, game.items.SunRate.Rate())
+		}
+	}
 	stats.Withdrawal = game.items.WithdrawalHooks()
 	stats.BaseStats = game.deps.PlayerBaseStats
 	stats.RecoverLevelVitals = func(character *enterworld.Character) error {
 		return game.items.RecoverLevelVitals(game.divisionID, character)
 	}
-	quests, err := quest.NewRuntime(
-		game.deps,
-		definitions,
-		stats.ExperienceUpdater(),
-	)
+	quests, err := quest.NewRuntime(game.deps, definitions, stats.ExperienceUpdater())
 	if err != nil {
 		return fmt.Errorf("quest runtime: %w", err)
 	}
@@ -929,68 +934,4 @@ func (game *gameplayPlane) register(hub *transport.Hub, loadQuests questDefiniti
 	game.items.SpendHonorPoints = game.mentorInvites.SpendHonorPoints
 	game.mentorInvites.Register(hub)
 	return nil
-}
-
-/*
-================
-captureCharacterFrames
-
-The sessions bound to one character name (captureSessionFrames).
-================
-*/
-func captureCharacterFrames(hub *transport.Hub, division, name string) func([]wire.Frame) {
-	return captureSessionFrames(hub.CharacterSessions(division, name))
-}
-
-/*
-================
-captureObjectFrames
-
-The sessions bound to one player object id (captureSessionFrames).
-================
-*/
-func captureObjectFrames(hub *transport.Hub, division string, gid uint32) func([]wire.Frame) {
-	var sessions []*transport.Session
-	for _, session := range hub.SessionsInDivision(division) {
-		if bound, ok := session.CharacterObjectID(); ok && bound == gid {
-			sessions = append(sessions, session)
-		}
-	}
-	return captureSessionFrames(sessions)
-}
-
-/*
-================
-captureSessionFrames
-
-Capture is read-only under the action division lock. The returned delivery
-runs outside that lock so queue failure can synchronously retire gameplay.
-================
-*/
-func captureSessionFrames(sessions []*transport.Session) func([]wire.Frame) {
-	type recipient struct {
-		session  *transport.Session
-		revision uint64
-	}
-	var recipients []recipient
-	for _, session := range sessions {
-		revision, valid := session.SceneReceiptRevision()
-		if valid {
-			recipients = append(recipients, recipient{session: session, revision: revision})
-		}
-	}
-	if len(recipients) == 0 {
-		return nil
-	}
-	return func(frames []wire.Frame) {
-		batch := make([]transport.Frame, len(frames))
-		for i, frame := range frames {
-			batch[i] = transport.Frame{Opcode: frame.Opcode, Payload: frame.Payload, Current: frame.Current, Scope: transport.ScopeChanges(frame.Scope)}
-		}
-		for _, recipient := range recipients {
-			if err := recipient.session.SendSceneReceiptBatch(recipient.revision, batch); err != nil {
-				log.WithError(err).WithField("session", recipient.session.ID).Debug("action: captured private receipt refused")
-			}
-		}
-	}
 }

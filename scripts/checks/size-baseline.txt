@@ -23,3 +23,5 @@ apps/client-next/tests/runtime/ui-behavior.test.mjs # test file covering every w
 apps/client-next/tests/runtime/world-renderer.test.mjs # test file; split by feature
 apps/client-next/tests/runtime/world.test.mjs # test file; split by feature
 scripts/build/shared/cifRuntimeImageCatalog.mjs # not yet analysed; split on its responsibility boundaries when formatted
+
+apps/client-next/src/engine/runtime/renderer/renderer.ts # GPU lifetime and ordered frame closure share one cohesive owner; splitting requires new mutable state plumbing.

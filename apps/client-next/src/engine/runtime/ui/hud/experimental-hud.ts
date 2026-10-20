@@ -141,6 +141,12 @@ export const EXPERIMENTAL_TABS: readonly {
 				id: "experimental-enchant-sparks",
 				label: "Enchant sparks",
 				description: "Sparks on +8 and higher weapons and shields."
+			},
+			{
+				key: "dungeonCharacterPvs",
+				id: "experimental-dungeon-character-pvs",
+				label: "Dungeon character PVS",
+				description: "Hide characters in unseen dungeon rooms."
 			}
 		]
 	},
@@ -167,6 +173,11 @@ export const EXPERIMENTAL_TABS: readonly {
 			id: "experimental-v-hides-companions",
 			label: "V hides pets and transports",
 			description: "Holding V also hides other players' pets and transports."
+		}, {
+			key: "smartPetPickup",
+			id: "experimental-smart-pet-pickup",
+			label: "Keep pet gold pickup when full",
+			description: "Keep picking up gold when a full bag refuses an item."
 		} ]
 	},
 	{
@@ -241,7 +252,7 @@ export const EXPERIMENTAL_TABS: readonly {
 			key: "petClickOpensWindow",
 			id: "experimental-pet-click-opens-window",
 			label: "Pet panel opens window",
-			description: "Click the attack pet panel to open its window."
+			description: "Click a pet panel to open its window."
 		} ]
 	}
 ];

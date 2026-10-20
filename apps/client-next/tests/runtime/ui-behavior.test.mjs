@@ -4014,20 +4014,42 @@ test("NPC portal destination menu uses native talk controls and sends the select
 	}
 });
 
-test("the pet portrait selects and targets on right release only, as CIFCOSStatus does", () => {
+test("the pet portrait opens CIFCos on left click by default and selects/targets on right release when petClickOpensWindow is off, as CIFCOSStatus does", () => {
 	const sent = [], f = uiFixture( c => sent.push( c.command ) );
 	try {
 		f.state.gameplay.cosRecords = [ { gid: 7, refObjId: 100, band: 4, hp: 100, mp: 0, status: 0, dead: false } ];
 		f.ui.step( f.state, 0 );
-		// CIFCOSStatus maps no left-click message: the portrait's 0x27 has no
-		// handler (6A9BC0 map), so a left click does nothing.
+		// BUG-086 defaults petClickOpensWindow on: left-clicking a companion's
+		// status portrait (CIFCOSStatus) selects it and toggles CIFCos.
 		f.ui.event( { kind: "activate", id: "cos-status:7" } );
-		f.ui.step( f.state, 1 );
+		const opened = f.ui.step( f.state, 1 );
+		assert.deepEqual( sent, [ { kind: "cos-select", gid: 7 } ] );
+		assert.equal( opened?.controls.some( c => c.id === "cos-tab:0" ), true );
+
+		sent.length = 0;
+		f.ui.event( { kind: "activate", id: "cos-status:7" } );
+		const closed = f.ui.step( f.state, 2 );
+		assert.deepEqual( sent, [ { kind: "cos-select", gid: 7 } ] );
+		assert.equal( closed?.controls.some( c => c.id === "cos-tab:0" ), false );
+
+		// With the deviation explicitly off, CIFCOSStatus maps no left-click
+		// message: the portrait's 0x27 has no handler (6A9BC0 map), so a left
+		// click does nothing.
+		sent.length = 0;
+		f.ui.event(
+			/** @type {any} */ ({
+				kind: "experimental-preferences",
+				value: { petClickOpensWindow: false }
+			})
+		);
+		f.ui.event( { kind: "activate", id: "cos-status:7" } );
+		const nativeClick = f.ui.step( f.state, 3 );
 		assert.deepEqual( sent, [] );
+		assert.equal( Boolean( nativeClick?.controls.some( c => c.id === "cos-tab:0" ) ), false );
 		// 6A9E40, the right-button release (vtable +0x80), selects the
 		// companion (6F21F0) and makes it the target (6813E0).
 		f.ui.event( { kind: "right-activate", id: "cos-status:7" } );
-		f.ui.step( f.state, 2 );
+		f.ui.step( f.state, 4 );
 		assert.deepEqual( sent, [ { kind: "cos-select", gid: 7 }, { kind: "select", gid: 7 } ] );
 	} finally {
 		f.dispose();
@@ -5907,6 +5929,45 @@ test("right-clicking a rental clock arms the yellow cursor and confirms the clic
 			command: { kind: "item-use", slot: 13, summonerSlot: 14 }
 		} );
 		assert.equal( sent.length, 2 );
+	} finally {
+		f.dispose();
+	}
+});
+
+test("store window shows Repair and Repair All buttons only when targetCapabilities & 8 is set (5B4750)", () => {
+	const f = uiFixture();
+	try {
+		const game = {
+			...f.state.gameplay,
+			target: 17,
+			targetCapabilities: 3,
+			shop: { npc: 17, name: "Manina", offers: [], buyback: [] },
+			shopCompletionRevision: 1
+		};
+		f.state.gameplay = game;
+		let now = 0, scene;
+		f.ui.step( f.state, now );
+		f.ui.event( { kind: "activate", id: "open-window:Shop" } );
+		for ( let i = 0; i < 15; i++ ) scene = f.ui.step( f.state, now += 100 ) ?? scene;
+		assert.ok( defined( scene ).controls.some( c => c.id === "shop-prev" ) );
+		assert.equal(
+			defined( scene ).controls.some( c => c.id.startsWith( "shop-repair:" ) ),
+			false,
+			"non-repair merchants (talkFlags = 3) hide GDR_STORE_BTN_REPAIR and GDR_STORE_BTN_REPAIRALL"
+		);
+
+		game.targetCapabilities = 9;
+		for ( let i = 0; i < 5; i++ ) scene = f.ui.step( f.state, now += 100 ) ?? scene;
+		assert.deepEqual(
+			defined( scene ).controls.filter( c => c.id.startsWith( "shop-repair:" ) ).map( c => c.id ),
+			[ "shop-repair:GDR_STORE_BTN_REPAIR", "shop-repair:GDR_STORE_BTN_REPAIRALL" ]
+		);
+		f.ui.event( { kind: "activate", id: "shop-repair:GDR_STORE_BTN_REPAIR" } );
+		assert.equal( f.ui.cursor(), 0x96 );
+
+		game.targetCapabilities = 3;
+		scene = f.ui.step( f.state, now += 100 ) ?? scene;
+		assert.equal( f.ui.cursor(), null, "switching to a non-repair store disarms the repair cursor" );
 	} finally {
 		f.dispose();
 	}

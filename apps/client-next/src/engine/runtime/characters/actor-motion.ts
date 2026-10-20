@@ -244,29 +244,43 @@ export function createActorMotion( owner: ActorOwner ) {
 			const displaced =
 				(localMover( entity.gid ) ? gameplay!.movementPath : entity.movementPath)?.displacement ===
 					true;
+			const waiting = !dead && waitingActors.has( entity.gid );
+			const activeCast = !!cast && cast.cancelledAtMs === undefined &&
+				(actionLayersByActor.get( entity.gid )?.length ?? 0) > 0;
 			// 8DD550 drives skill travel through 8797C0 and 86D5C0 even
 			// after state 9 exits. Its position owner is not the walk hold.
-			if (
-				state.navigationHold &&
-				(state.navigationHold.revision !== movementRevision || displaced || dead || entity.mountedOn)
-			) {
-				// Native stops the walk at WAIT and has one pose; the port's logical
-				// walk may have moved on under the hold. A new walk releases it from
-				// the held pose at walking speed (posePresentation.carry): jumping
-				// there in one frame read as the camera height snapping on a slope.
-				// Skill travel, death and a ride own the position themselves.
-				if ( !displaced && !dead && !entity.mountedOn ) {
-					posePresentation.carry( entity.gid, state.navigationHold.pose );
-					renderPose = posePresentation.pose(
-						entity.gid,
-						state.castFacing ?
-							{ ...nativePose, angle: Math.round( state.castFacing.angle ) % 65536 } :
-							nativePose,
-						seconds,
-						false
-					);
+			if ( state.navigationHold ) {
+				const hold = state.navigationHold.logical;
+				const samePoint = hold.regionId === nativePose.regionId && hold.x === nativePose.x &&
+					hold.y === nativePose.y && hold.z === nativePose.z;
+				if ( displaced || dead || entity.mountedOn ) {
+					state.navigationHold = undefined;
+				} else if ( state.navigationHold.revision !== movementRevision ) {
+					// A stationary heading correction (0xB2F5 before the next cast in
+					// a chain) bumps movementRevision without moving the settled
+					// server position. Rebind the hold so the body does not decay to
+					// the server pose and leave ground cast VFX behind at the hold.
+					if ( !requestedMoving && (waiting || activeCast || samePoint) ) {
+						state.navigationHold.revision = movementRevision;
+						state.navigationHold.logical = { ...nativePose };
+					} else {
+						// Native stops the walk at WAIT and has one pose; the port's logical
+						// walk may have moved on under the hold. A new walk releases it from
+						// the held pose at walking speed (posePresentation.carry): jumping
+						// there in one frame read as the camera height snapping on a slope.
+						// Skill travel, death and a ride own the position themselves.
+						posePresentation.carry( entity.gid, state.navigationHold.pose );
+						renderPose = posePresentation.pose(
+							entity.gid,
+							state.castFacing ?
+								{ ...nativePose, angle: Math.round( state.castFacing.angle ) % 65536 } :
+								nativePose,
+							seconds,
+							false
+						);
+						state.navigationHold = undefined;
+					}
 				}
-				state.navigationHold = undefined;
 			}
 			if ( state.navigationHold ) {
 				// The hold freezes XYZ; the yaw keeps tracking the cast
@@ -275,7 +289,6 @@ export function createActorMotion( owner: ActorOwner ) {
 				moving = false;
 			}
 			const activePosture = presentationState.idleStates.get( entity.gid )?.posture;
-			const waiting = !dead && waitingActors.has( entity.gid );
 			const derivedMask = dead ?
 				2 :
 				stall ?
@@ -349,8 +362,6 @@ export function createActorMotion( owner: ActorOwner ) {
 			// record alone is not enough: gameplay.casts retains completed
 			// (phase 3, projectile still flying) and cancelled casts, and
 			// latching a hold for those would freeze an ordinary walk stop.
-			const activeCast = !!cast && cast.cancelledAtMs === undefined &&
-				(actionLayersByActor.get( entity.gid )?.length ?? 0) > 0;
 			if (
 				(requestedMoving || waiting || activeCast) &&
 				refresh.effects.some( e => e.kind === "leave" && e.state === 9 ) &&
@@ -359,6 +370,7 @@ export function createActorMotion( owner: ActorOwner ) {
 				state.navigationHold = displaced ? undefined : {
 					revision: movementRevision,
 					pose: requestedMoving ? renderPose : state.lastDrawnPose ?? renderPose,
+					logical: { ...nativePose },
 					mode: entity.movementMode
 				};
 				if ( state.navigationHold ) {
@@ -366,11 +378,14 @@ export function createActorMotion( owner: ActorOwner ) {
 				}
 				moving = false;
 			}
-			// 8EADF0 tries the selected item override before the ordinary
-			// body track, only when unmounted. Without one the character plays
-			// its weapon's animation set (CCObjCharacter_ResolveWeaponAnimationPrefix
-			// 8E83F0 stores it at +0x114): a spear runs two-handed. A set that
-			// lacks the state keeps the default selection, as native falls back.
+			// 8EADF0 tries the selected item override (+0x118, 8E7210 direct
+			// without DEFAULT fallback) before the weapon animation set
+			// (CCObjCharacter_ResolveWeaponAnimationPrefix 8E83F0 stores it at
+			// +0x114; 8E7150 tries the weapon set then DEFAULT), per state and
+			// only when unmounted. A partial override set such as avatar_wing
+			// (which defines only state 7 run) therefore plays its run clip while
+			// stand (0), walk (1), combat stance (6) and stall (80, 8EA820) fall
+			// through to the weapon set before DEFAULT.
 			const motionDisguise = referenceAppearances.get( entity.gid ),
 				weapon = wornEquipment( entity, gameplay ).find( item => item.slot === 6 ),
 				weaponSet = motionDisguise ?
@@ -378,14 +393,20 @@ export function createActorMotion( owner: ActorOwner ) {
 					weapon ?
 					weaponAnimationSet( weapon.typeFlags ) :
 					undefined,
-				motionSet = override?.animation || weaponSet?.replaceAll( "-", "_" );
+				overrideSet = override?.animation,
+				weaponMotionSet = weaponSet?.replaceAll( "-", "_" ),
+				motionSet = overrideSet || weaponMotionSet,
+				motionSetKey = overrideSet && weaponMotionSet ?
+					`${overrideSet}:${weaponMotionSet}` :
+					motionSet || "default";
 			let combatIdle: ReturnType<typeof skillMotionResolveAnimation>;
 			if ( (presentationState.combatStanceEnds.get( entity.gid ) ?? -Infinity) > seconds ) {
 				const metadata = published.animationStates.get( resource.codename ),
-					stanceSet = !entity.mountedOn && motionSet || "default";
+					stanceSet = !entity.mountedOn && motionSet || "default",
+					stanceKey = !entity.mountedOn ? motionSetKey : "default";
 				if (
 					state.combatIdle?.body !== resource || state.combatIdle.metadata !== metadata ||
-					state.combatIdle.set !== stanceSet
+					state.combatIdle.set !== stanceKey
 				) {
 					// CICharactor_UpdateCombatStanceAnimation (8E5ADE) plays state 6
 					// through the model's slot +0C. On a character model that is
@@ -396,9 +417,10 @@ export function createActorMotion( owner: ActorOwner ) {
 					state.combatIdle = {
 						body: resource,
 						metadata,
-						set: stanceSet,
+						set: stanceKey,
 						motion: skillMotionResolveAnimation( {
 							role: `native:${stanceSet}:6`,
+							fallbackSet: !entity.mountedOn && overrideSet ? weaponMotionSet : undefined,
 							clips: resource.clips,
 							bodyStates: resource.animationStates,
 							catalogStates: metadata,
@@ -413,19 +435,21 @@ export function createActorMotion( owner: ActorOwner ) {
 				) combatIdle = motion;
 			}
 			// 8E6B50 installs motion 80 with a 200 ms blend and full actor height.
-			// The character virtual dispatch retains its weapon/override lookup.
+			// The character virtual dispatch (8EA820) retains its 3-tier
+			// override -> weapon -> DEFAULT lookup.
 			if ( stall ) {
 				const metadata = published.animationStates.get( resource.codename ), set = motionSet || "default";
 				if (
 					state.stallMotion?.body !== resource || state.stallMotion.metadata !== metadata ||
-					state.stallMotion.set !== set
+					state.stallMotion.set !== motionSetKey
 				) {
 					state.stallMotion = {
 						body: resource,
 						metadata,
-						set,
+						set: motionSetKey,
 						motion: skillMotionResolveAnimation( {
 							role: `native:${set}:${STALL_MOTION}`,
+							fallbackSet: overrideSet ? weaponMotionSet : undefined,
 							clips: resource.clips,
 							bodyStates: resource.animationStates,
 							catalogStates: metadata,
@@ -456,17 +480,25 @@ export function createActorMotion( owner: ActorOwner ) {
 				"stand" :
 				resource.clips[0] ?? "";
 			if (
-				motionSet && !entity.mountedOn && !dead && !sitting && !stall &&
+				!dead && !sitting && !stall && !entity.mountedOn &&
 				(baseRole === "run" || baseRole === "walk" || baseRole === "stand")
 			) {
-				const role = `native:${motionSet}:${baseRole === "run" ? 7 : baseRole === "walk" ? 1 : 0}`;
-				const definition = published.animationStates.get( resource.codename )?.[role] ??
-						resource.animationStates?.[role],
-					url = published.nativeMotionUrls.get( resource.codename )?.get( role );
-				if (
-					definition &&
-					(resource.clips.includes( role ) || url && resources.animation( resource.glb, role, url ))
-				) clip = role;
+				const stateId = baseRole === "run" ? 7 : baseRole === "walk" ? 1 : 0;
+				for ( const set of [ overrideSet, weaponMotionSet ] ) {
+					if ( !set ) continue;
+					const candidate = `native:${set}:${stateId}`,
+						definition = published.animationStates.get( resource.codename )?.[candidate] ??
+							resource.animationStates?.[candidate],
+						url = published.nativeMotionUrls.get( resource.codename )?.get( candidate );
+					if (
+						definition &&
+						(resource.clips.includes( candidate ) ||
+							url && resources.animation( resource.glb, candidate, url ))
+					) {
+						clip = candidate;
+						break;
+					}
+				}
 			}
 			if ( state.clip !== clip ) {
 				state.clip = clip;
@@ -558,20 +590,25 @@ export function createActorMotion( owner: ActorOwner ) {
 								"stand";
 							const definition = committed ? override : previousDefinition;
 							if (
-								definition && !entity.mountedOn &&
-								(role === "stand" || role === "run" || role === "walk")
+								!entity.mountedOn &&
+								(role === "run" || role === "walk" || role === "stand")
 							) {
-								const candidate = `native:${definition.animation}:${
-									role === "run" ? 7 : role === "walk" ? 1 : 0
-								}`;
-								const metadata = published.animationStates.get( resource.codename )?.[candidate] ??
-										resource.animationStates?.[candidate],
-									url = published.nativeMotionUrls.get( resource.codename )?.get( candidate );
-								if (
-									metadata &&
-									(resource.clips.includes( candidate ) ||
-										url && resources.animation( resource.glb, candidate, url ))
-								) selected = candidate;
+								const stateId = role === "run" ? 7 : role === "walk" ? 1 : 0;
+								for ( const set of [ definition?.animation, weaponMotionSet ] ) {
+									if ( !set ) continue;
+									const candidate = `native:${set}:${stateId}`,
+										stateDef = published.animationStates.get( resource.codename )?.[candidate] ??
+											resource.animationStates?.[candidate],
+										url = published.nativeMotionUrls.get( resource.codename )?.get( candidate );
+									if (
+										stateDef &&
+										(resource.clips.includes( candidate ) ||
+											url && resources.animation( resource.glb, candidate, url ))
+									) {
+										selected = candidate;
+										break;
+									}
+								}
 							}
 							state.locomotion = changeLocomotion(
 								state.locomotion,

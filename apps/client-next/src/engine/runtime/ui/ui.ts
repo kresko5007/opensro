@@ -188,7 +188,9 @@ import {
 	uniqueBannerPaths,
 	createNoticeBanner,
 	noticeTiming,
-	notificationBannerPaths
+	notificationBannerPaths,
+	SUN_DROP_BANNER_COLOR,
+	SUN_DROP_BANNER_TEXT_RGB
 } from "./hud/unique-banner";
 import { createQuestBanner, questBannerPaths } from "./hud/quest-banner";
 import { createQuestTimers } from "./hud/quest-timers";
@@ -2793,9 +2795,9 @@ export function createUi(
 			return;
 		}
 		// CIFCOSStatus maps no left-click message (6A9BC0: only 0x8074 and
-		// 0xD7), so the portrait's own 0x27 does nothing; selection is the
-		// right-button release (6A9E40), a touch hold on touch screens.
-		if ( id.startsWith( "cos-status:" ) ) return;
+		// 0xD7), so the portrait's own 0x27 does nothing natively; selection is
+		// the right-button release (6A9E40), a touch hold on touch screens.
+		if ( id.startsWith( "cos-status:" ) && !experimental.state().saved.petClickOpensWindow ) return;
 		if ( id === "cos-command-toggle" ) {
 			cosHud.toggle();
 			dirty = true;
@@ -4415,10 +4417,15 @@ export function createUi(
 		else if ( id.startsWith( "open-window:" ) ) setPanel( panelNamed( id.slice( 12 ) ) );
 		else if ( id.startsWith( "toggle-window:" ) ) setPanel( panelNamed( id.slice( 14 ) ), "toggle" );
 		else if ( id === "cos-bag" ) setPanel( "COS inventory" );
-		else if ( id === "pet-mini-open" && experimental.state().saved.petClickOpensWindow ) {
-			const pet = petMiniInfo( view.gameplay?.cosRecords, hud.data()?.cosReferences ),
-				record = pet ? view.gameplay?.cosRecords?.find( r => r.gid === pet.gid ) : undefined;
-			if ( record && !record.dead && record.hp > 0 ) {
+		else if (
+			(id === "pet-mini-open" || id.startsWith( "cos-status:" )) &&
+			experimental.state().saved.petClickOpensWindow
+		) {
+			const gid = id === "pet-mini-open" ?
+					petMiniInfo( view.gameplay?.cosRecords, hud.data()?.cosReferences )?.gid :
+					Number( id.slice( 11 ) ),
+				record = gid ? view.gameplay?.cosRecords?.find( r => r.gid === gid ) : undefined;
+			if ( record && !record.dead && record.hp > 0 && cosClass( record.band ) !== COS_CLASS_GUILD ) {
 				cosHud.select( record.gid );
 				sendGameplay( { kind: "cos-select", gid: record.gid } );
 				if ( panel === "COS inventory" && cosGid === record.gid ) {
@@ -7894,7 +7901,8 @@ export function createUi(
 			if (
 				(repairHud.armed() || repairHud.confirmCost() !== null) &&
 				(next.session?.phase !== "world" || next.travel || !next.gameplay?.shop ||
-					next.gameplay.shop.npc !== next.gameplay.target || next.gameplay.shop.error)
+					next.gameplay.shop.npc !== next.gameplay.target || next.gameplay.shop.error ||
+					!((next.gameplay.targetCapabilities ?? 0) & 8))
 			) {
 				repairHud.reset();
 				dirty = true;
@@ -8905,13 +8913,16 @@ export function createUi(
 					// Fit within this window before caching/publication; text behind a modal
 					// must not become a neighboring column of that modal.
 					if ( compact ) {
-						fitUiGroup( quads, controls, mark[0], mark[1], full, full, {
+						const windowBounds = owner === "item-mall" || owner === "compact-guild" || compact.top < 200 ?
+							full :
+							compact.bounds;
+						fitUiGroup( quads, controls, mark[0], mark[1], windowBounds, full, {
 							blocks,
 							firstBlock: mark[2],
 							disableDrag: compactWindowDrag
 						} );
 						for ( let i = mark[1]; i < controls.length; i++ ) {
-							controls[i] = compactCloseControl( controls[i]!, full );
+							controls[i] = compactCloseControl( controls[i]!, windowBounds );
 						}
 					}
 					const painted = resolveTextOverlaps( quads.slice( mark[0] ) );
@@ -9347,7 +9358,8 @@ export function createUi(
 						alpha: notificationBanner.alpha(),
 						paths: notificationBannerPaths,
 						y: 100,
-						color: [ 128, 45, 67 ] as const
+						color: notificationBanner.sunDrop() ? SUN_DROP_BANNER_COLOR : ([ 128, 45, 67 ] as const),
+						textRgb: notificationBanner.sunDrop() ? SUN_DROP_BANNER_TEXT_RGB : ([ 1, 1, 1 ] as const)
 					},
 					{
 						value: questBanner.value(),
@@ -9384,12 +9396,13 @@ export function createUi(
 							row.color
 						)
 					);
+					const textRgb = "textRgb" in row && row.textRgb ? row.textRgb : ([ 1, 1, 1 ] as const);
 					lines.forEach( ( value, index ) =>
 						quads.push(
 							...text.quads( value, [ x, y + index * lineHeight, width, lineHeight ], full, [
-								1,
-								1,
-								1,
+								textRgb[0],
+								textRgb[1],
+								textRgb[2],
 								row.alpha
 							], { fontIndex: 0, fontStyle: 2, hAlign: 1, vAlign: 0 } )
 						)
@@ -10952,7 +10965,7 @@ export function createUi(
 								pressed,
 								offset: chatScroll.offset(),
 								hidden: chatHidden,
-								measure: value => text.run( value ).width,
+								measure: ( value, style ) => text.run( value, style?.fontStyle ?? 0 ).width,
 								editState: {
 									caretVisible,
 									caretHeight: text.height() + 2,
@@ -11253,6 +11266,68 @@ export function createUi(
 						}
 						if ( game?.progression?.skillPoints !== undefined ) {
 							authoredSkillPoints( bar.GDR_STATIC_SP!, barX, barY, game.progression.skillPoints );
+						}
+					} );
+				} else if ( hudData && compact && compact.exp ) {
+					const expW = compact.exp[2];
+					retainedHud( barLayoutCache, [
+						hudData,
+						layoutResourcesRevision,
+						w,
+						h,
+						game?.progression?.experience,
+						game?.progression?.level,
+						game?.progression?.skillExperience,
+						game?.progression?.skillPoints,
+						expW >= 406 ? spGauge.current() : 0,
+						expW >= 406 ? spGauge.target() : 0
+					], () => {
+						const bar = hudData.bar, [expX, expY, , expH] = compact.exp!;
+						rect( [ expX, expY + 2, 200, 16 ], [ 0, 0, 0, 0.55 ] );
+						blocks.push( [ expX, expY, expW, expH ] );
+						const required = levels.get( game?.progression?.level ?? 0 )?.[0];
+						paths.push( EXPERIENCE_BAR );
+						if (
+							required && game?.progression?.experience !== undefined && resources.has( EXPERIENCE_BAR )
+						) {
+							quads.push(
+								...experienceBar( game.progression.experience, required, expX - 18, expY - 27, full )
+							);
+						}
+						if ( game?.progression?.experience !== undefined && game.progression.level !== undefined ) {
+							authoredText(
+								bar.GDR_STATIC_EXP!,
+								expX - 18,
+								expY - 27,
+								experienceReadout( game.progression.experience, game.progression.level, levels )
+							);
+						}
+						if ( expW >= 406 ) {
+							const sp = bar.GDR_GAUGE_SP!, spOx = expX + 208 - 17, spOy = expY + 4 - 9;
+							rect( [ expX + 208, expY + 5, 144, 10 ], [ 0, 0, 0, 0.55 ] );
+							paths.push( sp.texture );
+							if ( resources.has( sp.texture ) ) {
+								quads.push(
+									...gaugeFill(
+										authoredRect( sp, spOx, spOy ),
+										sp.uv,
+										sp.texture,
+										spGauge.current(),
+										spGauge.target(),
+										full
+									)
+								);
+							}
+							if ( game?.progression?.skillPoints !== undefined ) {
+								authoredSkillPoints( bar.GDR_STATIC_SP!, spOx, spOy, game.progression.skillPoints );
+							}
+						} else if ( expW >= 256 && game?.progression?.skillPoints !== undefined ) {
+							authoredSkillPoints(
+								bar.GDR_STATIC_SP!,
+								expX + 208 - 167,
+								expY + 4 - 9,
+								game.progression.skillPoints
+							);
 						}
 					} );
 				}
@@ -15133,17 +15208,21 @@ export function createUi(
 						}
 					}
 					nativeSpin( page.GDR_STORE_SPIN_PAGE!, px, py, "shop-prev", "shop-next", shopPage, pages );
-					// Repair remains a typed gameplay operation; never route its button to buy/sell.
-					for ( const node of [ page.GDR_STORE_BTN_REPAIR!, page.GDR_STORE_BTN_REPAIRALL! ] ) {
-						authoredLabeledButton(
-							node,
-							px,
-							py,
-							// The control name, not its numeric resource id, names the button.
-							"shop-repair:" + node.name,
-							hudCopy( node.text ),
-							!valid || busy
-						);
+					// 764FFC..76502A -> 5B4750: only a store whose NPC offers repair
+					// (talkFlags & 8) shows GDR_STORE_BTN_REPAIR (11) and GDR_STORE_BTN_REPAIRALL (12).
+					if ( (game?.targetCapabilities ?? 0) & 8 ) {
+						// Repair remains a typed gameplay operation; never route its button to buy/sell.
+						for ( const node of [ page.GDR_STORE_BTN_REPAIR!, page.GDR_STORE_BTN_REPAIRALL! ] ) {
+							authoredLabeledButton(
+								node,
+								px,
+								py,
+								// The control name, not its numeric resource id, names the button.
+								"shop-repair:" + node.name,
+								hudCopy( node.text ),
+								!valid || busy
+							);
+						}
 					}
 					endWindow( admission, "service:Shop" );
 				}
@@ -19058,7 +19137,7 @@ export function createUi(
 					if ( compact && (w < 477 || h < 393) ) {
 						const admission = beginWindow();
 						appendCompactGuild();
-						endWindow( admission );
+						endWindow( admission, "compact-guild" );
 						if ( friendDialog ) friendDialogBox();
 						if ( letterDeleting >= 0 ) letterDialogBox();
 					} else {

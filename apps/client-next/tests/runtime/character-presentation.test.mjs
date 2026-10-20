@@ -533,6 +533,9 @@ function fixture(
 			if ( job.decode === "character" || job.decode === "effect" ) {
 				const value = model( options.sourceFloats );
 				for ( const name of options.extraClips ?? [] ) value.clips.push( { name, duration: 1, channels: [] } );
+				for ( const name of metadataAdmission.appearance?.extraClips ?? [] ) {
+					value.clips.push( { name, duration: 1, channels: [] } );
+				}
 				for ( const clip of value.clips ) clip.duration = options.clipDurations?.[clip.name] ?? clip.duration;
 				if ( metadataAdmission.appearance?.overrideTest ) {
 					value.clips.push( { name: "native:avatar_wing:7", duration: 1, channels: [] } );
@@ -1040,11 +1043,12 @@ test("cast WAIT holds the drawn pose when the stop and the cast arrive in one bu
 	f.presentation.simulationOrigin( 0 );
 	const from = { regionId: 1, x: 10, y: 20, z: 30, angle: 16384 };
 	const cast = { token: 1, caster: 1, target: 0, skill: 7, damage: 0, fatal: false };
-	const frame = ( x, seconds, casting, moving, movementRevision ) => {
+	const frame = ( x, seconds, casting, moving, movementRevision, angle = from.angle ) => {
 		const path = { from, to: { ...from, x: 110 }, durationMs: 2000 };
 		const player = entity( 1, {
 			kind: "local-player",
 			x,
+			angle,
 			moving,
 			movementMode: 3,
 			movementRevision,
@@ -1053,28 +1057,28 @@ test("cast WAIT holds the drawn pose when the stop and the cast arrive in one bu
 		} );
 		f.step( [ player ], seconds, {
 			localGid: 1,
-			pose: { ...from, x },
+			pose: { ...from, x, angle },
 			moving,
 			movementRevision,
 			movementPath: moving ? path : undefined,
 			poseAtMs: seconds * 1000,
 			inventory: [],
 			vitals: [],
-			casts: casting ? [ cast ] : []
+			casts: casting ? [ { ...cast, token: typeof casting === "number" ? casting : 1 } ] : []
 		} );
 		assert.equal( f.presentation.error(), null );
 		return { ...f.actors.find( actor => actor.gid === 1 ).pose };
 	};
 	frame( 10, 1, false, true, 1 );
 	const walking = frame( 20, 1.02, false, true, 1 );
-	const burst = frame( 110, 1.04, true, false, 2 );
+	const burst = frame( 110, 1.04, 1, false, 2 );
 	assert.ok(
 		Math.abs( burst.x - walking.x ) < 2,
 		`the burst frame still draws the walked pose (${burst.x} vs ${walking.x})`
 	);
 	let groundSeen = false;
 	for ( let step = 1; step <= 10; step++ ) {
-		const shown = frame( 110, 1.04 + step * 0.02, true, false, 2 );
+		const shown = frame( 110, 1.04 + step * 0.02, 1, false, 2 );
 		assert.equal( shown.x, burst.x, `the casting body does not glide toward the snap (frame ${step})` );
 		// The bone-less AT_STOP ground stage has no renderer attachment: it
 		// draws at its stage anchor, which must be the held pose too.
@@ -1090,6 +1094,27 @@ test("cast WAIT holds the drawn pose when the stop and the cast arrive in one bu
 		burst.x,
 		"the hold stands after the cast until the next walk"
 	);
+	// BR-261010-2006-9E09 / BR-261019-0641-28EC: chaining a second cast while
+	// standing emits a heading-only 0xB2F5 at the same settled server XYZ. That
+	// stationary revision bump must not release the hold and slide the body away
+	// from the second cast's ground circle.
+	assert.equal(
+		frame( 110, 1.32, false, false, 3, 20000 ).x,
+		burst.x,
+		"a heading-only revision at the settled point keeps the hold"
+	);
+	let chainedGroundSeen = false;
+	for ( let step = 1; step <= 10; step++ ) {
+		const rev = step >= 6 ? 4 : 3, angle = step >= 6 ? 24000 : 20000;
+		const shown = frame( 110, 1.34 + step * 0.02, 2, false, rev, angle );
+		assert.equal( shown.x, burst.x, `chained cast body stays at the held pose (frame ${step})` );
+		const effect = f.actors.find( actor => actor.gid < 0 );
+		if ( effect ) {
+			chainedGroundSeen = true;
+			assert.equal( effect.pose.x, burst.x, `chained cast ground effect stays with the body (frame ${step})` );
+		}
+	}
+	assert.ok( chainedGroundSeen, "the chained cast's ground effect is presented at the held pose" );
 	f.dispose();
 });
 
@@ -3451,6 +3476,118 @@ test("the equipped weapon's animation set drives stand and run, falling back per
 	assert.equal( step( [ spear ], 2 ).clip, "walk", "the spear set's missing walk keeps the default" );
 	movementRevision++;
 	assert.equal( step( [] ).clip, "run", "without a weapon the default set runs" );
+	f.dispose();
+});
+
+test("partial avatar override (avatar_wing) falls through per state to the weapon set before DEFAULT (8EADF0)", () => {
+	// BR-261018-1017-BDE9 / GH #1245: avatar_wing defines only state 7 (run).
+	// When wearing a wing dress and holding a spear, 8EADF0 plays avatar_wing
+	// for state 7 (run) and falls through 8E7210 -> 8E89D0 -> 8E7150 to the
+	// spear set for state 0 (stand, spear planted in the ground) and state 1
+	// (walk), matching the inventory preview's preview-state0-spear pose.
+	const items = JSON.parse( readFileSync( path.join( publicRoot, "assets/data/missionPresentation.json" ), "utf8" ) )
+		.itemsByRefObjId;
+	const roster = JSON.parse( readFileSync( path.join( publicRoot, "assets/char/roster.json" ), "utf8" ) );
+	const wingRun = "native:avatar_wing:7",
+		spearRun = "native:spear:7",
+		spearWalk = "native:spear:1",
+		spearStand = "native:spear:0",
+		previewSpear = "preview-state0-spear";
+	const appearance = {
+		overrideTest: true,
+		items,
+		extraClips: [ spearRun, spearWalk, spearStand, previewSpear ],
+		roster: {
+			models: [ {
+				refObjId: 1,
+				codename: "CHAR_CH_WOMAN_TEST",
+				glb: "/assets/1.glb",
+				clips: [ "stand", "walk", "run", wingRun, spearRun, spearWalk, spearStand, previewSpear ],
+				animationStates: {
+					[wingRun]: { durationMs: 900, loop: true },
+					[spearRun]: { durationMs: 800, loop: true },
+					[spearWalk]: { durationMs: 1100, loop: true },
+					[spearStand]: { durationMs: 2000, loop: true }
+				}
+			} ],
+			dress: {
+				...roster.dress,
+				equipment: {
+					...roster.dress.equipment,
+					99999: { slot: null, bodies: {} }
+				}
+			}
+		}
+	};
+	const f = fixture(
+		{},
+		2,
+		false,
+		false,
+		true,
+		false,
+		false,
+		false,
+		false,
+		false,
+		undefined,
+		undefined,
+		undefined,
+		{},
+		{ appearance }
+	);
+	const wingIds = Object.keys( roster.dress.avatarAuxiliary ).map( Number ).filter( id =>
+		roster.dress.equipment[id].bodies.CH_W
+	);
+	const spear = { slot: 6, refObjId: 99999, typeFlags: (4 << 11) | 0x6c, plus: 0 };
+	let now = 0, movementRevision = 0;
+	const step = ( avatars, equipment, movementMode = 3, moving = true ) => {
+		for ( let i = 0; i < 40; i++ ) {
+			f.presentation.step(
+				[
+					entity( 1, {
+						kind: "player",
+						equipment,
+						avatars: avatars.map( refObjId => ({ refObjId }) ),
+						movementMode,
+						moving,
+						movementRevision
+					} )
+				],
+				null,
+				now += .01
+			);
+		}
+		assert.equal( f.presentation.error(), null );
+		return f.actors.find( a => a.gid === 1 );
+	};
+	step( [ wingIds[0] ], [ spear ] );
+	movementRevision++;
+	const running = step( [ wingIds[0] ], [ spear ], 3, true );
+	assert.equal( running.clip, wingRun, "state 7 (run) uses the avatar_wing override set" );
+	assert.equal( running.previewClip, previewSpear, "equipment preview uses preview-state0-spear" );
+
+	movementRevision++;
+	const walking = step( [ wingIds[0] ], [ spear ], 2, true );
+	assert.equal( walking.clip, spearWalk, "state 1 (walk) falls through avatar_wing to the spear set" );
+
+	const standing = step( [ wingIds[0] ], [ spear ], 3, false );
+	assert.equal(
+		standing.clip,
+		spearStand,
+		"state 0 (stand) falls through avatar_wing to the spear set (planted spear pose)"
+	);
+
+	// Site D: swapping between two wing dresses while standing re-enters state 8
+	// and keeps the spear standing pose rather than dropping to unarmed stand.
+	const swapped = step( [ wingIds[1] ], [ spear ], 3, false );
+	assert.equal( swapped.clip, spearStand, "override refresh re-entry preserves weapon-set standing clip" );
+	assert.ok( swapped.time < .5, "standing base restarts once on override replacement" );
+
+	// Unequipping the wing dress while running switches from avatar_wing run to spear run.
+	step( [], [ spear ], 3, true );
+	movementRevision++;
+	assert.equal( step( [], [ spear ], 3, true ).clip, spearRun, "unequipping wing dress restores spear run" );
 	f.dispose();
 });
 

@@ -541,18 +541,26 @@ export function createCharacterPresentation(
 				entity.appearanceState[0] === 2 :
 				vitalsByGid.get( gid )?.hp === 0) ||
 				!!health?.dead( gid );
+			const cast = castByActor.get( gid );
+			const activeCast = !!cast && cast.cancelledAtMs === undefined &&
+				(actionLayersByActor.get( gid )?.length ?? 0) > 0;
+			const waiting = !dead && waitingActors.has( gid );
+			const moving = local ? gameplay?.moving : entity?.moving;
 			if ( state?.navigationHold ) {
-				return state.navigationHold.revision === movementRevision && !displaced && !dead &&
-						!entity?.mountedOn ?
+				if ( displaced || dead || entity?.mountedOn ) return undefined;
+				if ( state.navigationHold.revision === movementRevision ) return state.navigationHold.pose;
+				const pose = entity ? logicalPose( entity ) : undefined, hold = state.navigationHold.logical;
+				return !moving &&
+						(waiting || activeCast ||
+							(!!pose && hold.regionId === pose.regionId && hold.x === pose.x && hold.y === pose.y &&
+								hold.z === pose.z)) ?
 					state.navigationHold.pose :
 					undefined;
 			}
-			const cast = castByActor.get( gid );
 			if ( !state?.lastDrawnPose || !cast || !entity || cast.cancelledAtMs !== undefined ) return undefined;
 			if ( dead || entity.mountedOn || ((state.actionMask ?? 0) & 0x200) === 0 ) return undefined;
-			const moving = local ? gameplay?.moving : entity.moving;
 			if ( moving || displaced || !state.actionInput?.requestedMoving ) return undefined;
-			return waitingActors.has( gid ) || (actionLayersByActor.get( gid )?.length ?? 0) > 0 ?
+			return waiting || activeCast ?
 				state.lastDrawnPose :
 				undefined;
 		};
@@ -786,6 +794,18 @@ export function createCharacterPresentation(
 			{ entities, next, local, gameplay, seconds, cameraPitch, concealmentSkills, entityLod },
 			output
 		);
+		// Port-only, not native (Experimental "Dungeon character PVS"): copy
+		// each live actor's dungeon room from its entity before the fading
+		// and particle phases copy actors around, so a corpse or a detached
+		// particle tail minted below carries the room it plays out in.
+		// Publication resolves the live entity first; the copy is the
+		// fallback once the holder has left the entity map.
+		for ( const actor of next.values() ) {
+			const subject = entitiesByGid.get( actor.attachment?.gid ?? actor.pickOwner ?? actor.gid );
+			if ( subject && subject.dungeonBlock !== actor.dungeonBlock ) {
+				next.set( actor.gid, { ...actor, dungeonBlock: subject.dungeonBlock } );
+			}
+		}
 		presentDisappearing(
 			{ disappearing, seconds, next, animationDeltaMs, resources, animationHolders, particleHolders }
 		);
@@ -802,7 +822,7 @@ export function createCharacterPresentation(
 			}
 		);
 		publishCharacters(
-			{ local, gameplay, next, seconds, blindHeld },
+			{ local, gameplay, next, entitiesByGid, seconds, blindHeld },
 			output,
 			published,
 			{ renderer, resources, mallPreview }

@@ -1,8 +1,15 @@
 /*
 ===========================================================================
-runtime_movement.go - live actor placement and admitted walk constraints
 
-Keeps position sampling and owner-aware movement on one action runtime lane.
+runtime_position.go - where a character stands, and writing it back
+
+Split from runtime.go on its own responsibility: reading a character's
+mutable state through the authority door (characterSnapshot) and every
+question about its live pose - spawn resolution, navigation constraint
+and ground-walk admission - ending in the record write-back
+(writeBackWorld). The movement lane's reads and the kill lane's victim
+lookups cross the package through these; nothing else lives here.
+
 ===========================================================================
 */
 package action
@@ -11,6 +18,73 @@ import (
 	"opensro.online/server/internal/game/enterworld"
 	"opensro.online/server/internal/game/world/simulation"
 )
+
+/*
+==================
+characterSnapshot
+
+characterSnapshot copies mutable character state while the authority read
+door is held. Identity fields (ID and Name) never change after creation,
+but inventory, progression, deletion state, and world state must never be
+read through the live pointer outside a door.
+==================
+*/
+func (rt *Runtime) characterSnapshot(
+	divisionID string,
+	character *enterworld.Character,
+) *enterworld.Character {
+	if character == nil {
+		return nil
+	}
+
+	var snapshot *enterworld.Character
+
+	rt.deps.Read(divisionID, func() {
+		snapshot = character.Snapshot()
+	})
+
+	return snapshot
+}
+
+/*
+==================
+writeBackWorld
+
+writeBackWorld persists the accepted ground pose onto the character record.
+Authored displacement state keeps its existing destination semantics; the
+ordinary ground mover never persists a destination it has not reached.
+
+The write-back owns ONLY spawn/movementMode/spawnSet; every other world
+field (dungeonMinimap, movementSourceSeeded, updatedAt, moveSegment echo,
+and any future record keys) copies through untouched, like the Node
+handlers' {...world} spread (item-lane mirror of SCOUT-B FINDING 500).
+Copy-then-swap so aliases of the old record (the character snapshot's
+shallow copy) stay unchanged.
+==================
+*/
+func writeBackWorld(character *enterworld.Character, state simulation.WorldState) {
+	spawn := state.PersistedSpawn()
+	regionID := int64(spawn.RegionID)
+	x, y, z := spawn.X, spawn.Y, spawn.Z
+	angle := int64(spawn.Angle)
+	mode := int64(state.MovementMode)
+	next := enterworld.CharacterWorld{}
+	if character.World != nil {
+		next = *character.World
+	}
+
+	next.Spawn = &enterworld.WorldSpawn{
+		RegionID: &regionID,
+		X:        &x,
+		Y:        &y,
+		Z:        &z,
+		Angle:    &angle,
+	}
+
+	next.MovementMode = &mode
+	next.SpawnSet = state.SpawnSet
+	character.World = &next
+}
 
 /*
 ==================
