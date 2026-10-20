@@ -84,6 +84,7 @@ func (rt *Runtime) castPetShield(division string, owner, snapshot *enterworld.Ch
 	}
 	mods := companion.ModifiersFor(pet)
 	level := companion.EffectiveLevel(pet, skill, mods)
+	empowered := false
 	if !rt.deps.Update(owner, "pet-shield-cast", func() bool {
 		live := owner.CompanionByGID(pet.GID)
 		if live == nil || !companion.RowReady(&live.Training, skill.Row, now) {
@@ -91,13 +92,14 @@ func (rt *Runtime) castPetShield(division string, owner, snapshot *enterworld.Ch
 		}
 		companion.StartRow(&live.Training, skill.Row, skill, level, now, mods)
 		live.Training.Queued = 0
+		empowered = rt.spendPetSpirit(owner, live)
 		return true
 	}) {
 		return petTrainingReceipt("The shield could not be cast.")
 	}
 	source := petOwnerKey{division: division, name: owner.Name, gid: pet.GID}
 	var shields []petShield
-	if ref, ok := rt.cosReference(pet); ok {
+	if ref, ok := rt.cosReference(owner.CompanionByGID(pet.GID)); ok {
 		maxHP := ref.MaxHP
 		shields = append(shields, petShield{key: petShieldKey{division, pet.GID}, source: source, maxHP: maxHP, burst: skill.Option == 3})
 	}
@@ -131,12 +133,18 @@ func (rt *Runtime) castPetShield(division string, owner, snapshot *enterworld.Ch
 		Opcode:  wire.OpActionEmote,
 		Payload: wire.ActionEmotePush{Gid: pet.GID, Action: skill.ID}.Encode(),
 	}}
+	shieldPercent := min(100.0, skill.ValueAt(level))
+	if empowered {
+		shieldPercent *= 1.5
+		live := owner.CompanionByGID(pet.GID)
+		public = append(public, petSpiritFrame(live, now, now), wire.Frame{Opcode: simulation.OpVitalsUpdate, Payload: simulation.HPRefreshPayload(pet.GID, 0, live.CurrentHP)})
+	}
 	rt.petShields.Lock()
 	if rt.petShields.rows == nil {
 		rt.petShields.rows = make(map[petShieldKey]petShield)
 	}
 	for _, s := range shields {
-		s.amount = uint32(float64(s.maxHP) * min(100.0, skill.ValueAt(level)) / 100)
+		s.amount = uint32(float64(s.maxHP) * shieldPercent / 100)
 		s.until, s.publishAt = now+petShieldDuration, now+500
 		if old, ok := rt.petShields.rows[s.key]; ok && old.until > now && old.amount > s.amount {
 			continue

@@ -28,6 +28,7 @@ import (
 	"opensro.online/server/internal/game/item/inventory"
 	"opensro.online/server/internal/game/item/wire"
 	"opensro.online/server/internal/game/social/chat"
+	"opensro.online/server/internal/game/world/simulation"
 )
 
 const (
@@ -165,6 +166,15 @@ func (rt *Runtime) handlePetTraining(division string, c *enterworld.Character, p
 		default:
 			companion.Refund(pet)
 			refusal = ""
+		}
+		if refusal == "" && pet.ResolveStacks > 0 && state != nil {
+			skill, _, learned := companion.Spirit(pet)
+			if !learned || skill.ID != state.trained.resolveBook {
+				rt.setPetSpirit(pet, 0)
+				reset := []wire.Frame{petSpiritFrame(pet, nowMs, nowMs), {Opcode: simulation.OpVitalsUpdate, Payload: simulation.HPRefreshPayload(gid, 0, pet.CurrentHP)}}
+				frames = append(frames, reset...)
+				state.public = append(state.public, reset...)
+			}
 		}
 		return refusal == ""
 	}) {

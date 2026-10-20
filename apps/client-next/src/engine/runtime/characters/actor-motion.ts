@@ -945,7 +945,11 @@ export function createActorMotion( owner: ActorOwner ) {
 					layers[0]!.time :
 					Math.max( 0, seconds - state.started ),
 				loop: looping,
-				scale: Math.fround( baseScale * appearance.scale )
+				scale: Math.fround(
+					baseScale * appearance.scale *
+						(1 +
+							((entity.petResolve?.untilMs ?? 0) > seconds * 1000 ? entity.petResolve!.stacks * .012 : 0))
+				)
 			} );
 			if ( sampleActorDetails ) probe?.detailEnd( "actor-record" );
 			if ( refresh.mask & 0x200 ) {

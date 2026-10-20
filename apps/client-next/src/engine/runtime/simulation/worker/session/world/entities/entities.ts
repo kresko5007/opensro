@@ -757,6 +757,24 @@ export function createEntities(
 		================
 		*/
 		receive( frame: WireFrame, now = 0 ) {
+			// Port-only Resolve state; exact, bounded packet independent of native animations.
+			if ( frame.opcode === 0x3fb5 ) {
+				const p = frame.payload;
+				if ( p.length !== 10 ) throw Error( "Invalid pet Resolve length" );
+				const v = new DataView( p.buffer, p.byteOffset, p.byteLength );
+				const gid = v.getUint32( 0, true ),
+					stacks = v.getUint8( 4 ),
+					tier = v.getUint8( 5 ),
+					duration = v.getUint32( 6, true );
+				if ( !gid || stacks > 10 || tier > 3 || (stacks > 0 && !tier) || duration > 15000 ) {
+					throw Error( "Invalid pet Resolve state" );
+				}
+				const entity = entities.get( gid );
+				if ( entity ) {
+					samplePose( { ...entity, petResolve: { stacks, tier, atMs: now, untilMs: now + duration } } );
+				}
+				return;
+			}
 			// Port-only Guardian's Bond cue; independent of emotes and native casts.
 			if ( frame.opcode === 0x3fb4 ) {
 				const p = frame.payload;
@@ -803,7 +821,8 @@ export function createEntities(
 					maxHp = v.getUint32( 8, true ),
 					duration = v.getUint32( 12, true );
 				if (
-					!gid || !maxHp || amount > maxHp || duration > 5000 || p[20]! > 1 || (p[20] && (amount || duration))
+					!gid || !maxHp || amount > Math.floor( maxHp * 1.5 ) || duration > 5000 || p[20]! > 1 ||
+					(p[20] && (amount || duration))
 				) throw Error( "Invalid shield state" );
 				const entity = entities.get( gid );
 				if ( entity ) {

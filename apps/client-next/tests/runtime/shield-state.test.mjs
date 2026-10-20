@@ -39,6 +39,10 @@ test("shield packets retain separate absorption and retire the segment at exact 
 	entities.receive( { opcode: 0x32a6, payload: Buffer.from( [ 7, 0, 0, 0, 0, 0, 0, 0 ] ) }, 0 );
 	entities.receive( shieldPacket(), 100 );
 	assert.equal( defined( defined( entities.read( 7 ) ).shield ).amount, 300 );
+	entities.receive( shieldPacket( 1500 ), 100 );
+	assert.equal( defined( defined( entities.read( 7 ) ).shield ).amount, 1500 );
+	assert.equal( shieldGauge( entities.read( 7 ), 1, 100 ).shield, .6 );
+	entities.receive( shieldPacket(), 100 );
 	assert.equal( shieldGauge( entities.read( 7 ), 1, 5099 ).amount, 300 );
 	assert.equal( shieldGauge( entities.read( 7 ), 1, 5100 ).amount, 0 );
 	entities.receive( shieldPacket( 120, 4000 ), 1100 );
@@ -53,7 +57,7 @@ test("shield decoder rejects oversized, truncated and inconsistent updates", () 
 	const entities = createEntities();
 	for (
 		const packet of [
-			shieldPacket( 1001 ),
+			shieldPacket( 1501 ),
 			shieldPacket( 300, 5001 ),
 			shieldPacket( 300, 5000, 1 ),
 			shieldPacket( 0, 0, 2 )
@@ -137,5 +141,39 @@ test("Guardian pulses admit only exact recipient/bear/kind packets", () => {
 	) {
 		assert.throws( () => entities.receive( { opcode: 0x3fb4, payload: bad }, 0 ), /Invalid pet bond/ );
 	}
+	entities.dispose();
+});
+
+/*
+================
+Unbroken Spirit protocol
+================
+*/
+test("Resolve validates stacks, tiers and lifetime without touching emotes", () => {
+	const entities = createEntities();
+	entities.bootstrap( {
+		protocolVersion: 2,
+		nativeResult: 1,
+		refObjSnapshot: [],
+		localPlayerEntry: { modelRef: 1933, startProfile: { regionId: 257, x: 1, y: 2, z: 3, angle: 0 } }
+	} );
+	entities.receive( { opcode: 0x32a6, payload: Buffer.from( [ 7, 0, 0, 0, 0, 0, 0, 0 ] ) }, 0 );
+	const payload = Buffer.from( [ 7, 0, 0, 0, 10, 3, 0x98, 0x3a, 0, 0 ] );
+	entities.receive( { opcode: 0x3fb5, payload }, 100 );
+	assert.deepEqual( defined( entities.read( 7 ) ).petResolve, { stacks: 10, tier: 3, atMs: 100, untilMs: 15100 } );
+	for (
+		const bad of [
+			Buffer.alloc( 9 ),
+			Buffer.alloc( 11 ),
+			Buffer.alloc( 10 ),
+			Buffer.from( [ 7, 0, 0, 0, 11, 3, 0, 0, 0, 0 ] ),
+			Buffer.from( [ 7, 0, 0, 0, 10, 0, 0, 0, 0, 0 ] ),
+			Buffer.from( [ 7, 0, 0, 0, 1, 1, 255, 255, 255, 255 ] )
+		]
+	) {
+		assert.throws( () => entities.receive( { opcode: 0x3fb5, payload: bad }, 0 ), /Invalid pet Resolve/ );
+	}
+	entities.receive( { opcode: 0x3fb5, payload: Buffer.from( [ 7, 0, 0, 0, 0, 0, 0, 0, 0, 0 ] ) }, 200 );
+	assert.equal( defined( defined( entities.read( 7 ) ).petResolve ).stacks, 0 );
 	entities.dispose();
 });

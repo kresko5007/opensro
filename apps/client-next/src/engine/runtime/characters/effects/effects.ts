@@ -442,6 +442,7 @@ export function createCharacterEffects(
 			shook: boolean;
 		}
 	>();
+	const spiritRings = new Map<number, number>();
 	const bondPulses = new Map<number, { revision: number; gid: number; started: number; sounded: number; }>();
 	const counterPulses = new Map<
 		number,
@@ -1995,6 +1996,42 @@ export function createCharacterEffects(
 					}
 				}
 				const result: CharacterActor[] = [];
+				// Port-only: quiet Resolve ring follows the bear; never changes its action.
+				for ( const entity of byGid.values() ) {
+					const resolve = entity.petResolve;
+					if ( !resolve?.stacks || resolve.untilMs <= now * 1000 ) continue;
+					let gid = spiritRings.get( entity.gid );
+					if ( gid === undefined ) {
+						gid = allocate();
+						spiritRings.set( entity.gid, gid );
+					}
+					const model = "/assets/effects/pet-counter-ripple";
+					if ( !ready( model ) ) continue;
+					const pose = presentation.get( entity.gid )?.pose ??
+						{
+							regionId: entity.regionId,
+							x: entity.x,
+							y: entity.y,
+							z: entity.z,
+							yaw: nativeHeadingYaw( entity.heading )
+						};
+					result.push( {
+						gid,
+						model,
+						clip: "effect",
+						time: now,
+						loop: true,
+						pose,
+						scale: 16 + resolve.stacks * .4,
+						absoluteEffectScale: true,
+						effectEntity: true,
+						pickable: false,
+						opacity: .035 + resolve.stacks * .005 +
+							(resolve.stacks === 10 ? .015 * Math.sin( now * 3 ) : 0),
+						materialTint: [ 1, .72, .32 ]
+					} );
+				}
+				for ( const gid of spiritRings.keys() ) if ( !byGid.has( gid ) ) spiritRings.delete( gid );
 				// Port-only: gold recovery radiance follows a stationary or moving recipient immediately.
 				for ( const entity of byGid.values() ) {
 					const cue = entity.petBondPulse;
@@ -3828,6 +3865,7 @@ export function createCharacterEffects(
 			roars.clear();
 			roarAppearances.clear();
 			shields.clear();
+			spiritRings.clear();
 			bondPulses.clear();
 			counterPulses.clear();
 			statuses.clear();

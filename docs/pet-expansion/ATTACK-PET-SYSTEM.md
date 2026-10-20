@@ -72,7 +72,7 @@ still needed.
 
 | Pet | Role | Active families | Passive families |
 | --- | --- | --- | --- |
-| Bear | High HP/defense; lower attack | Challenging Roar; Iron Hide | Thick Hide; Guardian’s Bond; Crushing Paw |
+| Bear | High HP/defense; lower attack | Challenging Roar; Iron Hide | Unbroken Spirit; Guardian’s Bond; Crushing Paw |
 | Wolf | Physical offense | Terrifying Howl; Rending Bite | Execute; Scent of Blood; Thick Fur |
 | Penguin | Magic/control; lower HP | Frost Nova; Deep Freeze | Cold Mastery; Static Feathers; Frost Armor |
 | Three Footed Crow | Owner support | Mend; Mark Prey | Carrion Feast; Swift Wings; Murder of Crows |
@@ -415,3 +415,17 @@ Client: `src/engine/foundation/ui/{item-tooltip,pet-training}.ts`, runtime
 `ui/ui.ts` and simulation `world/gameplay/pet-training/pet-training.ts`.
 The workbook may retain planned/legacy templates; they are not automatically
 implemented merely because a row exists.
+
+### Unbroken Spirit (replaces Thick Hide, same saved skill IDs22–24)
+
+Bear-only passive: each landed monster impact grants one Resolve stack, maximum10,
+and refreshes15s expiry. Blocked hits and periodic damage grant none; shielded hits
+count. Each stack raises maximumHP and fills only the new capacity. At skill ranks
+1–10, HP per stack is I:1–2%, II:2–3%, III:3–4%. No static defense bonus remains.
+II/III at full stacks resist new Slow/Frostbite and knockback (not stun, freeze or
+knockdown). III spends full stacks only on a successfully admitted Roar or Iron
+Hide: +50% radius/target capacity (rounded down), or +50% shield capacity. Normal
+cooldown and one-second Roar windup remain. Consumption/expiry clamps currentHP;
+it never deals damage or kills. Unsummon/relog/town/invalid passive clears stacks.
+Resolve is transient and never changes saved ranks, equipment or database schema.
+Subtle model growth (+12% at full), amber ground ring and brief full-stack pulse.

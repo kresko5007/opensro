@@ -65,6 +65,7 @@ func (rt *Runtime) restoreCharacterCOS(division, name string) {
 				continue
 			}
 			before := *pet
+			pet.ResolveStacks = 0
 			changed = pet.RefreshRentalTimes(now) || changed
 			ref, valid := rt.cosReference(pet)
 			if !valid || row.Slot < 0 || row.Slot > 255 {

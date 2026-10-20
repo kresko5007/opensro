@@ -219,7 +219,8 @@ advancePetInDivision
 func (rt *Runtime) advancePetInDivision(key petOwnerKey, nowMs int64) (int64, []simulation.Frame, []wire.Frame, []RecipientFrames, string, *simulation.Tether) {
 	unlock := rt.lockDivision(key.division)
 	defer unlock()
-	frames := rt.advancePetBond(key, rt.petSessionFor(key.division, key.name, key.gid), nowMs)
+	frames := rt.advancePetSpirit(key, nowMs)
+	frames = append(frames, rt.advancePetBond(key, rt.petSessionFor(key.division, key.name, key.gid), nowMs)...)
 	frames = append(frames, rt.advancePetSatiety(key, nowMs)...)
 	frames = append(frames, rt.advancePet(key, nowMs)...)
 	rt.petMu.Lock()

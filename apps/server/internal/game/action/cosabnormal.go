@@ -201,6 +201,7 @@ func (o *cosAbnormalOwner) commit() {
 	}
 	if o.fatal || o.pet.CurrentHP == 0 {
 		pet := o.pet
+		pet.ResolveStacks = 0
 		if o.aliveBefore && !o.died {
 			o.died = true
 			o.rt.cancelCompanionCasts(o.division, o.c, pet.GID)

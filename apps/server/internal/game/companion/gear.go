@@ -265,7 +265,7 @@ func ModifiersFor(p *domain.CharacterCOS) Modifiers {
 			m.MagicPct += v
 		case "Swift Fangs", "Swift Wings":
 			m.AttackSpeedPct += v
-		case "Thick Fur", "Thick Hide", "Frost Armor":
+		case "Thick Fur", "Frost Armor":
 			m.DefensePct += v
 		case "Lifebite":
 			m.LeechPct += v

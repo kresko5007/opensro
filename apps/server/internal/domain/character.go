@@ -640,6 +640,8 @@ Owned companion state; its inventory commits with the owning character.
 type CharacterCOS struct {
 	// Port-only, not native. Lives on the summoner item, including cooldowns.
 	Training PetTraining `json:"training,omitzero"`
+	// Port-only combat stacks; never restored from a summoner item.
+	ResolveStacks uint8 `json:"-"`
 	// Runtime source-zero movement multiplier installed by 548A30.
 	FollowRunFactor float32 `json:"-"`
 	FollowRunSet    bool    `json:"-"`

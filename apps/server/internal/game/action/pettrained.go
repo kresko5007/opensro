@@ -54,6 +54,8 @@ Nth-attack passive, and the self buffs in force.
 ================
 */
 type petTrainedRuntime struct {
+	resolveBook   uint8
+	resolveUntil  int64
 	attacks       int
 	counterHits   [2]int // Port-only: bear and owner count incoming impacts separately.
 	frenzyUntil   int64

@@ -186,6 +186,17 @@ export function petEffect( design: PetSkillDesign, value: number, effectiveLevel
 		} x pet level every 2 s for 6 s.` +
 			(rank3 ? " Bleeding non-unique targets below 30% HP are executed on a damaging hit." : "");
 	}
+	if ( design.family === "Unbroken Spirit" ) {
+		return `Landed monster hits grant Resolve for 15 s, up to 10 stacks. Each stack adds ${
+			formatValue( value )
+		}% maximum HP and fills only the added HP.` +
+			" Further hits refresh the duration. Blocks and periodic damage do not count; shielded hits count." +
+			(design.option >= 2 ? " At 10 stacks, resist new slows and knockback." : "") +
+			(design.option === 3 ?
+				" At 10 stacks, your next successful Roar gains 50% radius and target capacity, or Iron Hide gains 50% shield capacity; all stacks are consumed." :
+				"") +
+			" Expiry, consumption or leaving combat eligibility removes the bonus HP without killing the bear.";
+	}
 	if ( design.family === "Crushing Paw" ) {
 		return `Every 10 landed physical or spell hits taken by the bear stuns its attacker for ${
 			formatValue( value )

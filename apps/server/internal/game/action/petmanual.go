@@ -47,6 +47,7 @@ func (rt *Runtime) manualPetSkill(division string, owner, snapshot *enterworld.C
 		if rt.inTown(division, snapshot) || townRegion(state.follower.Position(now).RegionID) {
 			return petTrainingReceipt("Challenging Roar cannot be cast in town.")
 		}
+		empowered := false
 		if !rt.deps.Update(owner, "pet-manual-roar", func() bool {
 			live := owner.CompanionByGID(gid)
 			if live == nil || !companion.RowReady(&live.Training, skill.Row, now) {
@@ -54,14 +55,19 @@ func (rt *Runtime) manualPetSkill(division string, owner, snapshot *enterworld.C
 			}
 			companion.StartRow(&live.Training, skill.Row, skill, level, now, companion.ModifiersFor(live))
 			live.Training.Queued = 0
+			empowered = rt.spendPetSpirit(owner, live)
 			return true
 		}) {
 			return petTrainingReceipt("The roar could not be applied.")
 		}
-		state.roar = &petRoarCast{skill: skill, level: level, releaseAtMs: now + petRoarCastMs}
+		state.roar = &petRoarCast{skill: skill, level: level, releaseAtMs: now + petRoarCastMs, empowered: empowered}
 		var public []wire.Frame
 		for _, frame := range state.follower.Stop(now) {
 			public = append(public, wire.Frame{Opcode: frame.Opcode, Payload: frame.Payload})
+		}
+		if empowered {
+			live := owner.CompanionByGID(gid)
+			public = append(public, petSpiritFrame(live, now, now), wire.Frame{Opcode: simulation.OpVitalsUpdate, Payload: simulation.HPRefreshPayload(gid, 0, live.CurrentHP)})
 		}
 		public = append(public, wire.Frame{Opcode: wire.OpActionEmote,
 			Payload: wire.ActionEmotePush{Gid: gid, Action: skill.ID}.Encode()})
@@ -123,6 +129,7 @@ petRoarCast
 ================
 */
 type petRoarCast struct {
+	empowered   bool
 	skill       companion.SkillDef
 	level       uint8
 	releaseAtMs int64
@@ -160,8 +167,13 @@ func (rt *Runtime) advancePetRoar(step petCombatStep) bool {
 	if cast.skill.Option == 3 {
 		limit = 6
 	}
+	radius := cast.skill.RoarRadiusMeters(cast.level) * petAreaPerMeter
+	if cast.empowered {
+		radius *= 1.5
+		limit = limit * 3 / 2
+	}
 	count := 0
-	for _, mob := range rt.Monsters.CombatCandidatesInPopulation(step.key.division, lease, at, cast.skill.RoarRadiusMeters(cast.level)*petAreaPerMeter, step.nowMs, false) {
+	for _, mob := range rt.Monsters.CombatCandidatesInPopulation(step.key.division, lease, at, radius, step.nowMs, false) {
 		if mob.Rarity()&0x0f == 3 || mob.Rarity()&0x0f == 8 || cast.skill.Option == 1 && mob.Rarity()&0x10 != 0 {
 			continue
 		}

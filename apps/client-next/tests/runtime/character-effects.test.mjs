@@ -1947,3 +1947,37 @@ test("Guardian recovery follows a stationary recipient immediately and never rep
 	assert.equal( effects.takeCameraScripts().length, 0 );
 	effects.dispose();
 });
+
+/*
+================
+Unbroken Spirit presentation
+================
+*/
+test("Resolve ring remains subtle, follows a stationary bear and expires", () => {
+	const effects = roarEffects();
+	const bear = {
+		gid: 77,
+		kind: "cos",
+		regionId: 257,
+		x: 10,
+		y: 2,
+		z: 30,
+		heading: 0,
+		petResolve: { stacks: 10, tier: 3, atMs: 0, untilMs: 15000 }
+	};
+	const entities = [ bear ];
+	const ring = effects.step( entities, { casts: [] }, 1, () => true, () => 1, [] ).find( actor =>
+		actor.model === "/assets/effects/pet-counter-ripple"
+	);
+	assert.ok( ring );
+	assert.equal( ring.pose.x, 10 );
+	assert.ok( ring.opacity > 0 && ring.opacity < .11 );
+	assert.equal( ring.pickable, false );
+	assert.equal(
+		effects.step( entities, { casts: [] }, 15, () => true, () => 1, [] ).filter( actor =>
+			actor.model === "/assets/effects/pet-counter-ripple"
+		).length,
+		0
+	);
+	effects.dispose();
+});

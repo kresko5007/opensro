@@ -206,7 +206,6 @@ func TestAdvancedPetStatPassivesReachCombat(t *testing.T) {
 		id         uint8
 	}{
 		{"COS_P_WOLF_040", "defense", 15},
-		{"COS_P_BEAR_040", "defense", 24},
 		{"COS_P_PENGUIN_040", "defense", 45},
 		{"COS_P_PENGUIN_040", "magic", 39},
 		{"COS_P_RAVEN_040", "speed", 57},

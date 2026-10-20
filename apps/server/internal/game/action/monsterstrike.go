@@ -197,6 +197,10 @@ func (rt *Runtime) monsterStrikeCOS(in monsterStrikeInput, owner *enterworld.Cha
 	}
 	divisionID, instance, skill, nowMs := in.division, in.instance, in.skill, in.now
 	out := monsterStrikeOutcome{alive: true}
+	_, populationMonster := rt.Monsters.Get(divisionID, instance.Gid)
+	if populationMonster && rt.spiritBraced(owner, pet) {
+		skill.Knockback.Present = false
+	}
 	ownerBlock := rt.newCosAbnormalOwnerForPet(divisionID, owner, pet, nowMs)
 	defender, err := cosCombatStats(ref, pet, ownerBlock.block)
 	if err != nil {
@@ -241,7 +245,7 @@ func (rt *Runtime) monsterStrikeCOS(in monsterStrikeInput, owner *enterworld.Cha
 		}
 		records = append(records, rolled...)
 	}
-	hit := cosHit{monsterSource: true, owner: owner, pet: pet, ref: ref, pose: pose, block: ownerBlock, formulas: formulas, records: records,
+	hit := cosHit{monsterSource: true, resolveHits: populationMonster, owner: owner, pet: pet, ref: ref, pose: pose, block: ownerBlock, formulas: formulas, records: records,
 		displacement: displacement, displaceAt: displaceAt,
 		context: abnormal.HitContext{Attack: skill.ReplacementPinned && skill.Replacement.MatchesExecutionSelector}}
 	hit.block.sources = rt.captureAbnormalSources(divisionID, hit.block.block, records)
@@ -284,6 +288,7 @@ strike and a player's share it.
 ================
 */
 type cosHit struct {
+	resolveHits   bool
 	monsterSource bool
 	owner         *enterworld.Character
 	pet           *enterworld.CharacterCOS
@@ -328,7 +333,15 @@ func (rt *Runtime) applyCOSHitInDoor(divisionID string, hit *cosHit, nowMs int64
 			formula.Damage = rt.absorbPetShield(divisionID, pet.GID, formula.Damage, nowMs)
 			formula.Damage = rt.petTrainedDamageTaken(divisionID, owner, live, formula.Damage, nowMs)
 		}
+		landed := !formula.Blocked && hit.formulas[len(strike.impacts)].Damage > 0
 		live.CurrentHP -= vitals.HitDebit(live.CurrentHP, formula.Damage)
+		if hit.resolveHits && landed && live.CurrentHP > 0 {
+			blockFrames := rt.gainPetSpirit(divisionID, owner, live, nowMs)
+			hit.block.public = append(hit.block.public, blockFrames...)
+			if len(blockFrames) > 0 {
+				hit.block.private = append(hit.block.private, rt.petTrainingStateFrames(live, nowMs)...)
+			}
+		}
 		strike.fatal = live.CurrentHP == 0
 		strike.impacts = append(strike.impacts, wire.SkillCastTargetImpact{Damage: formula.Damage,
 			Fatal: strike.fatal, Blocked: formula.Blocked, ResultFlags: formula.ResultFlags})
@@ -337,6 +350,9 @@ func (rt *Runtime) applyCOSHitInDoor(divisionID string, hit *cosHit, nowMs int64
 		}
 	}
 	block := hit.block
+	if ref, ok := rt.cosReference(live); ok {
+		block.ref = ref
+	}
 	if !strike.fatal && hit.displacement != nil && hit.displaceAt < len(strike.impacts) {
 		if point, ok := rt.commitCOSDisplacement(block, hit.displacement); ok {
 			if hit.displacement.down {
@@ -355,6 +371,9 @@ func (rt *Runtime) applyCOSHitInDoor(divisionID string, hit *cosHit, nowMs int64
 			block.changed = block.block.BreakOnHit(block, hit.context) || block.changed
 		}
 		for _, record := range hit.records {
+			if hit.resolveHits && rt.spiritBraced(owner, live) && (record.Status == abnormal.Slow || record.Status == abnormal.Frostbite) {
+				continue
+			}
 			if block.block.Apply(block, record, nowMs) {
 				block.changed = true
 			}
