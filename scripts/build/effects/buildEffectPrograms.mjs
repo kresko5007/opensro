@@ -38,6 +38,7 @@ import { isMainScript } from "../shared/fsUtils.mjs";
 import { refreshPrecompressedSidecars } from "../generatedManifestSidecars.mjs";
 import { writeJsonIfChangedSync } from "../shared/jsonOut.mjs";
 import { dataAssetPath } from "../shared/jmxAssetIO.mjs";
+import { PORT_PET_DROP_MODEL } from "../shared/portItemRows.mjs";
 import { parseCharacterBsr } from "../char/formats.mjs";
 import { parseJmxBmsStaticMesh, parseJmxResourceBsr } from "../world/objects/formats.mjs";
 import {
@@ -253,6 +254,8 @@ export function collectEntityParticleReferences(
 			)
 		);
 		for ( const modelPath of [ ...models ].sort() ) {
+			// The port pet-loot GLB has no BSR; it borrows the native chest's particles.
+			if ( modelPath === `res/${PORT_PET_DROP_MODEL}` ) continue;
 			const modifiers = readModel( modelPath ).particleModifiers;
 			for (
 				const effectPath of [
