@@ -157,12 +157,12 @@ test("a wolf's howl emote selects pet-howl; Savage Rend and other pets do not", 
 	state.step( { ...frame, seconds: 3 }, { failure: null }, published );
 	assert.equal( defined( state.idleStates.get( 1 ) ).posture, undefined );
 	// Rend plays through the bite's cast; 0xF0+ signals only draw effects.
-	for (
-		const [action, codename] of [ [ 5, "COS_P_WOLF_090" ], [ 1, "COS_P_BEAR_090" ], [ 0xf1, "COS_P_WOLF_090" ], [
-			0xf4,
-			"COS_P_WOLF_090"
-		] ]
-	) {
+	/** @type {[number, string][]} */
+	const signals = [ [ 5, "COS_P_WOLF_090" ], [ 1, "COS_P_BEAR_090" ], [ 0xf1, "COS_P_WOLF_090" ], [
+		0xf4,
+		"COS_P_WOLF_090"
+	] ];
+	for ( const [action, codename] of signals ) {
 		entity.emote.action = action;
 		entity.emote.revision++;
 		body.codename = codename;

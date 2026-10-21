@@ -3625,9 +3625,7 @@ export function createCharacterEffects(
 								id: `pet-wolf:${gid}:${skill.revision}`,
 								path: cue.path,
 								gain: cue.gain,
-								x: (pose.regionId & 255) * 1920 + pose.x,
-								y: pose.y,
-								z: (pose.regionId >>> 8) * 1920 + pose.z,
+								...audioPosition( pose ),
 								expires: now + .25
 							} );
 						}
