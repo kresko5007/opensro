@@ -15,6 +15,7 @@ lifecycles that belong in separate owners (see the size ledger).
 
 ===========================================================================
 */
+import { penguinEffectParts, PENGUIN_EFFECT_SOUND } from "@/engine/foundation/animation/penguin-effects";
 import {
 	PET_BOND_TRANSFER_SOUND,
 	PET_BOND_REVIVE_SOUND,
@@ -3580,7 +3581,8 @@ export function createCharacterEffects(
 				for ( const entity of entities ) {
 					const action = entity.emote?.action ?? 0;
 					if (
-						!(entity.kind === "cos" && action >= 1 && action <= 6) && !(action >= 0xf0 && action <= 0xf4)
+						!(entity.kind === "cos" && action >= 1 && action <= 6) && !(action >= 0xf0 && action <= 0xf4) &&
+						!(action >= 0xd0 && action <= 0xd6)
 					) {
 						continue;
 					}
@@ -3604,20 +3606,31 @@ export function createCharacterEffects(
 				}
 				for ( const [gid, skill] of [ ...wolfSkills ] ) {
 					const entity = byGid.get( gid );
-					if ( !entity || entity.emote?.revision !== skill.revision ) {
+					const elapsed = Math.max( 0, now - skill.startedAt );
+					const frost = skill.action >= 0xd0 && skill.action <= 0xd6;
+					// Ground frost outlives its victim; retain the latched pose for its bounded lifetime.
+					if (
+						!frost && (!entity || entity.emote?.revision !== skill.revision) ||
+						!entity && elapsed >= WOLF_EFFECT_SECONDS
+					) {
 						wolfSkills.delete( gid );
 						continue;
 					}
-					const elapsed = Math.max( 0, now - skill.startedAt );
-					const parts = wolfEffectParts( skill.action );
-					const kind = wolfEffectKind( skill.action );
+					const parts = skill.action >= 0xd0 && skill.action <= 0xd6 ?
+						penguinEffectParts( skill.action ) :
+						wolfEffectParts( skill.action );
+					const kind = skill.action >= 0xd0 && skill.action <= 0xd6 ?
+						"victim" :
+						wolfEffectKind( skill.action );
 					// Keep the consumed revision until the entity leaves or a new emote arrives.
 					if ( elapsed >= WOLF_EFFECT_SECONDS ) continue;
 					const live = presentation.get( gid )?.pose ?? skill.pose;
 					// Victims keep where they were struck; a dead monster may already be gone.
 					const pose = kind === "victim" ? skill.pose : live;
-					const owner = entity.ownerGid !== undefined ? presentation.get( entity.ownerGid )?.pose : undefined;
-					const cue = WOLF_EFFECT_SOUND[skill.action];
+					const owner = entity?.ownerGid !== undefined ?
+						presentation.get( entity.ownerGid )?.pose :
+						undefined;
+					const cue = PENGUIN_EFFECT_SOUND[skill.action] ?? WOLF_EFFECT_SOUND[skill.action];
 					if ( !skill.sounded && cue && elapsed >= cue.at ) {
 						skill.sounded = true;
 						if ( elapsed - cue.at < .25 ) {
