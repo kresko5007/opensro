@@ -271,3 +271,13 @@ claim visual approval from that attempt. No new GM permission or DB changes.
 The user subsequently tested the updated appearance, approved it ("i like it"),
 and requested commit/push on the penguin rework branch. This is user visual
 acceptance; the agent's missed screenshot is not presented as captured evidence.
+
+### PR #1340 CI integration
+
+Merged current upstream main, preserving the frost kit and its counter packet.
+Retained upstream's wolf sound ownership fix and corrected owner-label encoding.
+Moved procedural effect construction out of the admission/cache owner to satisfy
+the maintained source-size limit, with its internal ownership declared.
+Local source-portable (15 gates), client source (5 gates), quick execution graph,
+36 focused client tests, action/companion Go tests and scoped Go lint pass.
+No game data or live server restart is part of this CI-only change.

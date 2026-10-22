@@ -31,7 +31,7 @@ import { trimToEffectBudget } from "@/engine/foundation/animation/effect-room";
 import {
 	WOLF_EFFECT_MAX_PARTS,
 	WOLF_EFFECT_SECONDS,
-	WOLF_EFFECT_SOUND,
+	wolfEffectSound,
 	wolfEffectKind,
 	wolfEffectParts
 } from "@/engine/foundation/animation/wolf-effects";
@@ -3648,7 +3648,7 @@ export function createCharacterEffects(
 					const owner = entity?.ownerGid !== undefined ?
 						presentation.get( entity.ownerGid )?.pose :
 						undefined;
-					const cue = PENGUIN_EFFECT_SOUND[skill.action] ?? WOLF_EFFECT_SOUND[skill.action];
+					const cue = PENGUIN_EFFECT_SOUND[skill.action] ?? wolfEffectSound( skill.action );
 					if ( !skill.sounded && cue && elapsed >= cue.at ) {
 						skill.sounded = true;
 						if ( elapsed - cue.at < .25 ) {

@@ -134,8 +134,8 @@ export function petOwnerStacks( state: PetTraining | undefined ) {
 			count,
 			maximum,
 			ready,
-			label: `Owner ${design.name}: ${count}/${maximum} â€” ${status}`,
-			helpText: `Owner Â· ${design.name}\n${count} / ${maximum}\n${status}\n` +
+			label: `Owner ${design.name}: ${count}/${maximum} — ${status}`,
+			helpText: `Owner · ${design.name}\n${count} / ${maximum}\n${status}\n` +
 				(design.family === "Blood Hunt" ?
 					"Shared prey mark. Rend the marked enemy; expires after 8 s. Switching prey resets charges." :
 					design.family === "Bloodscent" ?
