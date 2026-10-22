@@ -888,7 +888,7 @@ test("the quickslot bar asks again for a pet state lost to an early ask or a wor
 });
 
 test("penguin counters reject overflow atomically and expose ready Hourglass", () => {
-	const t = createPetTraining();
+	const t = createPetTraining( () => null );
 	t.receive( { opcode: OP_PET_TRAINING_STATE, payload: statePayload( [], [] ) }, 100 );
 	const packet = new Uint8Array( 20 );
 	new DataView( packet.buffer ).setUint32( 0, 0x2000001, true );

@@ -279,9 +279,13 @@ func (rt *Runtime) penguinAfterSpell(step petCombatStep, primary petCombatTarget
 		return nil
 	}
 	use := ts.uses[0]
-	for _, hit := range strikes {
-		if petStrikeDamaged(hit) {
-			rt.wolfEmote(step.key.division, hit.gid, 0xd0+use.skill.ID-31)
+	if use.skill.EffectName() == "Blizzard" {
+		rt.wolfEmote(step.key.division, primary.gid, 0xd0+use.skill.ID-31)
+	} else {
+		for _, hit := range strikes {
+			if petStrikeDamaged(hit) {
+				rt.wolfEmote(step.key.division, hit.gid, 0xd0+use.skill.ID-31)
+			}
 		}
 	}
 	if use.skill.EffectName() == "Blizzard" {

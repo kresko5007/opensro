@@ -14,6 +14,11 @@ import {
 import { assetRequestBudget } from "@/engine/foundation/assets/asset-budget";
 import { decodeNativeClip } from "@/engine/foundation/animation/native-clip";
 import { withBearRoar, withWolfHowl, withWolfRend } from "@/engine/foundation/animation/bear-roar";
+import {
+	PENGUIN_ICE_SHARD,
+	PENGUIN_ICE_LANCE,
+	PENGUIN_FROST_SIGIL
+} from "@/engine/foundation/animation/penguin-effects";
 import type { AssetOwner } from "@/engine/contracts/assets";
 import type { CharacterModel } from "@/engine/contracts/character";
 import type { Renderer } from "@/engine/contracts/runtime";
@@ -474,6 +479,90 @@ function createPetCounterRippleResource(): { model: CharacterModel; images: Nati
 
 /*
 ================
+createPenguinIceResource
+
+An original faceted crystal and a snowflake seal; no retail spell program.
+================
+*/
+function createPenguinIceResource(
+	sigil: boolean,
+	lance = false
+): { model: CharacterModel; images: NativeTexture[]; } {
+	const positions: number[] = [], normals: number[] = [], uvs: number[] = [], indices: number[] = [];
+	if ( sigil ) {
+		// Geometry bounds the frost ring; additive blending must never expose a rectangular card.
+		for ( let i = 0; i < 96; i++ ) {
+			const base = positions.length / 3;
+			for ( const angle of [ i * Math.PI / 48, (i + 1) * Math.PI / 48 ] ) {
+				for ( const radius of [ .88, .94 ] ) {
+					const x = Math.cos( angle ) * radius, z = Math.sin( angle ) * radius;
+					positions.push( x, 0, z );
+					normals.push( 0, 1, 0 );
+					uvs.push( (x + 1) / 2, (z + 1) / 2 );
+				}
+			}
+			indices.push( base, base + 2, base + 1, base + 1, base + 2, base + 3 );
+		}
+	} else {
+		for ( let i = 0; i < 6; i++ ) {
+			const a = i * Math.PI / 3, b = (i + 1) * Math.PI / 3;
+			for ( const tip of lance ? [ 4, -1.4 ] : [ 1.2, -.7 ] ) {
+				const base = positions.length / 3;
+				positions.push(
+					0,
+					0,
+					tip,
+					Math.cos( a ) * .3,
+					Math.sin( a ) * .3,
+					0,
+					Math.cos( b ) * .3,
+					Math.sin( b ) * .3,
+					0
+				);
+				for ( let j = 0; j < 3; j++ ) {
+					normals.push( Math.cos( (a + b) / 2 ), Math.sin( (a + b) / 2 ), tip > 0 ? .3 : -.3 );
+				}
+				uvs.push( .5, 0, 0, 1, 1, 1 );
+				indices.push( base, base + 1, base + 2 );
+			}
+		}
+	}
+	const size = sigil ? 128 : 16, pixels = new Uint8Array( size * size * 4 );
+	for ( let y = 0; y < size; y++ ) {
+		for ( let x = 0; x < size; x++ ) {
+			const u = (x + .5) / size, v = (y + .5) / size;
+			const dx = u * 2 - 1, dz = v * 2 - 1, radius = Math.hypot( dx, dz ), angle = Math.atan2( dz, dx );
+			const arm = Math.abs( Math.sin( angle * 3 ) ) * radius;
+			const rings = Math.exp( -Math.pow( (radius - .91) * 90, 2 ) ) +
+				.45 * Math.exp( -Math.pow( (radius - .77) * 90, 2 ) );
+			const snow = Math.exp( -Math.pow( arm * 90, 2 ) ) * Math.max( 0, 1 - radius / .7 );
+			const branches = Math.pow( Math.max( 0, Math.cos( angle * 6 + radius * 32 ) ), 16 ) *
+				Math.exp( -Math.pow( (radius - .46) * 9, 2 ) );
+			const glow = sigil ?
+				Math.min( 1, rings + snow + branches * .7 ) * (radius < 1 ? 1 : 0) :
+				.55 + .45 * Math.pow( 1 - Math.abs( u - .5 ) * 2, 3 );
+			pixels.set(
+				[
+					Math.round( 230 * glow ),
+					Math.round( 165 * glow ),
+					Math.round( 85 * glow ),
+					Math.round( glow * 255 )
+				],
+				(y * size + x) * 4
+			);
+		}
+	}
+	return buildProceduralEffectModel( positions, normals, uvs, indices, {
+		kind: "native-texture",
+		width: size,
+		height: size,
+		format: "bgra8unorm",
+		levels: [ pixels ]
+	} );
+}
+
+/*
+================
 createProceduralEffect
 
 Explicit calls keep effect execution visible to the capability contract.
@@ -481,6 +570,12 @@ Explicit calls keep effect execution visible to the capability contract.
 */
 function createProceduralEffect( path: string ) {
 	switch ( path ) {
+		case PENGUIN_ICE_SHARD:
+			return createPenguinIceResource( false );
+		case PENGUIN_ICE_LANCE:
+			return createPenguinIceResource( false, true );
+		case PENGUIN_FROST_SIGIL:
+			return createPenguinIceResource( true );
 		case "/assets/effects/pet-counter-ripple":
 			return createPetCounterRippleResource();
 		case "/assets/effects/iron-hide-shield":
@@ -501,7 +596,11 @@ createCharacterResources
 Own one decode reservation and a bounded cache of admitted character sources.
 ================
 */
-export function createCharacterResources( assets: AssetOwner, renderer: Renderer, origin: string ) {
+export function createCharacterResources(
+	assets: AssetOwner,
+	renderer: Pick<Renderer, "setCharacterModel" | "setCharacterAnimation" | "retainCharacterModels">,
+	origin: string
+) {
 	const durations = new Map<string, ReadonlyMap<string, number>>();
 	const loaded = new Set<string>(), wanted = new Set<string>(), planned = new Set<string>();
 	const costs = new Map<string, number>();

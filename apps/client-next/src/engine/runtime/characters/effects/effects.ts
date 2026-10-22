@@ -15,7 +15,11 @@ lifecycles that belong in separate owners (see the size ledger).
 
 ===========================================================================
 */
-import { penguinEffectParts, PENGUIN_EFFECT_SOUND } from "@/engine/foundation/animation/penguin-effects";
+import {
+	createPenguinBolts,
+	penguinEffectActors,
+	PENGUIN_EFFECT_SOUND
+} from "@/engine/foundation/animation/penguin-effects";
 import {
 	PET_BOND_TRANSFER_SOUND,
 	PET_BOND_REVIVE_SOUND,
@@ -462,6 +466,7 @@ export function createCharacterEffects(
 			shockCoreGid: number;
 		}
 	>();
+	const penguinBolts = createPenguinBolts( allocate );
 	// Wolf Hunting Howl (actions 1..3) and Savage Rend (4..6) on the wolf's GID.
 	const wolfSkills = new Map<
 		number,
@@ -2025,6 +2030,21 @@ export function createCharacterEffects(
 					}
 				}
 				const result: CharacterActor[] = [];
+				const penguin = gameplay?.petTraining?.skills.some( skill => skill.id >= 31 && skill.id <= 45 ) ?
+					gameplay.petTraining.gid :
+					0;
+				for (
+					const actor of penguinBolts.step(
+						gameplay?.casts ?? [],
+						penguin,
+						byGid,
+						presentation,
+						now,
+						gameplay?.petTraining?.skills.find( skill => skill.queued )?.id ?? 0
+					)
+				) {
+					if ( ready( actor.model ) ) result.push( actor );
+				}
 				// Port-only: quiet Resolve ring follows the bear; never changes its action.
 				for ( const entity of byGid.values() ) {
 					const resolve = entity.petResolve;
@@ -3616,9 +3636,7 @@ export function createCharacterEffects(
 						wolfSkills.delete( gid );
 						continue;
 					}
-					const parts = skill.action >= 0xd0 && skill.action <= 0xd6 ?
-						penguinEffectParts( skill.action ) :
-						wolfEffectParts( skill.action );
+					const parts = frost ? [] : wolfEffectParts( skill.action );
 					const kind = skill.action >= 0xd0 && skill.action <= 0xd6 ?
 						"victim" :
 						wolfEffectKind( skill.action );
@@ -3650,6 +3668,12 @@ export function createCharacterEffects(
 								periodMs: 20
 							} );
 						}
+					}
+					if ( frost ) {
+						for ( const actor of penguinEffectActors( skill.action, elapsed, pose, skill.gids ) ) {
+							if ( ready( actor.model ) ) result.push( actor );
+						}
+						continue;
 					}
 					// A short blood-red flare at the strike, a slower one for the howl.
 					const glow = kind === "howl" ?
@@ -3996,6 +4020,7 @@ export function createCharacterEffects(
 			hwan.clear();
 			roars.clear();
 			wolfSkills.clear();
+			penguinBolts.reset();
 			roarAppearances.clear();
 			shields.clear();
 			spiritRings.clear();
@@ -4042,6 +4067,7 @@ export function createCharacterEffects(
 			roars.clear();
 			wolfSkills.clear();
 			roarAppearances.clear();
+			penguinBolts.reset();
 			shields.clear();
 			statuses.clear();
 			cameraEvents.length = 0;

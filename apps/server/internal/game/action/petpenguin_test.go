@@ -15,6 +15,7 @@ import (
 	"opensro.online/server/internal/game/combat"
 	"opensro.online/server/internal/game/companion"
 	"opensro.online/server/internal/game/enterworld"
+	"opensro.online/server/internal/game/item/wire"
 	"opensro.online/server/internal/game/world/monster"
 	"opensro.online/server/internal/game/world/simulation"
 )
@@ -483,5 +484,36 @@ func TestPenguinEchoFrozenKillStillShattersWithoutProgress(t *testing.T) {
 	}
 	if step.state.penguin.stacks != [2]uint8{} || step.state.penguin.hourglass != 0 {
 		t.Fatal("echo fed counters")
+	}
+}
+
+/*
+================
+TestPenguinBlizzardPublishesOneField
+================
+*/
+func TestPenguinBlizzardPublishesOneField(t *testing.T) {
+	rt, clock, c, mob := penguinFixture(t)
+	learnPetBook(t, c, 36)
+	at := simulation.Spawn{RegionID: mob.Spawn.RegionID, X: mob.Spawn.X + 10, Y: mob.Spawn.Y, Z: mob.Spawn.Z}
+	wolfSpawnAt(t, rt, c, at, clock.NowMs())
+	rt.HandleCosCommand(testDivision, c, binary.LittleEndian.AppendUint32(trainingCommand(c.ActiveCOS.GID, petTrainingUse, 36), mob.Gid))
+	frames := tickPetCombat(t, rt, clock, 200, func() bool { return !companion.RowReady(&c.ActiveCOS.Training, 1, clock.NowMs()) })
+	clock.now = clock.now.Add(100 * time.Millisecond)
+	for _, batch := range rt.TickHook()(clock.NowMs()) {
+		frames = append(frames, batch.Frames...)
+	}
+	found := false
+	for _, frame := range frames {
+		if frame.Opcode != wire.OpActionEmote || len(frame.Payload) != 5 || frame.Payload[4] != 0xd5 {
+			continue
+		}
+		if binary.LittleEndian.Uint32(frame.Payload) != mob.Gid {
+			t.Fatal("secondary victim created a duplicate Blizzard field")
+		}
+		found = true
+	}
+	if !found {
+		t.Fatal("Blizzard field signal missing")
 	}
 }

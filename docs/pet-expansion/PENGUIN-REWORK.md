@@ -31,8 +31,9 @@ owner charging and duration extension. Balance remains provisional.
 - Ordinary-world PvE only: no player targets, job/free-battle or instanced-world
   bonuses. The living owner and penguin must remain within 20 m, outside town.
 - The penguin approaches only to its 15 m casting reach. Actions have a 600 ms
-  windup. It retains its retail model and attack pose; frost effects and sounds
-  reuse published wizard resources.
+  windup. It retains its retail model and attack pose. Small original ice-bolt
+  meshes fly from the penguin; Blizzard uses an original snowflake seal with
+  spiralling falling crystals. Sounds still reuse published frost WAVs.
 - One successful action grants one counter increment, regardless of victims
   or multiple impacts. Storm repeat pulses and echoed spells grant no charges.
 - A full Resonance pool is spent only on the penguin's next active. The owner
@@ -59,9 +60,11 @@ Other pets retain their previous wire shape. Malformed counters are rejected
 atomically. Skill and owner buff icons display counters and a ready highlight.
 
 Native emote signals D0–D2 identify Lance; D3–D5 identify Blizzard; D6 is
-Shatter. The existing bounded effect lane consumes these target-anchored
-signals. No PK2 files are modified. The new renderer uses already-published
-`wizard_cold_bolt_b.efp`, `wizard_cold_snow_b.efp`, and wizard frost WAVs.
+Shatter. Blizzard signals only the primary target, so an area hit draws one
+stationary field rather than one overlapping storm per victim. The existing
+bounded effect lane consumes these target-anchored signals. No PK2 files are
+modified. `/assets/effects/penguin-ice-shard` and `penguin-frost-sigil` are
+generated meshes/textures owned by the client; wizard frost WAVs remain reused.
 
 ## Verification checkpoint — 2026-10-21
 
@@ -195,3 +198,76 @@ LabPetTest is alive in Hotan, region 23687, x1138/y250/z153, HP13226;
 LabPenguin HP16945. GM revocation was checked in the DB and by a refused
 command after a fresh login. Combat/test sockets are closed. All source remains
 uncommitted on `feat/attack-pet-penguin-rework`.
+
+### Original frost visuals â€” 2026-10-22 (after commit61ddd70f)
+
+User requested a distinctive Blizzard and small flying ranged ice bolts.
+Implemented original faceted crystal geometry and a cyan snowflake seal in the
+existing procedural resource factory: no PK2 changes or copied wizard snowstorm.
+The field rotates/pulses for4 seconds with12 falling spiralling crystals, then
+expires. Ice Lance/Shatter use smaller radial crystal bursts. Basic attacks and
+authored actives using native penguin attack row25303 draw a small bolt from
+the local trained penguin, with separate cast-token ownership for echoes.
+Feature-off/no trained pet/canceled casts do not shoot. Reset/dispose clears
+projectiles; casts/actors are bounded. The original penguin body/attack clip and
+existing frost sounds are retained. Combat damage/range/cooldowns are unchanged.
+
+Fixed duplicate Blizzard visuals: emit one field signal on the primary target,
+not a stock storm on each victim. TestPenguinBlizzardPublishesOneField failed
+before that correction and passes after. The current private-owner HP/freeze
+fix from the previous pass remains intact.
+
+Checks:34 focused client tests pass; production TS and the test-type ratchet
+pass (no new errors; existing test debt remains). Action/companion tests and
+server lint0 pass. Formatting/diff, capability and execution-flow checks pass.
+verify:quick still stops at the preexisting wolf-effects.ts shared-module-state
+warning; no claim that the complete gate or cgo race passed.
+
+Deployed Agentv1/GameWorldv4, healthy, with original GM allowlist unchanged
+(global-official:asd2); no new GM grants. The dev client does not hot-replace
+existing game effects: reload it to load changed source. The first UI test was
+on the old cached snow effect and is NOT evidence for the new visuals. After
+reload, a clean new-field/bolt screenshot was not obtained; final visual approval
+remains pending. Do not mark this pass visually accepted merely from unit tests.
+
+UI safety: LabPetTest died while idle among Eastern Hotan Bunwangs during the
+reload/testing period. Used one existing100% resurrection scroll, one HP potion
+and one normal Return Scroll through game UI, then confirmed alive in Hotan
+Kingdom (X113/Y15), still level90, naturally healing. No DB rewrites or EXP
+resets. Do not leave the character idle in an aggressive nest during source
+work. The browser is accessible again via CUA; previous URL-policy blocker is
+not current. No injected runtime/debug globals were used.
+
+These visual changes are uncommitted on feat/attack-pet-penguin-rework. Keep
+unrelated dirty WOLF-REWORK.md out of any penguin commit. Live gameplay acceptance
+from the earlier report remains valid; next is user visual review of the freshly
+loaded custom effects. Do not replay the completed temporary GM tests.
+
+### Follow-up: rectangular frost cards and identical Lance (2026-10-22)
+
+User screenshots confirmed the custom effects loaded, but exposed blue rectangular
+backing and identical basic/Lance projectiles. Removed ground cards from every
+non-storm impact. Blizzard now uses an actual 96-segment annulus, with no center
+or corner geometry; transparent texture pixels also have zero RGB. Smaller,
+blue-tinted falling crystals replace the oversized white diamonds. Bear materials
+and effects are untouched.
+
+Ice Lance now uses a separately authored elongated crystal spear and three fading
+trail shards. Basic attacks retain a small bolt. The local training queue is
+latched when the native cast token arrives, before release clears it; a nearby
+result-only echo on the same target inherits the admitted Lance appearance.
+No damage, timing, cooldown or protocol change was needed. The original penguin
+body attack clip remains; this change differentiates the spell projectile.
+
+35 focused client tests pass, including ring-only geometry, transparent corners,
+no impact cards, queued Lance vs basic/Blizzard, queue clearing and echo lifetime.
+Production TypeScript, test-type ratchet (no new errors) and diff checks pass.
+verify:quick still stops on the existing wolf-effects.ts ownership warning.
+
+Client reloaded at http://127.0.0.1:5180/. Bound Ice Lance III to previously empty
+quickslot9; Blizzard III remains on6. One ordinary Small Bunwang died during the
+Blizzard test, but the short-lived field was missed by screenshot capture: do not
+claim visual approval from that attempt. No new GM permission or DB changes.
+The user subsequently tested the updated appearance, approved it ("i like it"),
+and requested commit/push on the penguin rework branch. This is user visual
+acceptance; the agent's missed screenshot is not presented as captured evidence.
