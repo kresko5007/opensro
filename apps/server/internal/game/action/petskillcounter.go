@@ -28,7 +28,7 @@ func petSkillCounterFrame(state *petSession, gid uint32) wire.Frame {
 		return wire.Frame{}
 	}
 	pet := state.character.CompanionByGID(gid)
-	if pet == nil || companion.PetKind(pet.Codename) == "" {
+	if pet == nil || pet.BroodStage != 0 || companion.PetKind(pet.Codename) == "" {
 		return wire.Frame{}
 	}
 	attacks, bear, owner, resolve := 0, 0, 0, uint8(0)
@@ -45,6 +45,9 @@ func petSkillCounterFrame(state *petSession, gid uint32) wire.Frame {
 	payload := wire.NewWriter(20).U32(pet.GID).U8(uint8(attacks)).U8(uint8(bear)).U8(uint8(owner)).U8(resolve).U8(wolf).U8(ownerExecute).U8(blood).U8(ownerBlood).U8(hunt).U32(target).Payload()
 	if companion.PetKind(pet.Codename) == "Penguin" {
 		payload = append(payload, state.penguin.stacks[0], state.penguin.stacks[1], state.penguin.hourglass)
+	}
+	if companion.PetKind(pet.Codename) == "Crow" {
+		payload = append(payload, wire.NewWriter(5).U8(0).U32(0).Payload()...)
 	}
 	return wire.Frame{Opcode: petSkillCounterOpcode, Payload: payload}
 }

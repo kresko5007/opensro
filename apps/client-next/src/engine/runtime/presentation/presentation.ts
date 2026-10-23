@@ -99,7 +99,8 @@ export function createPresentation() {
 					bytes = 0;
 				} else if ( event.kind === "travel" ) nextTravel = { ...event.travel };
 				else if (
-					event.kind === "item-effect" || event.kind === "level-up" || event.kind === "system-effect" ||
+					event.kind === "pet-crow-effect" || event.kind === "item-effect" || event.kind === "level-up" ||
+					event.kind === "system-effect" ||
 					event.kind === "orb-feedback" ||
 					event.kind === "orb-clear" || event.kind === "orb-gauge"
 				) nextOrbs.push( event );

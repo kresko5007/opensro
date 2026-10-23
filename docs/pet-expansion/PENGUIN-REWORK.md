@@ -50,7 +50,7 @@ owner charging and duration extension. Balance remains provisional.
   secondary damage cannot recursively trigger another Shatter.
 - Resonance/Hourglass progress and storms are session state; they are not saved
   to the database. Separation, death, unsummoning, logout or eligibility loss
-  clear them. Unslotting clears that passive's progress. No schema migration.
+  clear them. Refunding the passive clears its progress; the highest learned book is always active. No schema migration.
 
 ## Client contract and resources
 
