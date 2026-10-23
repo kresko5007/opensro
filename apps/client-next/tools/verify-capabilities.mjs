@@ -108,6 +108,7 @@ export const rules = {
 		runtime + "platform/telemetry.ts",
 		uiBridge,
 		runtime + "platform/ui/cursor.ts",
+		runtime + "platform/ui/drag-shield.ts",
 		bugRecorder,
 		bugDialog,
 		bugTrimmer
@@ -189,6 +190,10 @@ export const rules = {
 		device,
 		uiBridge,
 		runtime + "platform/ui/cursor.ts",
+		// The drag shield's gesturestart refusal, live only while a drag runs (GH #1242).
+		runtime + "platform/ui/drag-shield.ts",
+		// A touch tap's held hover ends on the next touch, wheel or scroll (GH #1243).
+		runtime + "platform/ui/touch-inspect.ts",
 		bugReport,
 		bugDialog,
 		bugTrimmer,

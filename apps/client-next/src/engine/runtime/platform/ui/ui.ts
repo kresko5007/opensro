@@ -16,12 +16,9 @@ focus from a disabled element and never returns it.
 */
 import type { UiBridge, UiControl, UiEvent, UiSemantics } from "@/engine/contracts/ui";
 import { createLayoutKeys } from "@/engine/foundation/ui/layout-keys";
-// The title screen's login edits, the only controls a password manager may
-// save or fill. Value is the autocomplete token that identifies the field.
-const LOGIN_AUTOCOMPLETE: Readonly<Record<string, string>> = {
-	account: "username",
-	password: "current-password"
-};
+import { configureCredentialHints } from "./credential-hints";
+import { createDragShield } from "./drag-shield";
+import { createTouchInspection } from "./touch-inspect";
 const INPUT_FONT_PIXELS = 12;
 const TOUCH_HOLD_MS = 500;
 const TOUCH_HOLD_SLOP_PIXELS = 8;
@@ -29,27 +26,6 @@ const TOUCH_CLICK_HISTORY = 32;
 // A browser that sends both the Mac Ctrl+click contextmenu and a click sends
 // them together; a later Ctrl+click on the slot is a new gesture.
 const MAC_CTRL_CLICK_WINDOW_MS = 1000;
-/*
-================
-configureCredentialHints
-
-Password managers ignore autocomplete="off", so every other edit (stat-point
-inputs and the like) carries the vendor opt-outs for 1Password, LastPass,
-Bitwarden and Dashlane; otherwise clicking one offers to save a login.
-================
-*/
-function configureCredentialHints( element: HTMLInputElement, id: string ): void {
-	const token = LOGIN_AUTOCOMPLETE[id];
-	if ( token ) {
-		element.autocomplete = token as AutoFill;
-		return;
-	}
-	element.autocomplete = "off";
-	element.setAttribute( "data-1p-ignore", "true" );
-	element.setAttribute( "data-lpignore", "true" );
-	element.setAttribute( "data-bwignore", "true" );
-	element.setAttribute( "data-form-type", "other" );
-}
 /*
 ================
 createUiBridge
@@ -74,6 +50,7 @@ export function createUiBridge(
 	message.style.cssText = "position:absolute;width:1px;height:1px;clip-path:inset(50%);overflow:hidden";
 	root.append( message );
 	document.body.append( root );
+	const dragShield = createDragShield( lifetime.signal ); // GH #1242 drag-lifetime gesture shield
 	// Each control element and the layout this bridge last wrote to it: the
 	// bridge is the only writer, so it compares numbers instead of reading the
 	// element's style back (a CSSOM read and string per control per present).
@@ -159,8 +136,8 @@ export function createUiBridge(
 		if (
 			press && press.event.pointerId === event.pointerId &&
 			(Math.hypot( event.clientX - press.event.clientX, event.clientY - press.event.clientY ) >
-					TOUCH_HOLD_SLOP_PIXELS ||
-				current( document.elementFromPoint( event.clientX, event.clientY ) )?.element !== press.element)
+					TOUCH_HOLD_SLOP_PIXELS || drag?.pointer !== event.pointerId && // Captured: shield owns geometry.
+					current( document.elementFromPoint( event.clientX, event.clientY ) )?.element !== press.element)
 		) cancelTouchHold();
 	}, { capture: true, signal: lifetime.signal } );
 	for ( const name of [ "pointerup", "pointercancel" ] as const ) {
@@ -194,6 +171,7 @@ export function createUiBridge(
 		if ( drag && event.pointerId !== drag.pointer ) return;
 		const completed = drag;
 		drag = null;
+		dragShield.set( false );
 		if ( completed?.moved ) {
 			suppressClick = completed.id;
 			const [x, y] = uiPoint( event );
@@ -566,6 +544,9 @@ export function createUiBridge(
 			current( document.elementFromPoint( event.clientX, event.clientY ) )?.element !== press.element
 		) return;
 		activatePrimary( press.element, event, true );
+		// Port-only (#1243): the tap also inspects; its action above is unchanged.
+		const tapped = current( press.element );
+		if ( tapped?.value.inspect && !tapped.value.disabled ) touchInspection.inspect( tapped.value.id );
 	}, { signal: lifetime.signal } );
 	/*
 	================
@@ -673,6 +654,16 @@ export function createUiBridge(
 		reportedHover = id;
 		emit( { kind: "hover", id } );
 	}
+	// Port-only (#1243): a touch tap's held hover. Registered here so its
+	// capture pointerdown runs after the carry and touch-hold ones above.
+	const touchInspection = createTouchInspection( {
+		signal: lifetime.signal,
+		hoverAt: target => hoverId( current( target ) ),
+		inspectable: id => !!controls.get( id )?.value.inspect && !controls.get( id )?.value.disabled,
+		report: id => {
+			if ( id !== reportedHover ) reportHover( id );
+		}
+	} );
 	window.addEventListener( "pointermove", event => {
 		pointerAt = [ event.clientX, event.clientY ];
 	}, { signal: lifetime.signal, passive: true } );
@@ -684,21 +675,30 @@ export function createUiBridge(
 	================
 	*/
 	function syncHover() {
-		if ( !pointerAt || drag ) return;
-		const slot = current( document.elementFromPoint( pointerAt[0], pointerAt[1] ) );
-		const id = slot && (!slot.value.disabled || slot.value.helpText) ? slot.value.id : null;
+		if ( touchInspection.sync() || !pointerAt || drag ) return;
+		const id = hoverId( current( document.elementFromPoint( pointerAt[0], pointerAt[1] ) ) );
 		if ( id !== reportedHover ) reportHover( id );
 	}
+	/*
+	================
+	hoverId
+
+	The hover a pointer on this control reports: a disabled control still
+	reports one when it has help text to show.
+	================
+	*/
+	function hoverId( slot: ReturnType<typeof current> ) {
+		return slot && (!slot.value.disabled || slot.value.helpText) ? slot.value.id : null;
+	}
 	root.addEventListener( "pointerover", event => {
+		if ( touchInspection.holds( event ) ) return;
 		const slot = current( event.target );
-		if ( slot !== current( event.relatedTarget ) ) {
-			reportHover( slot && (!slot.value.disabled || slot.value.helpText) ? slot.value.id : null );
-		}
+		if ( slot !== current( event.relatedTarget ) ) reportHover( hoverId( slot ) );
 	}, { signal: lifetime.signal } );
 	root.addEventListener( "pointerout", event => {
 		const next = current( event.relatedTarget );
 		if ( current( event.target ) !== next ) {
-			reportHover( next && (!next.value.disabled || next.value.helpText) ? next.value.id : null );
+			if ( !touchInspection.holds( event ) ) reportHover( hoverId( next ) );
 			emit( { kind: "press", id: null } );
 		}
 	}, { signal: lifetime.signal } );
@@ -715,6 +715,7 @@ export function createUiBridge(
 			slot.element.setPointerCapture( event.pointerId );
 			const [x, y] = uiPoint( event );
 			drag = { id: slot.value.id, pointer: event.pointerId, x, y };
+			dragShield.set( drag !== null && touchHold.pointers.has( drag.pointer ) );
 		}
 		if ( event.pointerType === "touch" && touchHold.pointers.size === 1 && slot.value.kind === "button" ) {
 			cancelTouchHold();
@@ -727,6 +728,7 @@ export function createUiBridge(
 				// A committed secondary action consumes the gesture, including later
 				// movement before release. It cannot also become an inventory drag.
 				if ( drag?.pointer === press.event.pointerId ) drag = null;
+				dragShield.set( drag !== null && touchHold.pointers.has( drag.pointer ) );
 				// Consume the eventual primary click even on a non-draggable icon.
 				suppressClick = slot.value.id;
 				activateSecondary( press.element, press.event );
@@ -745,6 +747,7 @@ export function createUiBridge(
 		if ( !slot ) return;
 		if ( rightPressed?.element === slot.element ) rightPressed = null;
 		if ( touchHold.press?.element === slot.element ) cancelTouchHold();
+		touchInspection.retire( id );
 		if ( carry?.id === id ) cancelCarry();
 		if ( drag?.id === id ) {
 			if ( slot.element.hasPointerCapture( drag.pointer ) ) slot.element.releasePointerCapture( drag.pointer );
@@ -767,6 +770,7 @@ export function createUiBridge(
 		*/
 		present( state: UiSemantics ) {
 			if ( lifetime.signal.aborted ) return;
+			dragShield.set( drag !== null && touchHold.pointers.has( drag.pointer ) );
 			// Identity belongs to the control instance, not its action. Two native
 			// controls may invoke the same close handler but must keep separate hits.
 			// Validate the whole publication before touching the previous semantic tree.
@@ -946,7 +950,8 @@ export function createUiBridge(
 				}
 				slot.value = control;
 			}
-			if ( hitLayoutChanged ) syncHover();
+			// A held inspection ends when its control loses the flag, which moves no hit box.
+			if ( hitLayoutChanged || touchInspection.active ) syncHover();
 			const request = state.focusRequest;
 			if ( request && request.revision !== focusRevision ) {
 				if ( request.id === null ) {
@@ -987,6 +992,7 @@ export function createUiBridge(
 			imeEnter = null;
 			lifetime.abort();
 			root.remove();
+			dragShield.dispose();
 			controls.clear();
 		}
 	};

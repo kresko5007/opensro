@@ -763,3 +763,18 @@ Final precommit validation: all12 client gates pass; full server tests pass.
 Repository source gates pass except the server race step: local Go reports
 `-race requires cgo` and no C compiler is available on PATH. Race detection
 remains unverified locally; no checker or hook was disabled.
+
+## Main merge — 2026-10-23
+
+Merged origin/main ee0c581f into the crow branch. Resolved overlapping penguin
+changes without restoring the retired crow kit or manual passive selection.
+Preserved main's stale-presentation behavior: crow one-shot effects drop from
+old hidden-tab batches, and crow packet events use the current journal time.
+A presentation regression test covers both stale suppression and live delivery.
+Canonical design was regenerated into its three consumers.
+
+Verification: all12 client gates pass (170.9s); full server tests pass (93.3s).
+All other repository source gates pass; race detection remains blocked locally
+by missing cgo/C compiler. No live server/DB upgrade or combat retest in this
+merge task; the running schema28 server remains unchanged. Deploying this branch
+still requires the documented offline schema29 upgrade. Wolf notes preserved.
