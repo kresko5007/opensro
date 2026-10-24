@@ -1,6 +1,6 @@
-# Character record fields owned by store schema 28 (persisted_shape_test.go).
-# Never edit after it ships: a new persisted field takes schema 29, its upgrade
-# step and character-fields-v29.txt.
+# Character record fields owned by store schema 29 (persisted_shape_test.go).
+# Never edit after it ships: a new persisted field takes schema 30, its upgrade
+# step and character-fields-v30.txt.
 accountId
 activeCos
 activeCos.codename
@@ -52,12 +52,9 @@ activeCos.training.gear[].refObjId
 activeCos.training.levels
 activeCos.training.passiveReadyAtMs
 activeCos.training.rows
-activeCos.training.rows[].capacity
-activeCos.training.rows[].charges
 activeCos.training.rows[].kind
 activeCos.training.rows[].left
 activeCos.training.rows[].readyAtMs
-activeCos.training.rows[].rechargeMs
 activeCos.training.slotted
 activeCos.training.treeVersion
 activeQuests
@@ -137,12 +134,9 @@ avatarInventory.rows[].summon.training.gear[].refObjId
 avatarInventory.rows[].summon.training.levels
 avatarInventory.rows[].summon.training.passiveReadyAtMs
 avatarInventory.rows[].summon.training.rows
-avatarInventory.rows[].summon.training.rows[].capacity
-avatarInventory.rows[].summon.training.rows[].charges
 avatarInventory.rows[].summon.training.rows[].kind
 avatarInventory.rows[].summon.training.rows[].left
 avatarInventory.rows[].summon.training.rows[].readyAtMs
-avatarInventory.rows[].summon.training.rows[].rechargeMs
 avatarInventory.rows[].summon.training.slotted
 avatarInventory.rows[].summon.training.treeVersion
 avatarInventory.rows[].tradeOwner
@@ -260,12 +254,9 @@ mercenaries[].training.gear[].refObjId
 mercenaries[].training.levels
 mercenaries[].training.passiveReadyAtMs
 mercenaries[].training.rows
-mercenaries[].training.rows[].capacity
-mercenaries[].training.rows[].charges
 mercenaries[].training.rows[].kind
 mercenaries[].training.rows[].left
 mercenaries[].training.rows[].readyAtMs
-mercenaries[].training.rows[].rechargeMs
 mercenaries[].training.slotted
 mercenaries[].training.treeVersion
 mercenarySummonUntilMs
@@ -318,12 +309,9 @@ missionInventory[].summon.training.gear[].refObjId
 missionInventory[].summon.training.levels
 missionInventory[].summon.training.passiveReadyAtMs
 missionInventory[].summon.training.rows
-missionInventory[].summon.training.rows[].capacity
-missionInventory[].summon.training.rows[].charges
 missionInventory[].summon.training.rows[].kind
 missionInventory[].summon.training.rows[].left
 missionInventory[].summon.training.rows[].readyAtMs
-missionInventory[].summon.training.rows[].rechargeMs
 missionInventory[].summon.training.slotted
 missionInventory[].summon.training.treeVersion
 missionInventory[].tradeOwner
@@ -407,6 +395,13 @@ world.authoredAreaReturn.x
 world.authoredAreaReturn.y
 world.authoredAreaReturn.z
 world.dungeonFloorIndex
+world.instanceReturn
+world.instanceReturn.angle
+world.instanceReturn.packedInstance
+world.instanceReturn.regionId
+world.instanceReturn.x
+world.instanceReturn.y
+world.instanceReturn.z
 world.lastDeathPoint
 world.lastDeathPoint.angle
 world.lastDeathPoint.regionId

@@ -1,6 +1,6 @@
-# Never edit after it ships: a new persisted field takes schema 29, its upgrade
-# guild record fields owned by store schema 28 (persisted_shape_test.go).
-# step and guild-fields-v29.txt.
+# guild record fields owned by store schema 29 (persisted_shape_test.go).
+# Never edit after it ships: a new persisted field takes schema 30, its upgrade
+# step and guild-fields-v30.txt.
 byte10
 crestParam
 foundedAtMs
@@ -59,12 +59,9 @@ storage.rows[].summon.training.gear[].refObjId
 storage.rows[].summon.training.levels
 storage.rows[].summon.training.passiveReadyAtMs
 storage.rows[].summon.training.rows
-storage.rows[].summon.training.rows[].capacity
-storage.rows[].summon.training.rows[].charges
 storage.rows[].summon.training.rows[].kind
 storage.rows[].summon.training.rows[].left
 storage.rows[].summon.training.rows[].readyAtMs
-storage.rows[].summon.training.rows[].rechargeMs
 storage.rows[].summon.training.slotted
 storage.rows[].summon.training.treeVersion
 storage.rows[].tradeOwner

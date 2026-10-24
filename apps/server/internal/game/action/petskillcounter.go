@@ -46,8 +46,5 @@ func petSkillCounterFrame(state *petSession, gid uint32) wire.Frame {
 	if companion.PetKind(pet.Codename) == "Penguin" {
 		payload = append(payload, state.penguin.stacks[0], state.penguin.stacks[1], state.penguin.hourglass)
 	}
-	if companion.PetKind(pet.Codename) == "Crow" {
-		payload = append(payload, wire.NewWriter(5).U8(0).U32(0).Payload()...)
-	}
 	return wire.Frame{Opcode: petSkillCounterOpcode, Payload: payload}
 }

@@ -86,14 +86,12 @@ a protocol error, never a partial one.
 			if ( frame.opcode === OP_PET_SKILL_COUNTERS ) {
 				const p = frame.payload;
 				if (
-					(p.length !== 8 && p.length !== 10 && p.length !== 12 && p.length !== 17 && p.length !== 20 &&
-						p.length !== 22) ||
+					(p.length !== 8 && p.length !== 10 && p.length !== 12 && p.length !== 17 && p.length !== 20) ||
 					p[4]! >= 40 ||
 					p[5]! >= 10 ||
 					p[6]! >= 10 || p[7]! > 10 ||
 					(p.length >= 10 && (p[8]! >= 7 || p[9]! >= 7)) ||
 					(p.length >= 12 && (p[10]! > 10 || p[11]! > 10)) ||
-					(p.length === 22 && p[17]! > 5) ||
 					(p.length === 20 && (p[17]! > 5 || p[18]! > 5 || p[19]! > 5)) ||
 					(p.length >= 17 &&
 						(p[12]! > 4 ||
@@ -108,15 +106,6 @@ a protocol error, never a partial one.
 						...state,
 						counters: {
 							attacks: p[4]!,
-							...(p.length === 22 ?
-								{
-									exposure: p[17]!,
-									markTarget: new DataView( p.buffer, p.byteOffset, p.byteLength ).getUint32(
-										18,
-										true
-									)
-								} :
-								{}),
 							...(p.length === 20 ?
 								{ penguinResonance: p[17]!, ownerResonance: p[18]!, hourglass: p[19]! } :
 								{}),

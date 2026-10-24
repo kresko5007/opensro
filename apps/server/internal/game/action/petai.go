@@ -430,6 +430,12 @@ func (rt *Runtime) advancePet(key petOwnerKey, nowMs int64) (output []simulation
 		rt.cancelPetCombat(key, state, nowMs)
 		return state.follower.Stop(nowMs)
 	}
+	if rt.TransportFollowTether && isVehicleCOS(ref.TidWord) {
+		// Port-only (transportfollow.go): the following transport holds
+		// its trader as a parked one does, from where it walks now.
+		state.tether = &simulation.Tether{Anchor: state.follower.Position(nowMs),
+			Range: simulation.TradeTransportTetherRange, Reason: simulation.TetherTradeTransport}
+	}
 	answerStuck = func() []simulation.Frame {
 		return rt.answerPetStuck(key, state, snapshot, cos, ref.TidWord, nowMs)
 	}
