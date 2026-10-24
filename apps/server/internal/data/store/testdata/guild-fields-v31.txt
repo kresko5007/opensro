@@ -1,6 +1,6 @@
-# Never edit after it ships: a new persisted field takes schema 29, its upgrade
-# guild record fields owned by store schema 28 (persisted_shape_test.go).
-# step and guild-fields-v29.txt.
+# guild-fields record fields owned by store schema 31 (persisted_shape_test.go).
+# Never edit after it ships: a new persisted field takes schema 32, its upgrade
+# step and guild-fields-fields-v32.txt.
 byte10
 crestParam
 foundedAtMs

@@ -1,6 +1,6 @@
-# Character record fields owned by store schema 28 (persisted_shape_test.go).
-# Never edit after it ships: a new persisted field takes schema 29, its upgrade
-# step and character-fields-v29.txt.
+# character-fields record fields owned by store schema 31 (persisted_shape_test.go).
+# Never edit after it ships: a new persisted field takes schema 32, its upgrade
+# step and character-fields-fields-v32.txt.
 accountId
 activeCos
 activeCos.codename
@@ -407,6 +407,13 @@ world.authoredAreaReturn.x
 world.authoredAreaReturn.y
 world.authoredAreaReturn.z
 world.dungeonFloorIndex
+world.instanceReturn
+world.instanceReturn.angle
+world.instanceReturn.packedInstance
+world.instanceReturn.regionId
+world.instanceReturn.x
+world.instanceReturn.y
+world.instanceReturn.z
 world.lastDeathPoint
 world.lastDeathPoint.angle
 world.lastDeathPoint.regionId

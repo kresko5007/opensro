@@ -1,6 +1,6 @@
-# Never edit after it ships: a new persisted field takes schema 29, its upgrade
-# ground-item record fields owned by store schema 28 (persisted_shape_test.go).
-# step and ground-item-fields-v29.txt.
+# ground-item-fields record fields owned by store schema 31 (persisted_shape_test.go).
+# Never edit after it ships: a new persisted field takes schema 32, its upgrade
+# step and ground-item-fields-fields-v32.txt.
 codename
 droppedAtMs
 droppedBy
