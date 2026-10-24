@@ -74,9 +74,8 @@ Client tests cover atomic packet rejection, reset, tooltip contents, recipient H
 readiness and display toggle. Action/companion suites and scoped Go lint pass;
 source-portable15 gates and client-source5 gates passed during this implementation.
 
-Local Nomad and Vite were stopped at the start of live verification. Restarted
-the same worktree Nomad data directory and preserved hub cluster/authority paths.
-Pet expansion remains on; original GM allowlist unchanged. No GM grants, item
+Live verification ran against the local stack; pet expansion on, the GM
+allowlist unchanged. No GM grants, item
 grants, character edits, schema migrations or drop-rate changes.
 
 Live verification resumed on 2026-10-22 after the user reloaded. World loading
@@ -85,20 +84,19 @@ Rebuilt the existing `guide` asset family from the supplied v1.150 assets:
 48 published files, one native-ui pack rebuilt; no source workaround or PK2 edit.
 World entry now succeeds.
 
-Live LabPetTest/LabCrow (both level 90), Tailwind III rank 1:
+Live test character/crow (both level 90), Tailwind III rank 1:
 - Stationary counter advanced to 10/10 and displayed "Stun ready".
 - A normal outgoing hit on a level-46 Ultra Blood Devil consumed all ten stacks.
 - Counter restarted and reached 10/10 again; character remained at full HP.
 - Skill tooltip, skill-icon counter and owner HUD render correctly.
-- Evidence: `E:/CodeProjects/SRO/outputs/pet-design-codex/tailwind-live.png`.
+- Evidence: local screenshot `tailwind-live.png` (not shipped).
 
 The target died on the first hit, so this does NOT visually prove the two-second
 stun. Incoming stun and independent two-client party behavior are covered by
 server tests but still need live acceptance. Next: use a surviving target for
 incoming/outgoing stun, then a second party client for independent stacks/range.
-No GM grant, DB edit, pet reset or item grant was used. LabBlader is unchanged.
-Client remains open with LabCrow summoned, Tailwind fully charged, full player HP,
-in Eastern Hotan near X588/Y228. Changes remain uncommitted.
+No GM grant, DB edit, pet reset or item grant was used. Changes remain
+uncommitted.
 
 ## Mana Spring — 2026-10-22
 
@@ -131,11 +129,11 @@ state. Client source gate passes all five checks, quick ownership/capability/
 execution checks pass, scoped Go lint reports zero issues. No new animations,
 GM permissions, item grants or DB changes. Live party acceptance remains pending.
 
-Deployment verified: Agent v0 and GameWorld v2 each have one healthy allocation.
-Logged back into LabPetTest with the matched client; saved Mana Spring III remains
+Deployment verified locally. Logged back in with the matched client; saved
+Mana Spring III remains
 selected and its new MP/party/500 ms tooltip is visible. Tailwind recharges after
-relog with the new fixed 5% per stack. UI evidence:
-`E:/CodeProjects/SRO/outputs/pet-design-codex/crow-mana-spring-live.png`.
+relog with the new fixed 5% per stack. UI evidence: local screenshot
+`crow-mana-spring-live.png` (not shipped).
 Live recovery/cooldown timing with a party has not been measured; server and
 client integration tests, including a real committed kill, verify those paths.
 
@@ -175,22 +173,22 @@ Tests cover all three books, exact instant/pulse boundaries and completion,
 crow healing, one-of-two poison/burn cleanse, party attenuation/range, cooldown
 refusal, unsummon cancellation, and preserved old healing command coverage.
 
-Deployment/live smoke: Agent v0, GameWorld v3, one healthy allocation each.
-Client resumed LabPetTest and preserved Plume III learned rank 1. Cast with no
+Deployment/live smoke on the local stack. Client resumed the test character
+and preserved Plume III learned rank 1. Cast with no
 selected enemy succeeded and all three books immediately displayed the shared
 20-second countdown. Updated effect/next-rank tooltip fits the existing skill
 panel. Player was full HP at casting, so this smoke test proves command/cooldown
 publication, not measured live healing amounts or two-client party acceptance.
-Those paths are covered by deterministic server tests. Evidence:
-`E:/CodeProjects/SRO/outputs/pet-design-codex/crow-plume-live.png`.
+Those paths are covered by deterministic server tests. Evidence: local
+screenshot `crow-plume-live.png` (not shipped).
 Source remains uncommitted; no GM/DB/item changes were made.
 
 ## Final live field verification and Claude handoff — 2026-10-22
 
-Used ordinary authenticated LabPetTest and BondParty sessions against the actual
-local GameWorld. User explicitly approved a bounded temporary GM grant for
-LabPetTest to spawn poison-capable level-40 scorpions. No native wire injection
-into runtime state or browser globals, and no new debug/GM capability was added.
+Used ordinary authenticated test sessions against the actual local server.
+A bounded temporary GM grant (owner-approved, since revoked) spawned
+poison-capable level-40 scorpions. No native wire injection into runtime
+state or browser globals, and no new debug/GM capability was added.
 
 Measured Plume III rank 1 (max player HP 13226, total heal 32%):
 - Party instant heal **1692 HP**, exactly floor(13226 * 0.32 * 0.5 * 0.8).
@@ -211,9 +209,9 @@ Measured Mana Spring III rank 1:
 - Party MP **6612 -> 6700**, correctly capped at maximum.
 - Owner received one private **500 ms** cooldown recovery; party received two.
   Owner's short buff reuse had expired before hit two. Independently inspected
-  saved server reuse: Fire imbue cast at 1792703568711, base reuse 5000 ms,
-  saved deadline **1792703572711** = cast + 5000 - 2*500. This proves authority
-  reuse changed, beyond just an icon/countdown packet.
+  the saved server reuse state: the 5000 ms base deadline sat exactly
+  2 x 500 ms early. This proves authority reuse changed, beyond just an
+  icon/countdown packet.
 
 Bug found and fixed: advanceTailwind inserted false entries into its changed
 map, then published every key. Party clients received unchanged packets every
@@ -221,30 +219,26 @@ map, then published every key. Party clients received unchanged packets every
 recipient publication on unchanged ticks. Action+companion suites pass after
 this fix. Previous client source gates and focused client tests also pass.
 
-Evidence (ignored local files, same worktree):
-- `.state/crow-live-evidence.py` rechecks recorded events without connecting to
-  or mutating the game; all assertions pass.
-- `.state/crow-live-evidence.json` contains concise measured results.
-- `.state/crow-owner-live.log` and `.state/crow-party-live.log` preserve timed
-  packets/events. Ordinary probe console is `.state/crow-party-live.mjs`.
-- `.state/crow-live-final-tests.log` is under apps/server/.state (Go suites).
+Evidence lives in ignored local scratch (not shipped): a recheck script that
+replays recorded events without connecting to or mutating the game (all
+assertions pass), concise measured results, timed packet/event logs for both
+sessions, and the Go suite logs.
 
 Cleanup and test incident:
-- Spawned GIDs **453247** (Red Scorpion) and **453268** (Strong Red Scorpion)
-  were explicitly killed; both native GM cleanup acknowledgements succeeded.
-- BondParty died while logs were being reviewed. Its 100% revival scroll
-  restored HP, but logging back in had cleared transient LastExpLoss, so EXP
-  was not refunded. This native transient-state behavior was not changed.
-- Stopped GameWorld before any DB write, took a SQLite backup at
-  `.state/crow-live-before-party-restore.sqlite`, and restored ONLY BondParty's
-  known **281672372 EXP** and its one consumed existing revival scroll. Verified
-  full **13226 HP**, SQLite quick_check OK, and recorded the transaction scope
-  in `.state/crow-party-restoration.json`. No schema/account/other-character
-  record changes. LabBlader remained untouched.
-- Original GM allowlist restored to **global-official:asd2** only. Nomad job
-  configuration confirms LabPetTest is absent. Agent v0 and GameWorld v6 are
-  healthy. `.state/crow-gm-lease.json` records cleanup complete. Do not replay
-  GM spawn commands without fresh authorization; this grant is finished.
+- The spawned test monsters (a Red Scorpion and a Strong Red Scorpion) were
+  explicitly killed; both native GM cleanup acknowledgements succeeded.
+- The party test character died while logs were being reviewed. Its 100%
+  revival scroll restored HP, but logging back in had cleared transient
+  LastExpLoss, so EXP was not refunded. This native transient-state behavior
+  was not changed.
+- The server was stopped before any DB write, a SQLite backup was taken, and
+  only that character's lost EXP and its one consumed existing revival scroll
+  were restored. Verified full HP and SQLite quick_check OK, with the
+  transaction scope recorded locally. No schema/account/other-character
+  record changes; other test characters remained untouched.
+- The GM allowlist was restored to its original single entry only; the
+  temporary grant is revoked and the cleanup ledger records it complete. Do
+  not replay GM spawn commands without fresh authorization.
 - Test protocol sessions have disconnected. Browser is being restored for the
   user. Source changes remain uncommitted; preserve unrelated WOLF-REWORK.md.
 
@@ -253,14 +247,14 @@ If extending tests, isolate field recipients or actively monitor HP; never leave
 an attacked test character idle while reviewing logs. No new animations were
 added in this verification pass.
 
-Final verification also reran scoped Go lint: zero issues
-(apps/server/.state/crow-live-final-lint.log). The browser resumed LabPetTest
-with full HP/MP and LabCrow summoned. Recalled the crow and used one ordinary
-Return Scroll to leave the combat field safely; no additional test attacks.
-Final UI evidence is at
-`E:/CodeProjects/SRO/outputs/pet-design-codex/crow-live-tested-restored.png`.
+Final verification also reran scoped Go lint: zero issues. The browser
+resumed the test character with full HP/MP and the crow summoned; the crow was
+recalled and one ordinary Return Scroll left the combat field safely, with no
+additional test attacks. Final UI evidence: local screenshot
+`crow-live-tested-restored.png` (not shipped).
 
-Safe final UI confirmed: LabPetTest is in Hotan Kingdom (region23687), full13226HP/6700MP, LabCrow summoned; nativeReturnScroll completed. Agentv0/GameWorldv6healthy, originalGMallowlistonlyasd2. Evidence crow-live-tested-restored.png. No live probes remain.
+Safe final UI confirmed: test character in town at full HP/MP, crow summoned,
+return scroll completed. No live probes remain.
 
 
 ## Exposing Mark and Guiding Feathers — 2026-10-22
@@ -312,7 +306,7 @@ Verification so far:
   caps, blocked-action retention, independent consumption, expiry and flag off.
 - Added malformed private-packet rejection/clear tests.
 - Race test unavailable: local Go reports `-race requires cgo`; not claimed run.
-- Live GameWorld v7: owner AND BondParty independently received Precision
+- Live: owner and the party test character independently received Precision
   1/2 stacks with +2/+4% hit ratio; both cleared after the 10-second refresh
   deadline. Native party invitation accepted. Two natural level-46 trees were
   killed by crow attacks. At full HP, both test clients logged out safely.
@@ -320,34 +314,36 @@ Verification so far:
   field acceptance is still PENDING, not inferred from unit tests. Requested
   fresh bounded GM permission to spawn a survivable test target; do not reuse
   the previous completed grant. No new GM grant has been applied.
-- Test travel consumed one ordinary reverse-return scroll from LabPetTest
-  (slot 13) to its saved field recall point. BondParty used HP potion(s) from
-  its existing slot 36 and Plume restored it to 13226 HP. Neither died.
-- Ignored live logs/helper: `.state/crow-kit-owner.log`, `crow-kit-party.log`,
-  `crow-kit-live.mjs`. Helper has no spawn/GM/kill commands in this run.
+- Test travel consumed ordinary consumables from existing inventory (a
+  reverse-return scroll, HP potions); Plume restored the party character to
+  full HP. Neither died.
+- Ignored live logs/helper are kept locally (not shipped); the helper has no
+  spawn/GM/kill commands in this run.
 - Preserve unrelated WOLF-REWORK.md; no commit/push requested.
 
 
 ### Follow-up live regression — 2026-10-23 (in progress)
 
-Fresh user approval granted temporary LabPetTest GM for durable test targets.
-Active cleanup ledger: `.state/crow-kit-gm-lease.json`; do not forget to revoke.
-GameWorld v8 contains the new rows, counters and teleport/retirement cleanup.
+Fresh owner approval granted a temporary test GM grant for durable test
+targets; a local cleanup ledger tracks it - do not forget to revoke. The
+deployed build contains the new rows, counters and teleport/retirement cleanup.
 
 New live results:
 - Guiding Feathers I rank10: 1..5 stacks, hit-ratio grant 6.5..32.5%; no party grant.
 - II rank10: 5 stacks /32.5%, successful learned Lightning cast1332 consumed pool.
-- III rank1: owner and BondParty reached 5 stacks /10% independently. Owner's
-  successful cast cleared only its pool; BondParty's pool remained until its own
-  expiry ~9s later. Native cast/damage packets decoded using product castPhase.
-- Exposing Mark III: logged native-compatible counter1,2,3,4,5 against453268;
-  owner Lightning hit contributed a charge. Mark cleared after original8s.
+- III rank1: owner and the party character reached 5 stacks /10% independently.
+  Owner's successful cast cleared only its pool; the party pool remained until
+  its own expiry ~9s later. Native cast/damage packets decoded using product
+  castPhase.
+- Exposing Mark III: logged native-compatible counter 1,2,3,4,5 against the
+  durable test target; owner Lightning hit contributed a charge. Mark cleared
+  after the original 8s.
 - Full Tailwind50% observed on both owner and party. Separate stun check pending.
 - Mana Spring III emitted owner+party500ms recovery during damaging crow actions;
   MP was restored after actual nativeFire imbue costs. Previous exact HP-debit
   and persisted-cooldown assertions still apply.
 - Plume I healed injured owner while leaving Poison16 active. Plume II restored
-  owner to13226HP and cleared Poison16->0 at1792731377641; crow34944->35490.
+  the owner to full HP and cleared Poison 16->0; the crow healed to full.
   Native later hits can reapply poison, correctly. Plume III also cast successfully;
   its exact party amounts were already measured in the previous live run.
 
@@ -356,29 +352,29 @@ Bug found: a remotely chasing crow could spend a queued Mark beyond its
 that mark until eligible. Regression checks nearby admission and range refusal;
 full Go suites and lint passed. This last guard still needs final deployment.
 
-Test setup: temporarily equipped LabPetTest's existing bow from slot32 for its
-already learned magic skill1332; no ammunition/new item or skill was granted.
-Two attempted ordinary learn requests correctly refused duplicate/lower ranks.
-Restore bow toslot32 before finishing. Preserve all characters and unrelated edits.
-Spawned target IDs452782,453267,453268,453269 were explicitly cleaned;453270
-remains only for finalTailwind check. Ledger is authoritative for final cleanup.
+Test setup used only gear and skills the test character already had (an
+existing bow for its already learned magic skill); no ammunition, item or
+skill was granted. Two attempted ordinary learn requests correctly refused
+duplicate/lower ranks. Preserve all characters and unrelated edits. Spawned
+test targets were explicitly cleaned and tracked in the local cleanup ledger,
+which is authoritative for final cleanup.
 
 
 ## Final verification and Claude continuation — 2026-10-23
 
-All requested rows implemented; no commit/push requested. User additionally asked
-for the whole crow kit to be tested after implementation. Evidence is read-only
-reproducible with `node .state/crow-kit-evidence.mjs`; all assertions pass.
-`.state/crow-kit-evidence.json` contains concise measured output. Native combat
-packets are decoded by the product's castPhase, not a guessed damage offset.
+All requested rows implemented; no commit/push requested. The whole crow kit
+was additionally tested end to end after implementation. Evidence is read-only
+reproducible with a local ignored script; all assertions pass, with concise
+measured output alongside. Native combat packets are decoded by the product's
+castPhase, not a guessed damage offset.
 
-Final added live result: recipient Tailwind reached10/50%. A native Lightning
-hit on453271 at1792731552842 applied Stun mask16384 and consumed owner stacks
-on the same frame. Status cleared at1792731554940 (~2.1s). This confirms the
-actual native status, beyond a counter or visual. ExposingMarkIII reached5
-at1792731304643; it cleared at1792731306443, preserving the original8-second
-lifetime from its first landed strike. Independent party Precision survived the
-owner's consumption and expired separately.
+Final added live result: recipient Tailwind reached 10/50%. A native Lightning
+hit applied Stun (mask 16384) and consumed owner stacks on the same frame;
+status cleared ~2.1s later. This confirms the actual native status, beyond a
+counter or visual. Exposing Mark III reached 5 stacks and cleared 8 s after
+its first landed strike, preserving the original 8-second lifetime.
+Independent party Precision survived the owner's consumption and expired
+separately.
 
 Whole-kit scope: all five rows exercised live. All three Guiding books tested
 live; MarkIII cap/expiry and earlier-book casts tested live. PlumeI/II now tested
@@ -394,8 +390,6 @@ skills are locked.
 A live edge case found/fixed: queued Mark could spend while chasing beyond20m,
 then fail its source validation after the hit. petApplyAction now defers that
 queued Mark until source eligibility is valid; targeted regression passes.
-The final source is built/deployed as GameWorldv9. Agent remainsv0.
-
 Validation this run:
 - Entire action+companion Go test suites: pass after the last code fix.
 - Scoped pinned golangci-lint: zero issues after the last code fix.
@@ -404,14 +398,13 @@ Validation this run:
 - Local race run was unavailable (`-race requires cgo`); no race/remote CI claim.
 
 Cleanup:
-- All six temporary monsters452782,453267,453268,453269,453270,453271 explicitly
-  cleaned via approved native GM commands (successful acknowledgements), including
-  a naturally defeated first target. `.state/crow-kit-gm-lease.json` now records
-  cleanupRequired=false and all IDs cleaned.
-- Nomad's final job environment independently verified: GM list is ONLY
-  `global-official:asd2`. LabPetTest grant revoked; never reuse unattended.
-- LabPetTest's existing bow restored toslot32; no new items/skills granted.
-  Both test characters verified13226HP. LabBlader untouched. No DB writes/schema
+- All six temporary spawned monsters were explicitly cleaned via approved
+  native GM commands (successful acknowledgements), including a naturally
+  defeated first target. The local cleanup ledger records cleanup complete.
+- Final environment independently verified: the GM list holds ONLY its
+  original entry. The temporary grant is revoked; never reuse unattended.
+- Borrowed gear restored; no new items/skills granted. Both test characters
+  verified at full HP; other test characters untouched. No DB writes/schema
   changes. Ordinary test combat can award normal EXP/drops; normal potion and
   travel consumables were used. One additional Return Scroll was attempted;
   session ended before town reentry, so do not claim town travel completed.
@@ -425,7 +418,10 @@ now implemented; future art/ranged feather work needs a separate request.
 
 Final UI reopened on v9, confirmed all three new book names. A normal Return Scroll is now being allowed to finish in the browser; do not count the earlier cancelled attempt as successful.
 
-Final UI verification: LabPetTest returned successfully to Hotan Kingdom, region23687, full13226HP/6700MP, LabCrow summoned, skill window displays Exposing MarkI/II/III and Guiding FeathersI/II/III. Evidence E:/CodeProjects/SRO/outputs/pet-design-codex/crow-kit-final-2026-10-23.png. Serverv9healthy, originalGMallowlistonlyasd2; no crow test processes remain.
+Final UI verification: the test character returned successfully to town at
+full HP/MP with the crow summoned; the skill window displays Exposing Mark
+I/II/III and Guiding Feathers I/II/III. Evidence: local screenshot
+`crow-kit-final-2026-10-23.png` (not shipped). No crow test processes remain.
 
 
 ## Stormbrood initial implementation checkpoint — superseded by acceptance below
@@ -455,12 +451,12 @@ exact egg name. Clones use the normal crow model. Transient Brood records are no
 persisted; deep snapshots and peer-only spawns preserve the real pet window.
 A monotonic owner generation protects reused egg slots from stale combat hits.
 
-Live bug fixed: dormant LabWolf shared GID33554434 with the summoned LabCrow.
+Live bug fixed: a dormant test wolf shared a GID with the summoned test crow.
 Lifecycle lookup previously selected the dormant wolf and never advanced eggs.
 It now resolves the summoned actor first; only missing-source cleanup searches
-dormant crow records. Actual hatch to Stormbrood Crow observed in GameWorldv16:
-E:/CodeProjects/SRO/outputs/pet-design-codex/stormbrood-hatched-2026-10-23.png.
-Final cap/generation build deployed healthy: Agentv2, GameWorldv18.
+dormant crow records. Actual hatch to Stormbrood Crow observed live; evidence:
+local screenshot `stormbrood-hatched-2026-10-23.png` (not shipped). Final
+cap/generation build deployed locally.
 
 Verification: full action/companion/domain Go suites pass; scoped lint zero issues.
 Client typecheck/ownership/capability/execution/layout gates pass;29 focused
@@ -472,22 +468,24 @@ confirmed; ten simultaneous live summons, full ten-minute field expiry and exact
 multi-client pet cooldown recovery are not claimed as field-tested. No race run
 (cgo unavailable), remote CI, commit or push.
 
-Cleanup complete: temporary three-charge fixture was restored with GameWorld
-stopped. Full backup apps/server/.state/brood-before-test.db; original recharge
-apps/server/.state/brood-recharge-backup.json; restoration marker
-apps/server/.state/brood-recharge-restored.txt. Do not restore the whole DB.
-GM allowlist remains only global-official:asd2. No outstanding temporary GM,
+Cleanup complete: the temporary three-charge fixture was restored from local
+backups with the server stopped. Do not restore the whole DB for this. The GM
+allowlist remains only its original entry. No outstanding temporary GM,
 spawned GM targets or test probes. Ordinary cast/combat progress remains.
 Preserve unrelated WOLF-REWORK.md edits. Next work: dedicated wind visual and
 additional field coverage if requested; inspect this checkpoint before old notes.
 
-Final v18 browser check: LabPetTest entered world with13226HP/6700MP, LabCrow intact. Normal StormbroodIII cast hatched successfully into Stormbrood Crow on the final ten-cap build. Proof E:/CodeProjects/SRO/outputs/pet-design-codex/stormbrood-final-v18.png. Left game open, South-Taklamakan X223/Y1582, no combat; no temporary grants.
+Final browser check on this build: the test character entered the world at
+full HP/MP with the crow intact. A normal Stormbrood III cast hatched
+successfully into a Stormbrood Crow on the final ten-cap build. Proof: local
+screenshot `stormbrood-final-v18.png` (not shipped). No temporary grants.
 
 ## Final Stormbrood cap, expiry and wind acceptance — 2026-10-23
 
-Runtime test ran against normal authenticated GameWorldv23 with a nearby browser
-observer, using real casts, real60s sequential charge recovery (rank10 with80%CDR),
-30s hatch and600s clone lifetimes. No product timing bypass or GM privileges.
+Runtime test ran against a normal authenticated local server with a nearby
+browser observer, using real casts, real 60s sequential charge recovery
+(rank 10 with 80% CDR), 30s hatch and 600s clone lifetimes. No product timing
+bypass or GM privileges.
 
 Measured results:
 - Ten eggs hatched into ten live clones concurrently. Browser showed13 nearby
@@ -521,29 +519,26 @@ scoped pinned golangci-lint0issues. Formatting, encoding and diff checks pass.
 No remoteCI or race-run claim. Live combat-killed clone burst damage was not
 retested in this field run; deterministic tests cover that path and tier gate.
 
-Evidence (local):
-- .state/brood-cap-live.jsonl — packet timestamps, spawns, charge state, refusal,
-  hatch/despawn and each position-bearing wind cue.
-- .state/brood-cap-status.json — done=true, failures=[], maxLive/eggs/hatches/
-  expired/winds all10; before/after cap charge both1.
-- .state/brood-client-check.log — final12-gate pass.
-- E:/CodeProjects/SRO/outputs/pet-design-codex/stormbrood-ten-live.png
-- E:/CodeProjects/SRO/outputs/pet-design-codex/crow-wind-soft-1.png
+Evidence (local, ignored, not shipped): packet/spawn/charge logs with each
+position-bearing wind cue; a status summary (done, no failures, max live /
+eggs / hatches / expired / winds all 10, cap charge 1 before and after); the
+final 12-gate client check log; screenshots `stormbrood-ten-live.png` and
+`crow-wind-soft-1.png`.
 
-Cleanup COMPLETE: GameWorld stopped before narrow DB restoration. Original
-LabCrow training (including IIIrank1, gear and charge row) restored from
-apps/server/.state/brood-cap-fixture.json; cleanupRequired=false. BondParty's
-original world/currentHp/currentMp restored from brood-observer-position.json.
-SQLite quick_checkOK; marker apps/server/.state/brood-cap-restored.txt. Full
-pretest DB backup retained as brood-cap-before-test.db; never restore the whole
-DB to undo this test. All ten transient actors expired before logout. No GM,
-monster spawns, new inventory items, account or schema changes. Preserve ordinary
-elapsed satiety/progress and unrelated character fields. Runtime restart verified healthy:
-Agentv2/GameWorldv25. Original crow ranks/gear and observer position independently
-verified from read-only DB after restart; no live test probe process remains.
-No commit/push requested. Preserve unrelated WOLF-REWORK.md changes.
+Cleanup complete: the server was stopped before a narrow DB restoration of
+the test crow's original training (including III rank 1, gear and charge row)
+and the observer's original position/vitals, from local fixtures; SQLite
+quick_check OK. A full pretest DB backup is retained locally; never restore
+the whole DB to undo this test. All ten transient actors expired before
+logout. No GM, monster spawns, new inventory items, account or schema
+changes. Preserve ordinary elapsed satiety/progress and unrelated character
+fields. Runtime restart verified; original crow ranks/gear and observer
+position independently verified from a read-only DB pass after restart; no
+live test probe process remains. No commit/push requested. Preserve unrelated
+WOLF-REWORK.md changes.
 
-Final client reopened successfully as LabPetTest with LabCrow,13226HP/6700MP, no target. Original crow training/gear restored. Agentv2/GameWorldv25healthy; all test probes ended.
+Final client reopened with the test character at full HP/MP, no target.
+Original crow training/gear restored; all test probes ended.
 
 ## Crow skill animations and 500% burst — 2026-10-23
 
@@ -581,22 +576,23 @@ Live owner Plume and egg cast effects observed; hatch succeeded and tooltip500%
 verified. New ManaSpring/Guiding party visuals were not separately field-tested
 this run (server effects/recipient tests and all render profiles pass).
 
-Field note: LabCrow was dead on reopening; revived normally using one existing
-Grass of life and resummoned. No direct DB changes/GM/fixture grants this run.
-Regular casts consumed normal reuse/charges. Pictures: crow-plume-feathers.png,
-crow-egg-feathers.png, crow-hatch-feathers-0.png under
-E:/CodeProjects/SRO/outputs/pet-design-codex/. The hatch picture predates final
-stock-column suppression; do not claim it proves that last cosmetic adjustment.
-Final deployment verified healthy: Agentv2/GameWorldv27. Uncommitted; no
-commit/push requested. Preserve unrelated WOLF-REWORK.md changes.
+Field note: the test crow was dead on reopening; revived normally using one
+existing Grass of Life and resummoned. No direct DB changes/GM/fixture grants
+this run. Regular casts consumed normal reuse/charges. Pictures (local, not
+shipped): `crow-plume-feathers.png`, `crow-egg-feathers.png`,
+`crow-hatch-feathers-0.png`. The hatch picture predates final stock-column
+suppression; do not claim it proves that last cosmetic adjustment. Final
+deployment verified locally. Uncommitted; no commit/push requested. Preserve
+unrelated WOLF-REWORK.md changes.
 
-Final field recovery: player died to roaming Devil Eyes during reconnect. Used
-one existing100%resurrection scroll, then one Return Scroll; no disconnect before
-EXP recovery. Read-only DB check confirms LabPetTest EXP281672372 exactly equals
-brood-cap-before-test.db baseline, level90. Final UI Hotan Kingdom,13226HP/6700MP,
-LabCrow alive/summoned. Picture crow-effects-final-safe.png. No GM/DB writes or
-fixture grants; normal test consumables used: one Grass of life, one100%revival
-scroll, one Return Scroll. Leave characters in town before future long checks.
+Final field recovery: the test character died to a roaming monster during
+reconnect. Used one existing 100% resurrection scroll, then one Return Scroll;
+no disconnect before EXP recovery. A read-only DB check confirms the
+character's EXP exactly equals the pretest baseline (level 90). Final UI: in
+town at full HP/MP, crow alive/summoned. Picture `crow-effects-final-safe.png`
+(local, not shipped). No GM/DB writes or fixture grants; normal test
+consumables used: one Grass of Life, one 100% revival scroll, one Return
+Scroll. Leave characters in town before future long checks.
 Final no-stock-column brood tweak passed lifecycle tests/lint; its dedicated hatch
 fan was not field-captured after that last tweak. All24cue/book render tests and
 packet validation pass. New Mana/Guiding party FX still need optional field review.
@@ -616,16 +612,14 @@ packet validation pass. New Mana/Guiding party FX still need optional field revi
   party/cooldown behavior, all three books charging in Hotan, the50% speed bonus,
   book III party charging, the combat town gate and feature-off cleanup.
 
-- Deployment: Agentv2/GameWorldv28 healthy. Full action/companion/domain suites,
-  scoped Go lint (zero issues), all12 client gates, formatting, encoding and diff
-  checks pass. Live Mana Spring III tooltip reads10%; screenshot:
-  `E:/CodeProjects/SRO/outputs/pet-design-codex/crow-mana-10-tooltip.png`.
-- Live character was already in Mystery Desert (X124/Y1502), not the previously
-  saved Hotan position. No town relocation, GM, fixture or DB edits were performed
-  for this change. Tailwind charging was visible in the field; safe-zone owner and
-  party charging/speed are automated Hotan tests, not a new live town acceptance.
-  Character remains in the user's current field session; do not assume it is safe
-  to leave unattended. No commit/push requested.
+- Deployment verified locally. Full action/companion/domain suites, scoped Go
+  lint (zero issues), all 12 client gates, formatting, encoding and diff checks
+  pass. Live Mana Spring III tooltip reads 10%; screenshot
+  `crow-mana-10-tooltip.png` (local, not shipped).
+- No town relocation, GM, fixture or DB edits were performed for this change.
+  Tailwind charging was visible in the field; safe-zone owner and party
+  charging/speed are automated town tests, not a new live town acceptance. No
+  commit/push requested.
 
 
 ## Distinct HP / MP cosmetics — 2026-10-23
@@ -640,10 +634,9 @@ stats or movement, and need no server restart or PK2 edits.
 
 All38 character-effect tests and all12 client gates pass, including red/blue tint,
 different paths, small-mote scale/opacity, transparent edges and expiry. Formatting,
-encoding and diff checks pass. Browser reloaded and native Plume cast accepted;
-no isolated live Mana Spring/party visual comparison this run. Existing field
-monsters were nearby; do not leave LabPetTest unattended. No fixture/GM/DB changes.
-Source uncommitted. Agentv2/GameWorldv28 unchanged.
+encoding and diff checks pass. Browser reloaded and a native Plume cast accepted;
+no isolated live Mana Spring/party visual comparison this run. No
+fixture/GM/DB changes. Source uncommitted; deployment unchanged.
 
 
 Final recovery-color correction: native unlit particles bypass material tint.
@@ -653,24 +646,25 @@ The shared feather geometry/detail remains unchanged for all other crow cues.
 Tests inspect actual texture channels as well as particle paths/lifetime/count;
 all12 client gates pass after this correction (32.6s). Browser reloaded final build.
 
-Live field check encountered an attacking Edimmu. Two native Plume casts plus one
-existing HP recovery potion protected LabPetTest; the crow killed its attacker.
-One existing Return Scroll returned the character to town alive at13226HP/6700MP;
-no death, GM/DB edits or fixture changes. Town Tailwind reached10/10 before final
+Live field check encountered an attacking monster. Two native Plume casts plus
+one existing HP recovery potion protected the test character; the crow killed
+its attacker. One existing Return Scroll returned the character to town alive
+at full HP/MP; no death, GM/DB edits or fixture changes. Town Tailwind reached
+10/10 before final
 refresh, also providing live safe-zone coverage for the preceding change. Final
 red/blue resources are renderer-tested; no new isolated live MP/party comparison.
 
 
 ## Live owner/party recovery visual test — 2026-10-23
 
-Used the existing BondParty character and normal crow casts/attacks against level
-45–46 Eastern Hotan monsters. No GM granted or monsters spawned. Consistent DB
-backup: `.state/crow-recovery-fx-before.db`; narrow fixture manifest:
-`.state/crow-recovery-fx-fixture.json` (cleanupRequired=false after restoration).
+Used the existing party test character and normal crow casts/attacks against
+level 45-46 field monsters. No GM granted or monsters spawned. A consistent
+local DB backup and a narrow fixture manifest were kept locally (cleanup
+complete after restoration).
 A clean character sign-out was necessary: resumed sessions retain their admitted
 entry snapshot and initially overwrote the temporary owner position.
 
-Live recorded assertions (`.state/crow-recovery-fx-evidence.json`):
+Live recorded assertions (local evidence JSON):
 - Red healing cues: owner18, party7. Party HP10303→11978 on first heal publication;
   subsequent pulses reached13226. Distinct recipient positions were published.
 - Blue mana cues: owner5, party1. Party MP6664→6700 on that hit (max-MP clamp).
@@ -684,14 +678,15 @@ Live recorded assertions (`.state/crow-recovery-fx-evidence.json`):
 - Existing38 effect tests and12 client gates already passed the exact final assets;
   no runtime code change was required during this test.
 
-LabCrow was dead before summoning; revived with one existing Grass of Life and
-left alive. No player death. Ordinary test kill rewards remain. After clean logout,
-only temporary world/currentHp/currentMp fields were restored for both players;
-learned crow ranks unchanged, DB quick_check=ok, observer disconnected, temporary
-party ended. LabPetTest restored to Hotan/full13226HP/6700MP. No commit/push asked.
-Screenshots: `E:/CodeProjects/SRO/outputs/pet-design-codex/crow-red-party-live.png`
-and `crow-blue-party-live.png` / `crow-blue-party-live-2.png`; do not treat a single
-still image as proof of the full timed effect. Backup/probe files are ignored.
+The test crow was dead before summoning; revived with one existing Grass of
+Life and left alive. No player death. Ordinary test kill rewards remain. After
+clean logout, only temporary position/vitals fields were restored for both
+players; learned crow ranks unchanged, DB quick_check OK, observer
+disconnected, temporary party ended. The test character was restored to town
+at full HP/MP. No commit/push asked. Screenshots (local, not shipped):
+`crow-red-party-live.png`, `crow-blue-party-live.png`,
+`crow-blue-party-live-2.png`; do not treat a single still image as proof of
+the full timed effect. Backup/probe files are ignored.
 
 
 ## Recovery visual redesign — 2026-10-23
@@ -709,15 +704,15 @@ materials now preserve texture alpha and use straight-alpha blending, keeping th
 colors legible over bright ground. No shared renderer/native material behavior
 was altered. Still12 actors maximum per cue,1.2s lifetime, bounded existing queue.
 
-Verified in the actual production renderer using an ignored, isolated preview
-`.state/crow-wisp-preview.html` importing the real resources and effect controller;
-no game session, DB fixture or synthetic network packets involved. Saved proof:
-`E:/CodeProjects/SRO/outputs/pet-design-codex/crow-recovery-wisps-preview.png`.
+Verified in the actual production renderer using an ignored, isolated local
+preview page importing the real resources and effect controller; no game
+session, DB fixture or synthetic network packets involved. Saved proof:
+`crow-recovery-wisps-preview.png` (local, not shipped).
 All12 client gates pass (31.1s), including typechecks and the recovery tests pinning
 color channels, alpha-fade policy, actor size/count, different paths and expiry.
-Formatting, encoding and diff checks pass. Game refreshed for user review; no new
-field/party combat test after this visual-only redesign. Agentv8/GameWorldv36 remain.
-No new dependency, PK2 edit, database mutation, server restart, commit or push.
+Formatting, encoding and diff checks pass. Game refreshed for review; no new
+field/party combat test after this visual-only redesign. No new dependency,
+PK2 edit, database mutation, server restart, commit or push.
 
 
 ## Automatic passive tiers — 2026-10-23
@@ -735,14 +730,15 @@ one highest-book wire flag, downgrade rejection and refund cleanup. Fixtures now
 remove ranks when testing unlearning rather than toggle passive selections.
 Player/operator/site guides updated. Source uncommitted.
 
-Validation: full action/companion suites pass, scoped lint zero issues, all12 client
-gates pass (114.4s), formatting/encoding/diff checks pass. Agentv8/GameWorldv37
-healthy; client refreshed. No DB migration, commit or push.
+Validation: full action/companion suites pass, scoped lint zero issues, all 12
+client gates pass (114.4s), formatting/encoding/diff checks pass; client
+refreshed. No DB migration, commit or push.
 
-Live UI verified: Mana Spring/Tailwind/Guiding Feathers I–III are non-selectable;
-only learned III has active/checked state. Screenshot passives-highest-tier-only.png
-in outputs/pet-design-codex. Client alive13226HP, LabCrow summoned. No manual
-retraining required for saved characters; other species covered by server tests.
+Live UI verified: Mana Spring/Tailwind/Guiding Feathers I-III are
+non-selectable; only learned III has active/checked state. Screenshot
+`passives-highest-tier-only.png` (local, not shipped). Client alive at full
+HP/MP, crow summoned. No manual retraining required for saved characters;
+other species covered by server tests.
 
 ## Commit readiness — 2026-10-23
 

@@ -628,8 +628,6 @@ export interface PetTraining {
 		readonly speedPercent: number;
 	};
 	readonly counters?: {
-		readonly exposure?: number;
-		readonly markTarget?: number;
 		readonly attacks: number;
 		readonly wolfExecute?: number;
 		readonly ownerExecute?: number;
