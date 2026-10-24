@@ -41,8 +41,6 @@ const (
 	petStatusGrade = 3
 	// Elemental blues add a status with this chance (percent).
 	petElementChance = 5
-	// A pet's Mend proc heals the owner this share of max HP.
-	petProcMendPercent = 5
 )
 
 /*
@@ -66,6 +64,7 @@ type petTrainedRuntime struct {
 	retribPercent float64
 	retribStun    bool
 	procReadyAt   int64
+	gearFields    []petGearField
 }
 
 /*
@@ -94,7 +93,6 @@ type petTrainedStrike struct {
 	// ownerState is the owner's 0x3FB1 push after a row was spent.
 	ownerState  []wire.Frame
 	reserved    bool
-	procUsed    bool
 	execute     float64 // kill non-bosses below this share of max HP
 	execBleed   float64 // extra execute share against bleeding targets
 	executed    bool    // this strike's Execute raised the last hit to a kill
@@ -252,20 +250,6 @@ func (rt *Runtime) petTrainedDecide(step petCombatStep, skill enterworld.SkillRo
 			args[2] = 50
 		}
 		setPetStatus(&skill, e.tag, args)
-	}
-	if step.nowMs >= run.procReadyAt && rt.petChance(m.ProcChain) {
-		ts.procUsed = true
-		setPetArea(&skill, petAreaAroundTarget, 8, 3+int(level)/20, 20)
-		setPetStatus(&skill, tagShock, [6]uint32{level, 100, 50})
-	}
-	if step.nowMs >= run.procReadyAt && !ts.procUsed && rt.petChance(m.ProcFire) {
-		ts.procUsed = true
-		setPetArea(&skill, petAreaAroundTarget, 3, 5, 0)
-		setPetStatus(&skill, tagBurn, [6]uint32{level, 100, level})
-	}
-	if step.nowMs >= run.procReadyAt && !ts.procUsed && rt.petChance(m.ProcMend) {
-		ts.procUsed = true
-		ts.ownerHeal += petProcMendPercent
 	}
 	// Native COS damage lives mainly in the attack block, not the actor's
 	// base attack. Scaling only combat.Stats left equipment almost inert.
@@ -625,10 +609,6 @@ func (rt *Runtime) petTrainedCommit(step petCombatStep, owner *enterworld.Charac
 	if damage > 0 {
 		step.state.trained.attacks++
 		companion.CountEvent(&live.Training, companion.TriggerAttacks)
-	}
-	// A committed healing proc also spends its recovery when the hit is blocked.
-	if ts.procUsed {
-		step.state.trained.procReadyAt = step.nowMs + companion.D.Rules.ProcInternalCooldownMs
 	}
 	if fatal {
 		companion.CountEvent(&live.Training, companion.TriggerKills)

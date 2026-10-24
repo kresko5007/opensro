@@ -24,7 +24,7 @@ func (t *TextdataItems) ApplyAttackPetProfiles() {
 			continue
 		}
 		p := companion.Profile(ref.Codename)
-		ref.MaxHP = uint32(float64(ref.MaxHP) * p.HPPercent / 100)
+		ref.MaxHP = companion.BaseHealth(ref.Codename, ref.Level, ref.MaxHP)
 		ref.Parameters.MaxHP = ref.MaxHP
 		ref.Parameters.PhysicalDefense *= p.DefensePercent / 100
 		ref.Parameters.MagicalDefense *= p.MagicDefensePercent / 100

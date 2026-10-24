@@ -29,7 +29,8 @@ export function petReference(
 	reference: CosReference | undefined,
 	training: PetTraining | undefined,
 	resolve?: { readonly stacks: number; readonly tier: number; readonly untilMs: number; } | null,
-	nowMs = 0
+	nowMs = 0,
+	level = 0
 ): CosReference | undefined {
 	if ( !reference ) return reference;
 	const activeResolve = resolve && resolve.untilMs > nowMs ?
@@ -44,7 +45,7 @@ export function petReference(
 		);
 		const perStack = tierBook?.value ?? 0;
 		const bearPct = PET_DESIGN.pets.find( p => p.name === "Bear" )?.hpPercent ?? 100;
-		const baseMaxHp = Math.trunc( reference.maxHp * bearPct / 100 );
+		const baseMaxHp = profileHealth( "Bear", level, reference.maxHp * bearPct / 100 );
 		return perStack > 0 ?
 			{ ...reference, maxHp: Math.trunc( baseMaxHp * (1 + activeResolve * perStack / 100) ) } :
 			reference;
@@ -52,8 +53,17 @@ export function petReference(
 	const spirit = training.skills.find(
 		s => s.slotted && s.level > 0 && petSkillDesign( s.id )?.family === "Unbroken Spirit"
 	);
-	const speciesPct = PET_DESIGN.pets.find( p => p.name === petPetName( training ) )?.hpPercent ?? 100;
-	const unbuffedMaxHp = Math.trunc( reference.maxHp * speciesPct / 100 );
+	const species = petPetName( training );
+	const speciesPct = PET_DESIGN.pets.find( p => p.name === species )?.hpPercent ?? 100;
+	const gearHP = training.gear.reduce( ( sum, item, slot ) => {
+		const degree = PET_DESIGN.gear.find( d =>
+			d.items[slot]?.id === item?.refObjId && (!level || d.minPetLevel <= level)
+		);
+		return sum + (degree?.items[slot]?.baseStats.maxHPPercent ?? 0);
+	}, 0 );
+	const unbuffedMaxHp = Math.trunc(
+		profileHealth( species, level, reference.maxHp * speciesPct / 100 ) * (1 + Math.min( 900, gearHP ) / 100)
+	);
 	let maxHp = training.stats.maxHp;
 	if ( spirit && activeResolve > 0 && (maxHp === unbuffedMaxHp || maxHp === reference.maxHp) ) {
 		maxHp = Math.trunc( maxHp * (1 + activeResolve * spirit.value / 100) );
@@ -72,6 +82,27 @@ export function petReference(
 		hit: reference.hit + (training.stats.gearStats?.[4] ?? 0),
 		parry: reference.parry + (training.stats.gearStats?.[5] ?? 0)
 	};
+}
+
+/*
+================
+profileHealth
+
+The server's authored curve; keep native references unchanged when no level is known.
+================
+*/
+function profileHealth( species: string, level: number, fallback: number ): number {
+	const curve = PET_DESIGN.pets.find( p => p.name === species )?.healthByLevel;
+	if ( !level || !curve?.length ) return Math.trunc( fallback );
+	let previous: { readonly level: number; readonly hp: number; } = curve[0]!;
+	for ( const point of curve.slice( 1 ) ) {
+		if ( level <= point.level ) {
+			return previous.hp +
+				Math.trunc( (point.hp - previous.hp) * (level - previous.level) / (point.level - previous.level) );
+		}
+		previous = point;
+	}
+	return previous.hp;
 }
 
 /*

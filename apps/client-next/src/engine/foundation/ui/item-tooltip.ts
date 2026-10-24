@@ -95,6 +95,9 @@ export function itemTooltip(
 		) {
 			if ( value ) add( `${text( key )} ${value}`, 0xffffffff );
 		}
+		if ( petItem.baseStats.maxHPPercent ) {
+			add( `Maximum HP +${Number( petItem.baseStats.maxHPPercent.toFixed( 1 ) )}%`, 0xffffffff );
+		}
 	}
 	const descriptionText = text( item.tooltip?.descriptionSymbol ?? "" );
 	// Pet equipment has structured stats and requirements, not the old carry-item help.
