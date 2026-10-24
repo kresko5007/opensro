@@ -189,6 +189,12 @@ import {
 	type SystemNotice
 } from "@/engine/foundation/gameplay/system-notices";
 import {
+	decodeFlagWarEvent,
+	flagWarNotice,
+	FLAG_WAR_LEVEL_MIN,
+	FLAG_WAR_MATCH_MS
+} from "@/engine/foundation/gameplay/flagwar";
+import {
 	ACADEMY_OPEN_FEE,
 	academyBootstrap,
 	academyCompulsoryGraduateRequest,
@@ -217,14 +223,21 @@ import {
 	abnormalSnapshotNotices,
 	type AbnormalRecord
 } from "@/engine/foundation/gameplay/abnormal-snapshot";
-import { entryEnvironment, environmentPacket } from "@/engine/foundation/gameplay/event-environment";
+import { debugWeather, entryEnvironment, environmentPacket } from "@/engine/foundation/gameplay/event-environment";
 import {
 	cosContainerRequest,
 	cosContainerResult,
 	cosGroundRequest,
 	cosGroundResult
 } from "@/engine/foundation/gameplay/cos-container";
-import { ownCastTarget, petAssistOrders, retainedPetAssists } from "@/engine/foundation/gameplay/pet-assist";
+import {
+	advancedPetAssistCountdowns,
+	castPetAssistCountdowns,
+	haltedPetAssistCountdowns,
+	ownCastTarget,
+	petAssistOrders,
+	retainedPetAssists
+} from "@/engine/foundation/gameplay/pet-assist";
 import { cosBehaviorResult, applyCosBehavior, cosBehaviorRequest } from "@/engine/foundation/gameplay/cos-behavior";
 import { createFeedback } from "./feedback/feedback";
 import { saleResult, soldInventory, commerceJson, commerceInteger } from "@/engine/foundation/gameplay/commerce";
@@ -743,6 +756,9 @@ attack can arrive in the same batch as the previous close and starve the walk.
 		cosRecords = new Map<number, import("@/engine/contracts/gameplay").CosRecord>();
 	// Each owned attack pet's assist target (+0xAB2C, pet-assist.ts).
 	let petAssists: ReadonlyMap<number, number> = new Map();
+	// Each halted pet's assist countdown deadline (+0xAB30, pet-assist.ts);
+	// no entry while no countdown runs.
+	let petAssistCountdowns: ReadonlyMap<number, number> = new Map();
 	let uniqueRefs = uniqueReferences( {} );
 	let gmReplies: readonly (GmReply & { sequence: number; })[] = [];
 	let gmSequence = 0;
@@ -754,6 +770,11 @@ attack can arrive in the same batch as the previous close and starve the walk.
 	let tradeStars = 0;
 	let noticeSequence = 0;
 	let notices: readonly SystemNotice[] = [];
+	// The flag-war event state (flagwar.ts owns the wire): the mission
+	// timer's end on the world clock, the flag carrier, and whether the
+	// last 0x7753 toggle was a sign-up (the join answer's text reads it).
+	let flagWarTimerEndsAt = 0, flagWarCarrierGid = 0, flagWarJoinExpected = false;
+	let flagWarTeam: number | null = null;
 	let progression: Progression = { masteries: [] };
 	const skillGroups = new Map<number, { group: number; level: number; }>();
 	let fortress = fortressBootstrap( {} ), musicMode = 0;
@@ -936,6 +957,8 @@ reuse gate as manual activation. Recovery completion is server-owned.
 	}
 
 	let localGid = 0, revision = 0, dirty = false, protocol = 0, localCountry: number | undefined;
+	// When the open inventory transaction was first seen pending (step clock).
+	let inventorySince: number | undefined;
 	/*
 ================
 localCastHolds
@@ -1152,6 +1175,7 @@ selected entities, cooldowns or world-entry state.
 		jobAliasChecked = null;
 		cosRecords.clear();
 		petAssists = new Map();
+		petAssistCountdowns = new Map();
 		cosSelection.reset();
 		cosRefs.clear();
 		cosItemRefs.clear();
@@ -1176,6 +1200,17 @@ enterMusic
 		*/
 		enterMusic() {
 			musicMode = fortressMusicActive( fortress ) ? 3 : 0;
+			dirty = true;
+		},
+		/*
+================
+invalidate
+
+The entity journal compacted its queue into a resync: the next take
+republishes the whole state behind it, catalogue included.
+================
+		*/
+		invalidate() {
 			dirty = true;
 		},
 		/*
@@ -1369,6 +1404,7 @@ resends nothing. Wiping them here made the next 0x3E58 type-6 row throw
 			cosError = null;
 			cosRecords.clear();
 			petAssists = new Map();
+			petAssistCountdowns = new Map();
 			cosSelection.reset();
 			cosRefs.clear();
 			cosItemRefs.clear();
@@ -1983,6 +2019,15 @@ state here before a command can claim a native wire conversation.
 						return null;
 				}
 			}
+			if ( command.kind === "debug-weather" ) {
+				// The console's weather rows drive the console weather
+				// slot (event-environment.ts), behind the same GM gate
+				// as the gm-command family.
+				if ( !eligibility.gm ) return null;
+				environment = debugWeather( environment, command.mode, command.amount );
+				dirty = true;
+				return null;
+			}
 			if ( command.kind === "rebirth" ) {
 				if ( local?.gid !== localGid || local?.appearanceState?.[0] !== 2 ) return null;
 				if ( command.choice !== 1 && command.choice !== 2 ) throw Error( "Invalid rebirth choice" );
@@ -2209,6 +2254,23 @@ state here before a command can claim a native wire conversation.
 			}
 			if ( !localGid ) {
 				throw new Error( "Local player is not initialized" );
+			}
+			if ( command.kind === "flagwar-register" ) {
+				// 5D3630 refuses below level 20 locally and sends nothing;
+				// the refusal is the native level-error notice.
+				if ( (progression.level ?? 0) < FLAG_WAR_LEVEL_MIN ) {
+					notices = [ ...notices.slice( -99 ), {
+						key: "UIIT_MSG_FLAGWAR_GAME_JOIN_LEVEL_ERORR",
+						value: 0,
+						sequence: ++noticeSequence
+					} ];
+					dirty = true;
+					return null;
+				}
+				// The clicked row's mode says whether this toggle signs up
+				// (mode 1) or cancels (mode 2); the join answer reads it.
+				flagWarJoinExpected = targeting.state().targetFlagWarMode !== 2;
+				return sendFrame( { opcode: 0x7753, payload: new Uint8Array( 0 ) } );
 			}
 			if ( command.kind === "cos-shop-buy" || command.kind === "cos-shop-sell" ) {
 				const record = cosRecords.get( command.gid );
@@ -4085,6 +4147,17 @@ Packet handling must not depend on which HUD panel is currently open.
 					target = targeting.receive( frame.opcode, frame.payload ),
 					fight = combat.receive( frame.opcode, frame.payload, now );
 				if ( item ) cosPickup.spaceChanged();
+				if ( frame.opcode === 0xb2f5 && frame.payload.length >= 4 ) {
+					// 775B50 (0x775BDE): a halt naming an owned pet that holds
+					// an assist target starts its countdown (+0xAB30).
+					petAssistCountdowns = haltedPetAssistCountdowns(
+						petAssistCountdowns,
+						new DataView( frame.payload.buffer, frame.payload.byteOffset, frame.payload.byteLength )
+							.getUint32( 0, true ),
+						petAssists,
+						now
+					);
+				}
 				if ( fight && frame.opcode === 0xb245 ) {
 					// 776830: the local player's own cast of a skill that assists,
 					// at a target in the world, sends its attack pets in.
@@ -4129,6 +4202,12 @@ Packet handling must not depend on which HUD panel is currently open.
 				if ( frame.opcode === 0xb245 && frame.payload[0] === 2 ) {
 					groundSkillMoveSuppressUntil = 0;
 					movement.castRefused( now );
+				}
+				if ( frame.opcode === 0xb245 ) {
+					// 776830 (0x7769D8): an opened cast by an owned pet cancels
+					// its halt countdown (+0xAB30 = -1); the pet keeps its
+					// target. The entry gates live in castPetAssistCountdowns.
+					petAssistCountdowns = castPetAssistCountdowns( petAssistCountdowns, frame.payload );
 				}
 				if ( item && cast ) returnScroll = cast;
 				if ( returnScroll?.skillId && (fight || item && cast) ) {
@@ -4241,6 +4320,34 @@ Packet handling must not depend on which HUD panel is currently open.
 					dirty = true;
 					return true;
 				}
+				// The flag-war event (4b2530): notices plus the mission
+				// timer and carrier the snapshot publishes. The own team
+				// arrives with the match work; null keeps scored-mission
+				// notices silent until then.
+				if ( frame.opcode === 0x30a9 ) {
+					const event = decodeFlagWarEvent( frame.payload );
+					if ( event ) {
+						if ( event.type === "missionStart" ) {
+							flagWarTeam = event.team;
+							flagWarTimerEndsAt = now + FLAG_WAR_MATCH_MS;
+						} else if ( event.type === "elapsed" ) {
+							flagWarTimerEndsAt = now + Math.max( 0, FLAG_WAR_MATCH_MS - event.ms );
+						} else if ( event.type === "timerStop" || event.type === "gameStart" ) {
+							flagWarTimerEndsAt = 0;
+							flagWarCarrierGid = 0;
+							if ( event.type === "gameStart" ) flagWarTeam = null;
+						} else if ( event.type === "flagDrop" || event.type === "missionScored" ) {
+							// The flag is on the ground, or scored: nobody
+							// carries it until the next carrier mark.
+							flagWarCarrierGid = 0;
+						}
+						if ( event.type === "carrier" ) flagWarCarrierGid = event.gid;
+						const notice = flagWarNotice( event, flagWarJoinExpected, flagWarTeam );
+						if ( notice ) notices = [ ...notices.slice( -99 ), { ...notice, sequence: ++noticeSequence } ];
+						dirty = true;
+					}
+					return true;
+				}
 				const refusal = recallAppointmentNotice( frame.opcode, frame.payload ) ??
 					targetNotice( frame.opcode, frame.payload ) ?? portalNotice( frame.opcode, frame.payload ) ??
 					repairNotice( frame.opcode, frame.payload ) ??
@@ -4304,6 +4411,26 @@ Packet handling must not depend on which HUD panel is currently open.
 		},
 		/*
 ================
+outstandingSince
+
+When the oldest request still waiting for its answer left (a movement
+command, the open inventory transaction or a pending target select or
+release), or undefined. The world
+session reads it to tell a stalled connection from a lost answer.
+================
+		*/
+		noteInput: movement.noteInput,
+		outstandingSince(): number | undefined {
+			// Every lane whose lost answer resumes the session (world.ts
+			// lostAnswer): moves, the inventory transaction (mall purchases
+			// included, inventory busy()), and a pending target select or
+			// release (#1472).
+			const since = [ movement.oldestPendingSentAt(), inventorySince, targeting.waitingSince() ]
+				.filter( ( at ): at is number => at !== undefined );
+			return since.length ? Math.min( ...since ) : undefined;
+		},
+		/*
+================
 step
 
 Advance deadlines on the worker clock after queued packets commit and
@@ -4311,13 +4438,19 @@ before take assembles the presentation snapshot.
 ================
 		*/
 		step( now: number, local?: EntityState ) {
-			if ( petAssists.size ) {
+			inventorySince = inventory.state().inventoryPending ? inventorySince ?? now : undefined;
+			if ( petAssists.size || petAssistCountdowns.size ) {
 				const targets = new Map<number, EntityState>();
 				for ( const target of petAssists.values() ) {
 					const row = readEntity( target );
 					if ( row ) targets.set( target, row );
 				}
 				petAssists = retainedPetAssists( petAssists, new Set( cosRecords.keys() ), targets );
+				// 77DFA0: a halt countdown that reaches zero forgets the
+				// pet's assist target; one whose target is gone resets.
+				const advanced = advancedPetAssistCountdowns( petAssists, petAssistCountdowns, now );
+				petAssists = advanced.assisting;
+				petAssistCountdowns = advanced.countdowns;
 			}
 			const warNext = advanceGuildWarClock( social, now );
 			if ( warNext !== social ) {
@@ -4659,6 +4792,7 @@ The published plane when something changed since the last take, else null.
 				inventoryJournal,
 				...c,
 				...targeting.state(),
+				flagWar: { timerEndsAt: flagWarTimerEndsAt, carrierGid: flagWarCarrierGid },
 				...skillPress.state(),
 				betaPlayers: betaMap.players(),
 				petTraining: petTraining.state(),
@@ -4691,6 +4825,10 @@ World transfer retires spatial work while retaining character/session data.
 			quests.clearGathering();
 			approach = interactionApproachTransition( approach, { kind: "cancel" } );
 			returnScroll = undefined;
+			flagWarTimerEndsAt = 0;
+			flagWarCarrierGid = 0;
+			flagWarJoinExpected = false;
+			flagWarTeam = null;
 			teleportMode = 0;
 			npcConversation.clear();
 			storage.close();
@@ -4726,6 +4864,7 @@ World transfer retires spatial work while retaining character/session data.
 			cosError = null;
 			cosRecords.clear();
 			petAssists = new Map();
+			petAssistCountdowns = new Map();
 			cosSelection.reset();
 			dirty = true;
 		},

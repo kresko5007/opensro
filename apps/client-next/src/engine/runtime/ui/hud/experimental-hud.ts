@@ -156,7 +156,7 @@ export const EXPERIMENTAL_TABS: readonly {
 				key: "enchantSparks",
 				id: "experimental-enchant-sparks",
 				label: "Enhanced item glow",
-				description: "Later-client glow tiers and enchant sparks on reinforced weapons and shields."
+				description: "Richer glow and sparks on reinforced gear."
 			},
 			{
 				key: "dungeonCharacterPvs",
@@ -185,15 +185,15 @@ export const EXPERIMENTAL_TABS: readonly {
 			label: "Smooth camera",
 			description: "Ease small camera jumps and the return from a wall."
 		}, {
+			key: "interpolatedOwnWalk",
+			id: "experimental-interpolated-own-walk",
+			label: "Interpolated own movement",
+			description: "Your character walks smoothly between server ticks."
+		}, {
 			key: "vHidesCompanions",
 			id: "experimental-v-hides-companions",
 			label: "V hides pets and transports",
 			description: "Holding V also hides other players' pets and transports."
-		}, {
-			key: "smartPetPickup",
-			id: "experimental-smart-pet-pickup",
-			label: "Keep pet gold pickup when full",
-			description: "Keep picking up gold when a full bag refuses an item."
 		}, {
 			key: "touchInspect",
 			id: "experimental-touch-inspect",
@@ -229,6 +229,11 @@ export const EXPERIMENTAL_TABS: readonly {
 			id: "experimental-short-notices",
 			label: "Short notices",
 			description: "Show notices for up to the original 7 seconds."
+		}, {
+			key: "questTrackerMarkers",
+			id: "experimental-quest-tracker-markers",
+			label: "Quest target markers",
+			description: "Show every active quest's target on M and the minimap."
 		} ]
 	},
 	{
@@ -255,6 +260,11 @@ export const EXPERIMENTAL_TABS: readonly {
 			label: "Drop on bag tabs",
 			description: "Drop an item on a bag tab to move it to that page."
 		}, {
+			key: "exchangeClickShortcuts",
+			id: "experimental-exchange-click-shortcuts",
+			label: "Exchange click shortcuts",
+			description: "Ctrl+click, right-click or double-click a bag item to offer it."
+		}, {
 			key: "confirmGuildBan",
 			id: "experimental-confirm-guild-ban",
 			label: "Confirm guild ban",
@@ -269,6 +279,11 @@ export const EXPERIMENTAL_TABS: readonly {
 			id: "experimental-attack-pet-training",
 			label: "Attack-pet training",
 			description: "Pet skills and gear; requires server opt-in."
+		}, {
+			key: "transportAutoPotion",
+			id: "experimental-transport-auto-potion",
+			label: "Transport auto-potion",
+			description: "Heal your transport at your auto-potion HP %."
 		}, {
 			key: "petClickOpensWindow",
 			id: "experimental-pet-click-opens-window",
@@ -290,6 +305,11 @@ export const EXPERIMENTAL_TABS: readonly {
 		title: "Pickup",
 		section: "Pickup pet filter",
 		rows: [ {
+			key: "smartPetPickup",
+			id: "experimental-smart-pet-pickup",
+			label: "Keep pet gold pickup when full",
+			description: "Keep picking up gold when a full bag refuses an item."
+		}, {
 			key: "petFilterGold",
 			id: "experimental-pet-filter-gold",
 			label: "Gold",

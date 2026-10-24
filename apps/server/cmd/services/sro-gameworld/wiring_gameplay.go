@@ -375,7 +375,7 @@ func newGameplayPlane(
 	items.RewardParties = func(division string) []action.RewardParty {
 		var out []action.RewardParty
 		for _, p := range parties.Registry().RewardSnapshots(division) {
-			row := action.RewardParty{Order: p.ObjectOrder, Options: p.OptionBits}
+			row := action.RewardParty{Order: p.ObjectOrder, Options: p.OptionBits, LeaderID: p.LeaderID}
 			for _, m := range p.Members {
 				row.Members = append(row.Members, m.MemberID)
 			}
@@ -401,6 +401,7 @@ func newGameplayPlane(
 		return 1
 	}
 	matches.PartyListingAuthority = parties.ListingAuthority
+	matches.PartyListingOwnerFor = parties.MatchListingOwner
 	matches.PartyJoinPrecheck = parties.MatchJoinPrecheck
 	matches.CommitPartyJoin = parties.AdmitMatchJoin
 	matches.PartyMemberInfoFor = parties.MaskedMemberInfoFor
@@ -492,11 +493,13 @@ func connectInvitationLanes(
 ) {
 	resurrections := items.ResurrectionConsent()
 	exchanges := items.ExchangeConsent()
+	instanceInvites := items.InstanceInviteConsent()
 	parties.AddConsentArm(exchanges)
 	parties.AddConsentArm(guildInvites)
 	parties.AddConsentArm(unions)
 	parties.AddConsentArm(mentorInvites)
 	parties.AddConsentArm(resurrections)
+	parties.AddConsentArm(instanceInvites)
 
 	// A player holds one unanswered proposal at a time, whatever its
 	// lane (TransactionMgr_InsertUnique 46F420): every lane refuses to
@@ -507,29 +510,34 @@ func connectInvitationLanes(
 			unions.HasPendingInvite(divisionID, name) ||
 			mentorInvites.HasPendingInvite(divisionID, name) ||
 			resurrections.HasPendingInvite(divisionID, name) ||
-			exchanges.HasPendingInvite(divisionID, name)
+			exchanges.HasPendingInvite(divisionID, name) ||
+			instanceInvites.HasPendingInvite(divisionID, name)
 	}
 	unions.PeerPending = func(divisionID, name string) bool {
 		return partyPending(divisionID, name) ||
 			guildInvites.HasPendingInvite(divisionID, name) ||
 			mentorInvites.HasPendingInvite(divisionID, name) ||
 			resurrections.HasPendingInvite(divisionID, name) ||
-			exchanges.HasPendingInvite(divisionID, name)
+			exchanges.HasPendingInvite(divisionID, name) ||
+			instanceInvites.HasPendingInvite(divisionID, name)
 	}
 	mentorInvites.PeerPending = func(divisionID, name string) bool {
 		return partyPending(divisionID, name) ||
 			guildInvites.HasPendingInvite(divisionID, name) ||
 			unions.HasPendingInvite(divisionID, name) ||
 			resurrections.HasPendingInvite(divisionID, name) ||
-			exchanges.HasPendingInvite(divisionID, name)
+			exchanges.HasPendingInvite(divisionID, name) ||
+			instanceInvites.HasPendingInvite(divisionID, name)
 	}
 	items.ProposalPending = func(divisionID, name string) bool {
 		return partyPending(divisionID, name) ||
 			guildInvites.HasPendingInvite(divisionID, name) ||
 			unions.HasPendingInvite(divisionID, name) ||
 			mentorInvites.HasPendingInvite(divisionID, name) ||
-			exchanges.HasPendingInvite(divisionID, name)
+			exchanges.HasPendingInvite(divisionID, name) ||
+			instanceInvites.HasPendingInvite(divisionID, name)
 	}
+	parties.PartyChanged = items.NotePartyChanged
 }
 
 /*
@@ -592,6 +600,11 @@ func (game *gameplayPlane) register(hub *transport.Hub, loadQuests questDefiniti
 	if game.items.MostWantedBountyTransfer {
 		log.Infof("job: most wanted bounties paid from the victim's gold (%s)", action.EnvMostWantedBountyTransfer)
 	}
+	// Port-only, not native: the killer hears its progress per counted kill.
+	game.items.MostWantedStreakNotice = action.MostWantedStreakNoticeFromEnv()
+	if game.items.MostWantedStreakNotice {
+		log.Infof("job: most wanted progress notice per counted kill ON (%s)", action.EnvMostWantedStreakNotice)
+	}
 	// Port-only, not native: a trader's goods stay in the world when the
 	// trader dies riding or disconnects in the field.
 	game.items.TraderCargoDrop = action.TraderCargoDropFromEnv()
@@ -646,6 +659,15 @@ func (game *gameplayPlane) register(hub *transport.Hub, loadQuests questDefiniti
 	if game.items.GMSetSpeed {
 		log.Infof("gm: /SETSPEED ON (%s)", action.EnvGMSetSpeed)
 	}
+	// Capture the Flag (native): the daily start and the house minimum.
+	flagWar, err := action.FlagWarSettingsFromEnv()
+	if err != nil {
+		return err
+	}
+	game.items.FlagWar = flagWar
+	log.Infof("flag war: daily start %02d:%02d UTC, minimum %d players (%s, %s)",
+		flagWar.StartMinuteOfDay/60, flagWar.StartMinuteOfDay%60, flagWar.MinPlayers,
+		action.EnvFlagWarStartUTC, action.EnvFlagWarMinPlayers)
 	// A team death revives in place natively; "off" is the port-only town rule.
 	teamDeathRevive, err := action.TeamDeathReviveFromEnv()
 	if err != nil {
@@ -746,6 +768,17 @@ func (game *gameplayPlane) register(hub *transport.Hub, loadQuests questDefiniti
 		return fmt.Errorf("quest runtime: %w", err)
 	}
 	game.quests = quests
+	game.items.InstanceEventSink = func(event action.InstanceEvent) {
+		quests.DispatchInstanceEvent(quest.InstanceEvent{
+			Kind:       quest.InstanceEventKind(event.Kind),
+			Division:   event.Division,
+			Definition: event.Definition,
+			World:      event.World,
+			Name:       event.Name,
+			Gid:        event.Gid,
+			Accepted:   event.Accepted,
+		})
+	}
 	if quests.InstantInventoryExpansion = quest.InstantInventoryExpansionFromEnv(); quests.InstantInventoryExpansion {
 		log.Infof("quest: instant inventory expansion ON (%s, port-only): reward slots are usable at the turn-in", quest.EnvInstantInventoryExpansion)
 	}

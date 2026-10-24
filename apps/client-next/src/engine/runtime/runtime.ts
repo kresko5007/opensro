@@ -343,6 +343,9 @@ export function startRuntime(
 				{
 					bugReport,
 					setWorldFieldOfView: degrees => world.setFieldOfView( degrees ),
+					setCameraZoomRail: capped => input.zoomRail( capped ),
+					setFreeCamera: free => world.setFreeCamera( free ),
+					setCursorVisible: visible => platform.setCursorVisible( visible ),
 					saveExperimental: value => platform.saveExperimentalOptions( value ),
 					saveWindowPositions: value => platform.saveWindowPositions( value )
 				}
@@ -733,7 +736,12 @@ export function startRuntime(
 						} :
 						null
 				);
-				renderer.setWorldClock( sampleWorldClock( presentation.gameplay()?.worldClock, simulationTimeMs ) );
+				renderer.setWorldClock(
+					sampleWorldClock(
+						ui.debugClockSeed( presentation.gameplay()?.worldClock, simulationTimeMs ),
+						simulationTimeMs
+					)
+				);
 				// World presentation outlives its socket; logout/bootstrap owns teardown.
 				const worldPresented = frontendState.phase === "world" || sessionState?.phase === "world";
 				audio.world(

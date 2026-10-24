@@ -204,6 +204,8 @@ export type GameplayCommand =
 		readonly notice: import("@/engine/foundation/gameplay/system-notices").SystemNotice;
 	}
 	| { readonly kind: "recall-appoint"; readonly gid: number; }
+	// The flag-war talk row (5D3630 action 0x38): one 0x7753 toggle send.
+	| { readonly kind: "flagwar-register"; }
 	| { readonly kind: "return-cancel"; }
 	| { readonly kind: "gathering-cancel"; }
 	| { readonly kind: "effect-cancel"; readonly skillId: number; readonly token: number; }
@@ -211,6 +213,10 @@ export type GameplayCommand =
 	| { readonly kind: "avatar-move"; readonly equip: boolean; readonly source: number; readonly destination: number; }
 	| import("@/engine/foundation/gameplay/party-matching").PartyMatchCommand
 	| { readonly kind: "gm-command"; readonly line: string; }
+	// The debug console's weather rows: a mode to set (mode 1 releases the
+	// console hold; absent only tunes the live amount) and the amount,
+	// into the worker's console weather slot (event-environment.ts).
+	| { readonly kind: "debug-weather"; readonly mode?: 1 | 2 | 3; readonly amount: number; }
 	| { readonly kind: "gm-catalog-ack"; }
 	| { readonly kind: "whisper-block"; readonly name: string; readonly blocked: boolean; }
 	| { readonly kind: "cos-name"; readonly gid: number; readonly name: string; }
@@ -388,6 +394,9 @@ export type GameplayCommand =
 		readonly kind: "move";
 		readonly destination: Pose;
 	}
+	// /GetPos (690C40 case 3): flip the local player's body visual state
+	// (appearanceState[2], the 85EC00 byte) between 0 and 1, locally only.
+	| { readonly kind: "debug-body-visual"; }
 	| {
 		readonly kind: "select";
 		readonly gid: number;
@@ -797,6 +806,10 @@ export interface GameplayState {
 	readonly stall?: import("@/engine/foundation/gameplay/stall").StallState;
 	readonly magicOption?: import("./item-process").MagicOptionGrantState;
 	readonly targetCapabilities?: number;
+	// The selected NPC's flag-war row mode (1 sign-up, 2 cancel).
+	readonly targetFlagWarMode?: number;
+	// The flag-war timer and carrier, owned by the gameplay worker.
+	readonly flagWar?: { readonly timerEndsAt: number; readonly carrierGid: number; };
 	readonly targetTaxRate?: number;
 	readonly shopCompletionRevision?: number;
 	readonly shop?: import("@/engine/foundation/gameplay/commerce").ShopState;
@@ -873,6 +886,8 @@ export interface GameplayState {
 	readonly pose: Pose | null;
 	readonly movementPath?: MovementPath;
 	readonly movementRevision?: number;
+	// The last gameplay input sequence the worker took (movement-input.ts).
+	readonly movementInputSeq?: number;
 	readonly movementTransition?: MovementTransition;
 	readonly movementDiagnostics?: {
 		readonly total: number;

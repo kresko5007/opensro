@@ -116,6 +116,8 @@ var Settings = []Setting{
 	{Env: "SRO_MOST_WANTED_TEST_BOUNTY", NomadVar: "most_wanted_test_bounty", Default: "1000000"},
 	// Owner and the balance advisor, 2026-10-15: the bounty is the victim's gold.
 	{Env: "SRO_MOST_WANTED_BOUNTY_TRANSFER", NomadVar: "most_wanted_bounty_transfer", Default: "on"},
+	// Owner, 2026-10-24: the killer's own progress notice per counted kill.
+	{Env: "SRO_MOST_WANTED_STREAK_NOTICE", NomadVar: "most_wanted_streak_notice", Default: "off"},
 	// Owner, 2026-10-14: trade stars by cargo gold, Jangan route profit.
 	{Env: "SRO_TRADE_TIERS", NomadVar: "trade_tiers", Default: "on", Catalogue: true},
 	// F10 trade group (game/tunables): the Jangan route profit percents. The
@@ -125,8 +127,9 @@ var Settings = []Setting{
 	{Env: "SRO_TRADE_ROUTE_SAMARKAND_PERCENT", NomadVar: "trade_route_samarkand_percent", Default: "200", Catalogue: true},
 	{Env: "SRO_TRADE_ROUTE_CONSTANTINOPLE_PERCENT", NomadVar: "trade_route_constantinople_percent", Default: "300",
 		Catalogue: true},
-	// Owner, 2026-10-14: trader and hunter suits hide worn armour.
-	{Env: "SRO_JOB_SUIT_HIDES_ARMOR", NomadVar: "job_suit_hides_armor", Default: "on"},
+	// Owner, 2026-10-14: trader and hunter suits hide worn armour. Owner,
+	// 2026-10-24: off (native) again; the rule stays available.
+	{Env: "SRO_JOB_SUIT_HIDES_ARMOR", NomadVar: "job_suit_hides_armor", Default: "off"},
 	// Owner, 2026-10-15: level-20 thief suits wear the Moonlit Ash look.
 	{Env: "SRO_MOONLIT_THIEF_SUIT", NomadVar: "moonlit_thief_suit", Default: "on"},
 	// Owner, 2026-10-14: no transport summon during the Bandit Den countdown.
@@ -177,6 +180,10 @@ var Settings = []Setting{
 	// default stays native ("off", ceiling 250).
 	{Env: "SRO_ALCHEMY_MAX_PLUS", NomadVar: "alchemy_max_plus", Default: "off", Catalogue: true},
 	{Env: "SRO_TEAM_DEATH_REVIVE", NomadVar: "team_death_revive", Default: "on"},
+	// Owner, 2026-10-24: the daily Capture the Flag match (#887) - its UTC
+	// start (HH:MM) and the house minimum; the GameWorld refuses bad values.
+	{Env: "SRO_FLAGWAR_START_UTC", NomadVar: "flagwar_start_utc", Default: "20:00"},
+	{Env: "SRO_FLAGWAR_MIN_PLAYERS", NomadVar: "flagwar_min_players", Default: "4"},
 	{Env: "SRO_BETA_GROWTH", NomadVar: "beta_growth", Default: "on", Catalogue: true, Validation: ValueSwitch},
 	// Owner, 2026-10-24: 1-59 at the level-1 pace, 60-89 at 20x, 90-110 at
 	// 10x; unset keeps every level at the pace.

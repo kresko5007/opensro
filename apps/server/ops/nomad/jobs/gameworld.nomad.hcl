@@ -318,6 +318,14 @@ variable "most_wanted_bounty_transfer" {
   default = "on"
 }
 
+# most_wanted_streak_notice tells the killer "Most Wanted: N/10 to LV L"
+# after every counted kill (port-only, not native; owner decision
+# 2026-10-24). "off" says nothing until a new wanted level.
+variable "most_wanted_streak_notice" {
+  type    = string
+  default = "off"
+}
+
 # trade_tiers rates a caravan's stars by its cargo's gold value (5M, 10M,
 # 20M, 35M, 50M) and raises trade profit between Jangan and Donwhang +50%,
 # Hotan +100%, Samarkand +200%, Constantinople +300% (port-only, not
@@ -352,10 +360,11 @@ variable "trade_route_constantinople_percent" {
 
 # job_suit_hides_armor makes trader and hunter suits hide the armour worn
 # under them, as thief suits do (port-only, not native; owner decision
-# 2026-10-14). "off" is native.
+# 2026-10-14). "off" is native, and the default again since the owner's
+# 2026-10-24 decision.
 variable "job_suit_hides_armor" {
   type    = string
-  default = "on"
+  default = "off"
 }
 
 # moonlit_thief_suit draws the level-20 thief suits in the Moonlit Ash
@@ -537,6 +546,19 @@ variable "alchemy_max_plus" {
 variable "team_death_revive" {
   type    = string
   default = "on"
+}
+
+# flagwar_start_utc / flagwar_min_players: the daily Capture the Flag
+# match (#887, owner 2026-10-24): its UTC start as HH:MM and the house
+# minimum (2-16). Malformed values stop GameWorld at boot.
+variable "flagwar_start_utc" {
+  type    = string
+  default = "20:00"
+}
+
+variable "flagwar_min_players" {
+  type    = string
+  default = "4"
 }
 
 # beta_growth holds every level's EXP and skill EXP to the level-1 kill pace,
@@ -970,6 +992,7 @@ job "sro-gameworld-__SHARD_ID__" {
         SRO_MOST_WANTED_TEST_KILLS              = var.most_wanted_test_kills
         SRO_MOST_WANTED_TEST_BOUNTY             = var.most_wanted_test_bounty
         SRO_MOST_WANTED_BOUNTY_TRANSFER         = var.most_wanted_bounty_transfer
+        SRO_MOST_WANTED_STREAK_NOTICE           = var.most_wanted_streak_notice
         SRO_TRADE_TIERS                         = var.trade_tiers
         SRO_TRADE_ROUTE_DONWHANG_PERCENT        = var.trade_route_donwhang_percent
         SRO_TRADE_ROUTE_HOTAN_PERCENT           = var.trade_route_hotan_percent
@@ -1007,6 +1030,8 @@ job "sro-gameworld-__SHARD_ID__" {
         SRO_ALCHEMY_RATES                       = var.alchemy_rates
         SRO_ALCHEMY_MAX_PLUS                    = var.alchemy_max_plus
         SRO_TEAM_DEATH_REVIVE                   = var.team_death_revive
+        SRO_FLAGWAR_START_UTC                   = var.flagwar_start_utc
+        SRO_FLAGWAR_MIN_PLAYERS                 = var.flagwar_min_players
         SRO_ATTACK_PET_EXPANSION                = var.attack_pet_expansion
         SRO_BETA_GROWTH                         = var.beta_growth
         SRO_BETA_GROWTH_BANDS                   = var.beta_growth_bands

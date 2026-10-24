@@ -71,6 +71,12 @@ export interface ExperimentalOptions {
 	// On unless turned off (the owner's choice, 2026-10-14); off is the
 	// previous rule, characters first.
 	readonly sharedActorRoom: boolean;
+	// Port-only, not native: the local mover's walk is drawn between its
+	// worker ticks, a little behind them, instead of extrapolated past the
+	// newest one (own-walk-interpolation.ts; Unreal's fixed-tick smoothing).
+	// On unless turned off (the owner's choice, 2026-10-24); off is the
+	// previous dead-reckoned presentation.
+	readonly interpolatedOwnWalk: boolean;
 	// Port-only, not native: a disabled tab is dimmed with a grey label (the
 	// original draws it like an unselected tab, 5376A0). On unless turned
 	// off (the owner's choice, 2026-10-15); off is the original look.
@@ -116,6 +122,11 @@ export interface ExperimentalOptions {
 	// turned off (the owner's choice, 2026-10-15); off is the original,
 	// where a drop on a tab does nothing.
 	readonly dropOnBagTab: boolean;
+	// Port-only, not native: Ctrl+click, right-click or double-click a bag
+	// item stages it into the open exchange, as a drop on the table does;
+	// the original stages by drag and drop only. On unless turned off (the
+	// owner's choice, 2026-10-24); off is the original, drag-only staging.
+	readonly exchangeClickShortcuts: boolean;
 	// Port-only, not native: in the chat log, a drop or plus notice's player
 	// name links to a whisper and its item name shows the item's tooltip
 	// (foundation/gameplay/notice-links.ts). On unless turned off (the
@@ -137,6 +148,11 @@ export interface ExperimentalOptions {
 	// vectors without re-reading the target (CProjectileTrace_Process 8D8580,
 	// CProjectile_Bezier_Process 879650). Off unless turned on.
 	readonly homingProjectiles: boolean;
+	// Port-only, not native (owner 2026-10-24): the summoned trade transport
+	// drinks a transport HP potion at the auto-potion HP percentage
+	// (transport-auto-potion.ts). The original watches only the player
+	// (70C550). Off unless turned on.
+	readonly transportAutoPotion: boolean;
 	// Port-only, not native: left-clicking the attack pet's mini panel
 	// (CIFPetMiniInfo 6B3460 / 6B3760) or a companion's status portrait
 	// (CIFCOSStatus 6A9BC0) selects the companion and toggles its window
@@ -175,6 +191,10 @@ export interface ExperimentalOptions {
 	// instead of the five native town pages and 28 x 8 overview (5758D0). Off
 	// unless turned on.
 	readonly expandedWorldMap: boolean;
+	// Port-only, not native (#840): every active quest's NPC target shows on
+	// the world map and the minimap, not only the one quest the journal
+	// tracks. Off unless turned on; off is the native tracked quest only.
+	readonly questTrackerMarkers: boolean;
 }
 
 /*
@@ -253,8 +273,8 @@ export function uiScaleFactor( options: ExperimentalOptions ): number {
 experimentalOptions
 
 Only an explicit true enables a toggle, except smoothCamera, enchantSparks,
-compressedTextures, sharedActorRoom, greyDisabledTabs, jobKillNotices, dropPlusNotices,
-plusSevenNotices, fitWindowLabels, dropOnBagTab, noticeLinks, shortNotices, confirmGuildBan,
+compressedTextures, sharedActorRoom, interpolatedOwnWalk, greyDisabledTabs, jobKillNotices, dropPlusNotices,
+plusSevenNotices, fitWindowLabels, dropOnBagTab, exchangeClickShortcuts, noticeLinks, shortNotices, confirmGuildBan,
 petClickOpensWindow, smartPetPickup, touchInspect and dungeonCharacterPvs, which only an explicit false turns off.
 The pickup filter's kinds (petFilterGold and its siblings) also only turn off
 explicitly, and are read only while petPickupFilter is on.
@@ -289,6 +309,7 @@ export function experimentalOptions( value: unknown = null ): ExperimentalOption
 		enchantSparks: record.enchantSparks !== false,
 		compressedTextures: record.compressedTextures !== false,
 		sharedActorRoom: record.sharedActorRoom !== false,
+		interpolatedOwnWalk: record.interpolatedOwnWalk !== false,
 		greyDisabledTabs: record.greyDisabledTabs !== false,
 		jobKillNotices: record.jobKillNotices !== false,
 		dropPlusNotices: record.dropPlusNotices !== false,
@@ -297,11 +318,13 @@ export function experimentalOptions( value: unknown = null ): ExperimentalOption
 		dungeonCharacterPvs: record.dungeonCharacterPvs !== false,
 		fitWindowLabels: record.fitWindowLabels !== false,
 		dropOnBagTab: record.dropOnBagTab !== false,
+		exchangeClickShortcuts: record.exchangeClickShortcuts !== false,
 		noticeLinks: record.noticeLinks !== false,
 		shortNotices: record.shortNotices !== false,
 		attackPetTraining: enabled( "attackPetTraining" ),
 		confirmGuildBan: record.confirmGuildBan !== false,
 		homingProjectiles: enabled( "homingProjectiles" ),
+		transportAutoPotion: enabled( "transportAutoPotion" ),
 		petClickOpensWindow: record.petClickOpensWindow !== false,
 		smartPetPickup: record.smartPetPickup !== false,
 		petPickupFilter: enabled( "petPickupFilter" ),
@@ -311,7 +334,8 @@ export function experimentalOptions( value: unknown = null ): ExperimentalOption
 		petFilterPotions: record.petFilterPotions !== false,
 		petFilterOther: record.petFilterOther !== false,
 		touchInspect: record.touchInspect !== false,
-		expandedWorldMap: enabled( "expandedWorldMap" )
+		expandedWorldMap: enabled( "expandedWorldMap" ),
+		questTrackerMarkers: enabled( "questTrackerMarkers" )
 	};
 }
 
@@ -359,6 +383,7 @@ export interface ExperimentalVideo {
 	readonly smoothCamera: boolean;
 	readonly enchantSparks: boolean;
 	readonly sharedActorRoom: boolean;
+	readonly interpolatedOwnWalk: boolean;
 	readonly vHidesCompanions: boolean;
 	readonly dungeonCharacterPvs: boolean;
 }
@@ -382,6 +407,7 @@ export function experimentalVideo( options: ExperimentalOptions ): ExperimentalV
 		smoothCamera: options.smoothCamera,
 		enchantSparks: options.enchantSparks,
 		sharedActorRoom: options.sharedActorRoom,
+		interpolatedOwnWalk: options.interpolatedOwnWalk,
 		vHidesCompanions: options.vHidesCompanions,
 		dungeonCharacterPvs: options.dungeonCharacterPvs
 	};

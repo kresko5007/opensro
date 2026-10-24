@@ -46,6 +46,8 @@ const OFF = Object.freeze( {
 	compressedTextures: true,
 	// On by default (owner 2026-10-14): near effects outrank far characters.
 	sharedActorRoom: true,
+	// On by default (owner 2026-10-24): the own walk is drawn between its ticks.
+	interpolatedOwnWalk: true,
 	// On by default (owner 2026-10-15): a disabled tab is dimmed.
 	greyDisabledTabs: true,
 	// On by default (owner 2026-10-15): the shard's job-kill notices show.
@@ -62,6 +64,8 @@ const OFF = Object.freeze( {
 	fitWindowLabels: true,
 	// On by default (owner 2026-10-15): a drop on a bag tab moves the item there.
 	dropOnBagTab: true,
+	// On by default (owner 2026-10-24): click shortcuts stage into an exchange.
+	exchangeClickShortcuts: true,
 	// On by default (owner 2026-10-15): a notice's player and item are links.
 	noticeLinks: true,
 	// On by default (owner 2026-10-15): the notice banner shows for 5 s.
@@ -71,6 +75,8 @@ const OFF = Object.freeze( {
 	confirmGuildBan: true,
 	// Off by default: straight projectiles keep their launch-captured endpoint (8D8580).
 	homingProjectiles: false,
+	// Off by default: the automatic potion watches only the player (70C550).
+	transportAutoPotion: false,
 	// On by default (owner 2026-10-18, BUG-086): clicking CIFPetMiniInfo opens CIFCos;
 	// off restores the native no-op click (6B3760).
 	petClickOpensWindow: true,
@@ -90,7 +96,9 @@ const OFF = Object.freeze( {
 	// On by default (owner 2026-10-22, #1243): a touch tap keeps an item or skill tooltip up.
 	touchInspect: true,
 	// Off by default: the M window shows only the five native towns and 28 x 8 overview.
-	expandedWorldMap: false
+	expandedWorldMap: false,
+	// Off by default (#840): the maps mark the tracked quest's targets only.
+	questTrackerMarkers: false
 } );
 
 test("touch inspection defaults on and only an explicit false turns it off", () => {
@@ -183,6 +191,8 @@ test("every video stage defaults off and only an explicit true enables it", () =
 		enchantSparks: true,
 		// The shared actor room is on by default (owner 2026-10-14).
 		sharedActorRoom: true,
+		// Interpolated own movement is on by default (owner 2026-10-24).
+		interpolatedOwnWalk: true,
 		vHidesCompanions: false,
 		dungeonCharacterPvs: true
 	} );
@@ -584,6 +594,17 @@ test("drop on bag tabs is on unless explicitly false and stays out of the worker
 	assert.equal( "dropOnBagTab" in experimentalGameplay( experimentalOptions( {} ) ), false );
 });
 
+test("exchange click shortcuts are on unless explicitly false and stay out of the worker's slices", () => {
+	for (
+		const value of [ undefined, null, {}, { exchangeClickShortcuts: 1 }, { exchangeClickShortcuts: "false" } ]
+	) {
+		assert.equal( experimentalOptions( value ).exchangeClickShortcuts, true );
+	}
+	assert.equal( experimentalOptions( { exchangeClickShortcuts: false } ).exchangeClickShortcuts, false );
+	assert.equal( "exchangeClickShortcuts" in experimentalVideo( experimentalOptions( {} ) ), false );
+	assert.equal( "exchangeClickShortcuts" in experimentalGameplay( experimentalOptions( {} ) ), false );
+});
+
 test("smooth camera is on unless explicitly false and reaches the renderer's slice", () => {
 	for ( const value of [ undefined, null, {}, { smoothCamera: 1 }, { smoothCamera: "false" } ] ) {
 		assert.equal( experimentalOptions( value ).smoothCamera, true );
@@ -652,4 +673,26 @@ test("expanded world map defaults off (native five towns and 28 x 8 overview) an
 	const on = experimentalOptions( { expandedWorldMap: true } );
 	assert.equal( on.expandedWorldMap, true );
 	assert.ok( EXPERIMENTAL_TABS.some( tab => tab.rows.some( row => row.key === "expandedWorldMap" ) ) );
+});
+
+test("interpolated own movement is on unless explicitly false, and reaches the renderer's video options", () => {
+	for ( const value of [ undefined, null, {}, { interpolatedOwnWalk: 1 }, { interpolatedOwnWalk: "false" } ] ) {
+		assert.equal( experimentalOptions( value ).interpolatedOwnWalk, true );
+	}
+	const off = experimentalOptions( { interpolatedOwnWalk: false } );
+	assert.equal( off.interpolatedOwnWalk, false );
+	assert.equal( experimentalVideo( off ).interpolatedOwnWalk, false );
+	assert.equal( experimentalVideo( experimentalOptions( {} ) ).interpolatedOwnWalk, true );
+});
+
+test("quest target markers default off (tracked quest only) and stay out of the worker's slices", () => {
+	for ( const value of [ undefined, null, {}, { questTrackerMarkers: 1 }, { questTrackerMarkers: "true" } ] ) {
+		const options = experimentalOptions( value );
+		assert.equal( options.questTrackerMarkers, false );
+		assert.equal( "questTrackerMarkers" in experimentalGameplay( options ), false );
+		assert.equal( "questTrackerMarkers" in experimentalVideo( options ), false );
+	}
+	const on = experimentalOptions( { questTrackerMarkers: true } );
+	assert.equal( on.questTrackerMarkers, true );
+	assert.ok( EXPERIMENTAL_TABS.some( tab => tab.rows.some( row => row.key === "questTrackerMarkers" ) ) );
 });

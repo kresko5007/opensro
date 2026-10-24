@@ -67,6 +67,16 @@ type Runtime struct {
 	gmSpeeds sync.Map
 	// GMSetSpeed admits /SETSPEED (port-only, SRO_GM_SETSPEED; off is native).
 	GMSetSpeed bool
+	// FlagWar is the Capture the Flag schedule (native; flagwar.go):
+	// SRO_FLAGWAR_START_UTC and SRO_FLAGWAR_MIN_PLAYERS, wired from env.
+	FlagWar FlagWarSettings
+	// FlagWarMatchStart is the Capture the Flag match owner's entry
+	// point, installed by NewRuntime (flagwar_match.go).
+	FlagWarMatchStart func(registrants []FlagWarRegistrant) []simulation.DivisionFrames
+	flagWar           flagWarEvent
+	// flagWarLive is the live Capture the Flag match book, keyed by
+	// division (flagwar_match.go).
+	flagWarLive flagWarMatches
 	// TeamDeathTownRule sends a team death to the town rule (port-only,
 	// SRO_TEAM_DEATH_REVIVE off; the zero value is native, teamdeath.go).
 	TeamDeathTownRule bool
@@ -402,6 +412,10 @@ type Runtime struct {
 	// MostWantedBountyTransfer pays the bounty from the victim's gold, not
 	// new gold (mostwanted.go; port-only, not native). False mints it.
 	MostWantedBountyTransfer bool
+	// MostWantedStreakNotice tells the killer its progress after every
+	// counted kill (mostwantednotice.go; port-only, not native). False is
+	// the current rule: nothing until a level.
+	MostWantedStreakNotice bool
 
 	// TraderCargoDrop keeps a loaded transport's goods in the world when
 	// its trader dies riding or disconnects in the field
@@ -692,6 +706,13 @@ type Runtime struct {
 	// resurrections holds the unanswered resurrection proposals, one per
 	// dead player (resurrection.go).
 	resurrections resurrectionOffers
+	// instanceInvites holds the unanswered instance invitations, one
+	// per invited party member (instance_invite.go).
+	instanceInvites instanceInviteBook
+	// InstanceEventSink receives instanced-world lifecycle events for
+	// the quest handler registry (instance_events.go); the composition
+	// root points it at the quest runtime's dispatch.
+	InstanceEventSink func(InstanceEvent)
 
 	// nextSweepAtMs rate-limits the TTL sweep to grounditem.SweepInterval:
 	// the simulation tick calls the hook every 100ms, but the peek+sweep only
@@ -745,6 +766,10 @@ func NewRuntime(deps Dependencies, monsters *simulation.MonsterState) *Runtime {
 	if monsters != nil {
 		monsters.SetAbnormalContext(monsterAbnormalContext{rt})
 	}
+
+	// The Capture the Flag match owner (flagwar_match.go) consumes
+	// the registration queue at the daily start instant.
+	rt.FlagWarMatchStart = rt.startFlagWarMatch
 
 	return rt
 }

@@ -89,6 +89,7 @@ func publicRules() publicstats.RulesResponse {
 	shopGoods, _ := commerce.ExtraGoodsFromEnv()
 	mallGoods, _ := commerce.MallExtraGoodsFromEnv()
 	rideFactor, rideOn, _ := enterworld.MallRideSpeedFromEnv()
+	flagWar, _ := action.FlagWarSettingsFromEnv()
 	settings := tunables.Current()
 	testKills := settings.Int(tunables.MostWantedTestKills)
 	return publicstats.RulesResponse{
@@ -284,6 +285,10 @@ func publicRules() publicstats.RulesResponse {
 				Native: "There is no bounty; a kill moves no gold.",
 				Now:    "A wanted player's bounty comes out of their own gold: the killer takes up to 100,000,000 per wanted level, never more than the wanted player carries. No new gold enters the game.",
 				Why:    "Requested for the beta so a bounty puts the wanted player's own gold at stake; the original returns with one setting."},
+			{Flag: action.EnvMostWantedStreakNotice, On: action.MostWantedFromEnv() && action.MostWantedStreakNoticeFromEnv(),
+				Native: "There is no Most Wanted rule.",
+				Now:    "After every job kill that counts toward Most Wanted, you see your progress to the next wanted level, such as \"Most Wanted: 3/10 to LV 1\". Only you see it.",
+				Why:    "Requested after players could not tell whether their kills counted; the rule without the notice returns with one setting."},
 			{Flag: action.EnvTradeTiers, On: action.TradeTiersFromEnv(),
 				Native: "Every trade good is worth 348 gold, a caravan's stars count its goods against the trader's level, and every route pays its listed price.",
 				Now: "Trade goods are worth 21 times as much (7,308 for a 348 good): buying, selling, stolen goods at the Den and the cargo value all scale, so profit, trader job EXP, hunter shares, the weekly trade pool and the fortress trade tax are 21 times larger too. " +
@@ -371,6 +376,15 @@ func publicRules() publicstats.RulesResponse {
 				Native: "Qin-Shi Emperor Tomb has its geometry and entrance in the v1.150 client, without monster spawns or walk-in gates; its door moves nobody.",
 				Now:    "Qin-Shi Emperor Tomb is open on all six floors: its door by Jangan admits players of level 70 and above, its gates move between floors, and its monsters are awake.",
 				Why:    "Opens the Jangan tomb dungeon shipped in the v1.150 client assets (GH #1013); the original returns with one setting."},
+			{Flag: action.EnvFlagWarStartUTC, On: true,
+				Native: "Capture the Flag runs on the reference server's event schedule.",
+				Now: fmt.Sprintf("One Capture the Flag match a day at %02d:%02d UTC; sign-up opens ten minutes before the start at Event So-Ok (level 20 and up).",
+					flagWar.StartMinuteOfDay/60, flagWar.StartMinuteOfDay%60),
+				Why: "The owner's daily slot, so the one match a day is a meeting point."},
+			{Flag: action.EnvFlagWarMinPlayers, On: true,
+				Native: "A Capture the Flag match starts when enough players have registered for two teams.",
+				Now:    fmt.Sprintf("A match starts with at least %d registered players, split evenly between the two teams; the winning team takes a trophy.", flagWar.MinPlayers),
+				Why:    "The owner's house minimum."},
 		},
 		Deviations: []publicstats.Deviation{
 			{Title: "Storage Ctrl+click",
