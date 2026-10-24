@@ -88,6 +88,13 @@ func isVersionMismatch(err error) bool {
 // rewrites no record.
 // Version 28 adds opt-in companion training/treeVersion to both schema-27
 // histories. The preserving upgrade never rewrites a character record.
+// Version 29 adds the optional instance return anchor (world.instanceReturn):
+// the packed world and pose a character returns to when an instanced world
+// ends. The preserving upgrade never rewrites a character record.
+// Version 30 adds the optional made time of a fortress structure
+// (madeAtMs), stamped when an upgrade raises it, so its build minutes hold
+// across a restart. Structures raised earlier have none; the upgrade
+// rewrites no record.
 // Version 31 adds optional sequential pet cast capacity, charges and recharge period.
 // Existing cooldown deadlines and every saved record survive unchanged.
 const CurrentVersion = 31

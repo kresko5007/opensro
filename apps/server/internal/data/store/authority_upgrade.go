@@ -52,6 +52,8 @@ const preLedgerLayoutVersion = 9
 const preGuildFoundedVersion = 25
 const preAcademyHonorVersion = 26
 const preMergedPetVersion = 27
+const preInstanceReturnVersion = 28
+const preStructureMadeVersion = 29
 const preStoredPetCastsVersion = 30
 
 // ErrAuthorityCurrent reports an authority already in the current format: a
@@ -196,6 +198,20 @@ func UpgradeAuthority(dir string, commit bool) (string, error) {
 		// Schema 26 ran at layouts 5 through 10 and has no training-camp
 		// honor/evaluation fields or disband timestamp; its records read
 		// unchanged.
+		if layout < preFortressLayoutVersion || layout > CurrentLayoutVersion {
+			return "", fmt.Errorf("authority upgrade: unsupported layout %d for schema %d", layout, schema)
+		}
+		sourceLayout = layout
+	case preInstanceReturnVersion:
+		// Schema 28 ran at layouts 5 through 10 and has no instance return
+		// anchor; its records read unchanged.
+		if layout < preFortressLayoutVersion || layout > CurrentLayoutVersion {
+			return "", fmt.Errorf("authority upgrade: unsupported layout %d for schema %d", layout, schema)
+		}
+		sourceLayout = layout
+	case preStructureMadeVersion:
+		// Schema 29 ran at layouts 5 through 10 and has no structure made
+		// time; its records read unchanged.
 		if layout < preFortressLayoutVersion || layout > CurrentLayoutVersion {
 			return "", fmt.Errorf("authority upgrade: unsupported layout %d for schema %d", layout, schema)
 		}
