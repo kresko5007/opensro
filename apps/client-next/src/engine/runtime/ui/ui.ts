@@ -17026,6 +17026,7 @@ export function createUi(
 								if ( icon && item ) {
 									image( r, icon );
 									equipmentOverlay( item, r );
+									itemEffects( "pet-gear:" + i, item, r );
 								}
 								quads.push(
 									...text.quads( gear.name, [ r[0] - 12, r[1] + 38, 56, 12 ], full, white, {

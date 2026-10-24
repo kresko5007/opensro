@@ -93,6 +93,12 @@ func (rt *Runtime) preparePetGearDrop(killer *enterworld.Character, parent groun
 		find = companion.ModifiersFor(killer.ActiveCOS).FindPct
 	}
 	slot := min(int(roll.Float()*float64(len(degree.Items))), len(degree.Items)-1)
+	// Reuse the parent equipment's native seal roll and seal tier.
+	tier := 0
+	if parentRef.NativeFields.Get("rarity") == 2 {
+		tier = (class-1)%3 + 1
+		degree, _, _ = companion.GearByID(degree.Items[slot].ID + uint32(tier*10))
+	}
 	ref, found := items.ItemRefByCodename(degree.Items[slot].Codename)
 	if !found || ref == nil {
 		return grounditem.Item{}, false
@@ -103,5 +109,6 @@ func (rt *Runtime) preparePetGearDrop(killer *enterworld.Character, parent groun
 	}
 	row := inventory.Item{RefObjID: ref.RefObjID, Codename: ref.Codename, TypeFlags: ref.TypeFlags(), Quantity: 1,
 		MagicOptions: companion.RollGearWithAffixes(degree, slot, find, roll, affixes)}
+	companion.ScaleSealOptions(row.MagicOptions, tier)
 	return PlanItemDrop(row, 1, at, killer.Name, now), true
 }

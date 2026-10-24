@@ -55,6 +55,34 @@ func TestMonsterPetGearAllDegreesAndSlots(t *testing.T) {
 
 /*
 ================
+TestPetGearInheritsNativeSealRoll
+================
+*/
+func TestPetGearInheritsNativeSealRoll(t *testing.T) {
+	for tier := 1; tier <= 3; tier++ {
+		rt, clock, c, _ := newCombatTestRuntime(t, 1)
+		rt.AttackPetExpansion, rt.PetGearDropFactor = true, 1
+		refs := rt.deps.ItemReferences().(staticItemSource)
+		parent := &enterworld.ItemRef{RefObjID: 50000, Codename: "SEALED_PARENT", TypeIDs: [4]int64{3, 1, 6, 2}, NativeFields: enterworld.NewNativeFields(map[string]float64{"itemClass": float64(24 + tier), "rarity": 2})}
+		refs[parent.Codename] = parent
+		d, _, _ := companion.GearByID(30109 + uint32(tier*10))
+		piece := d.Items[0]
+		refs[piece.Codename] = &enterworld.ItemRef{RefObjID: piece.ID, Codename: piece.Codename, TypeIDs: [4]int64{3, 3, 9, 0}}
+		rt.DropRoll = func() (uint32, error) { return 0, nil }
+		rt.PetGearAffixes = []companion.AffixDef{{Code: 12, Group: "Fire", Status: "Implemented", Slots: []string{"Collar"}, Weight: 1, Min: 100, Max: 100}}
+		drop, ok := rt.preparePetGearDrop(c, grounditem.Item{RefObjID: parent.RefObjID}, simulation.Spawn{RegionID: 1}, clock.Now())
+		if !ok || drop.RefObjID != piece.ID || len(drop.MagicOptions) != 1 {
+			t.Fatal("missing seal drop", tier, drop)
+		}
+		_, value, ok := companion.DecodeAffix(drop.MagicOptions[0])
+		if !ok || value != uint32(100+tier*50) {
+			t.Fatal("seal blue scaling", tier, value)
+		}
+	}
+}
+
+/*
+================
 TestPetGearFactorAndNativeParentRestrictions
 ================
 */

@@ -350,10 +350,12 @@ The degree and slot index of a pet gear item.
 ================
 */
 func GearByID(id uint32) (GearDegree, int, bool) {
+	tier := SealTier(id)
+	id -= uint32(tier * 10)
 	for _, d := range D.Gear {
 		for slot, item := range d.Items {
 			if item.ID == id {
-				return d, slot, true
+				return sealedDegree(d, slot, tier), slot, true
 			}
 		}
 	}
@@ -361,10 +363,11 @@ func GearByID(id uint32) (GearDegree, int, bool) {
 }
 
 func GearByCodename(codename string) (GearDegree, int, bool) {
+	codename, tier := sealCodename(codename)
 	for _, d := range D.Gear {
 		for slot, item := range d.Items {
 			if item.Codename == codename {
-				return d, slot, true
+				return sealedDegree(d, slot, tier), slot, true
 			}
 		}
 	}

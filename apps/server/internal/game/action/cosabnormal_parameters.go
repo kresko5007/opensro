@@ -55,7 +55,7 @@ func (rt *Runtime) cosReference(pet *enterworld.CharacterCOS) (*enterworld.Chara
 	valid := exists && ref != nil && ref.RefObjID == pet.RefObjID
 	if valid && rt.AttackPetExpansion && pet.BroodStage == 0 && companion.PetKind(pet.Codename) != "" {
 		copy := *ref
-		bonus := min(900.0, max(0.0, companion.ModifiersFor(pet).GearStats.MaxHPPercent))
+		bonus := min(2250.0, max(0.0, companion.ModifiersFor(pet).GearStats.MaxHPPercent))
 		copy.MaxHP = uint32(float64(ref.MaxHP) * (1 + bonus/100))
 		copy.Parameters.MaxHP = copy.MaxHP
 		ref = &copy

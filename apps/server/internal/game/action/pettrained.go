@@ -39,8 +39,6 @@ const (
 	petBleedPulseMs = 2000
 	// petStatusGrade is the native grade every trained status rolls with.
 	petStatusGrade = 3
-	// Elemental blues add a status with this chance (percent).
-	petElementChance = 5
 )
 
 /*
@@ -65,6 +63,7 @@ type petTrainedRuntime struct {
 	retribStun    bool
 	procReadyAt   int64
 	gearFields    []petGearField
+	poison        map[uint32]petGearPoison
 }
 
 /*
@@ -236,21 +235,6 @@ func (rt *Runtime) petTrainedDecide(step petCombatStep, skill enterworld.SkillRo
 		ts.critBonus += crit
 	}
 	m := ts.mods
-	for _, e := range []struct {
-		add float64
-		tag uint32
-	}{{m.FireAdd, tagBurn}, {m.ColdAdd, tagFrostbite}, {m.ShockAdd, tagShock}, {m.PoisonAdd, tagPoison}} {
-		if e.add <= 0 {
-			continue
-		}
-		args := [6]uint32{level, petElementChance}
-		if e.tag == tagBurn || e.tag == tagPoison {
-			args[2] = uint32(e.add)
-		} else if e.tag == tagShock {
-			args[2] = 50
-		}
-		setPetStatus(&skill, e.tag, args)
-	}
 	// Native COS damage lives mainly in the attack block, not the actor's
 	// base attack. Scaling only combat.Stats left equipment almost inert.
 	physical, magical := companion.AttackScales(pet.Codename, m)
@@ -484,18 +468,17 @@ func (rt *Runtime) petAttackSpeed(step petCombatStep) float64 {
 ================
 petTrainedStats
 
-The attacker and defender projections of one target: attack and flat
-elemental damage, critical chance, and pierce against the defender.
+The attacker and defender projections of one target: attack, critical
+chance and pierce. Elemental gear riders commit separately after the hit.
 ================
 */
 func petTrainedStats(ts *petTrainedStrike, target monster.Instance, attacker, defender combat.Stats) (combat.Stats, combat.Stats) {
 	m := ts.mods
 	attack, magic := companion.AttackScales(ts.codename, m)
-	flat := m.FireAdd + m.ColdAdd + m.ShockAdd + m.PoisonAdd
-	attacker.PhysicalAttackMin = (attacker.PhysicalAttackMin+m.GearStats.PhysicalAttack)*attack + flat
-	attacker.PhysicalAttackMax = (attacker.PhysicalAttackMax+m.GearStats.PhysicalAttack)*attack + flat
-	attacker.MagicalAttackMin = (attacker.MagicalAttackMin+m.GearStats.MagicalAttack)*magic + flat
-	attacker.MagicalAttackMax = (attacker.MagicalAttackMax+m.GearStats.MagicalAttack)*magic + flat
+	attacker.PhysicalAttackMin = (attacker.PhysicalAttackMin + m.GearStats.PhysicalAttack) * attack
+	attacker.PhysicalAttackMax = (attacker.PhysicalAttackMax + m.GearStats.PhysicalAttack) * attack
+	attacker.MagicalAttackMin = (attacker.MagicalAttackMin + m.GearStats.MagicalAttack) * magic
+	attacker.MagicalAttackMax = (attacker.MagicalAttackMax + m.GearStats.MagicalAttack) * magic
 	attacker.HitRate += m.GearStats.HitRatio
 	attacker.CriticalRate += m.CritPct + ts.critBonus
 	if ts.critWound > 0 && (petTargetBleeds(target) || uint64(target.CurrentHP)*2 < uint64(target.Ref.MaxHP)) {

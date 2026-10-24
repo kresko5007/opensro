@@ -218,7 +218,7 @@ type Modifiers struct {
 	CrushPct       float64
 	DeadlyPct      float64
 	PiercePct      float64
-	// Flat elemental damage added to each hit (and a 5% status chance).
+	// Separate yellow elemental hits; PoisonAdd is the total over four seconds.
 	FireAdd, ColdAdd, ShockAdd, PoisonAdd float64
 	SkillBonus                            int
 	RowSkillBonus                         [RowCount]int
@@ -329,7 +329,7 @@ func (m *Modifiers) addAffix(a AffixDef, v float64, pet string) {
 	case "OneSkill":
 		for _, skill := range D.TreeSkills {
 			if skill.ID == a.SkillID && skill.Pet == pet {
-				m.RowSkillBonus[skill.Row] += int(min(v, 5))
+				m.RowSkillBonus[skill.Row] += int(v)
 				break
 			}
 		}

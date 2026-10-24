@@ -2458,7 +2458,7 @@ export const PET_DESIGN = {
 				"Collar",
 				"Harness"
 			],
-			"effect": "Adds {v} fire damage; 5% chance to burn",
+			"effect": "Adds {v} fire damage",
 			"tier": 1,
 			"minDegree": 1,
 			"min": 3,
@@ -2479,7 +2479,7 @@ export const PET_DESIGN = {
 				"Collar",
 				"Harness"
 			],
-			"effect": "Adds {v} fire damage; 5% chance to burn",
+			"effect": "Adds {v} fire damage",
 			"tier": 3,
 			"minDegree": 3,
 			"min": 8,
@@ -2500,7 +2500,7 @@ export const PET_DESIGN = {
 				"Collar",
 				"Harness"
 			],
-			"effect": "Adds {v} fire damage; 5% chance to burn",
+			"effect": "Adds {v} fire damage",
 			"tier": 5,
 			"minDegree": 5,
 			"min": 18,
@@ -2521,7 +2521,7 @@ export const PET_DESIGN = {
 				"Collar",
 				"Harness"
 			],
-			"effect": "Adds {v} fire damage; 5% chance to burn",
+			"effect": "Adds {v} fire damage",
 			"tier": 7,
 			"minDegree": 7,
 			"min": 35,
@@ -2542,7 +2542,7 @@ export const PET_DESIGN = {
 				"Collar",
 				"Harness"
 			],
-			"effect": "Adds {v} cold damage; 5% chance to frostbite",
+			"effect": "Adds {v} cold damage",
 			"tier": 1,
 			"minDegree": 1,
 			"min": 3,
@@ -2563,7 +2563,7 @@ export const PET_DESIGN = {
 				"Collar",
 				"Harness"
 			],
-			"effect": "Adds {v} cold damage; 5% chance to frostbite",
+			"effect": "Adds {v} cold damage",
 			"tier": 3,
 			"minDegree": 3,
 			"min": 8,
@@ -2584,7 +2584,7 @@ export const PET_DESIGN = {
 				"Collar",
 				"Harness"
 			],
-			"effect": "Adds {v} cold damage; 5% chance to frostbite",
+			"effect": "Adds {v} cold damage",
 			"tier": 5,
 			"minDegree": 5,
 			"min": 18,
@@ -2605,7 +2605,7 @@ export const PET_DESIGN = {
 				"Collar",
 				"Harness"
 			],
-			"effect": "Adds {v} cold damage; 5% chance to frostbite",
+			"effect": "Adds {v} cold damage",
 			"tier": 7,
 			"minDegree": 7,
 			"min": 35,
@@ -2626,7 +2626,7 @@ export const PET_DESIGN = {
 				"Collar",
 				"Harness"
 			],
-			"effect": "Adds 1-{v} lightning damage; 5% chance to shock",
+			"effect": "Adds {v} lightning damage",
 			"tier": 1,
 			"minDegree": 1,
 			"min": 6,
@@ -2647,7 +2647,7 @@ export const PET_DESIGN = {
 				"Collar",
 				"Harness"
 			],
-			"effect": "Adds 1-{v} lightning damage; 5% chance to shock",
+			"effect": "Adds {v} lightning damage",
 			"tier": 3,
 			"minDegree": 3,
 			"min": 16,
@@ -2668,7 +2668,7 @@ export const PET_DESIGN = {
 				"Collar",
 				"Harness"
 			],
-			"effect": "Adds 1-{v} lightning damage; 5% chance to shock",
+			"effect": "Adds {v} lightning damage",
 			"tier": 5,
 			"minDegree": 5,
 			"min": 36,
@@ -2689,7 +2689,7 @@ export const PET_DESIGN = {
 				"Collar",
 				"Harness"
 			],
-			"effect": "Adds 1-{v} lightning damage; 5% chance to shock",
+			"effect": "Adds {v} lightning damage",
 			"tier": 7,
 			"minDegree": 7,
 			"min": 70,
@@ -4745,7 +4745,7 @@ export const PET_DESIGN = {
 				"Collar",
 				"Harness"
 			],
-			"effect": "Adds {v} fire damage; 5% chance to burn",
+			"effect": "Adds {v} fire damage",
 			"tier": 2,
 			"minDegree": 2,
 			"min": 3,
@@ -4766,7 +4766,7 @@ export const PET_DESIGN = {
 				"Collar",
 				"Harness"
 			],
-			"effect": "Adds {v} fire damage; 5% chance to burn",
+			"effect": "Adds {v} fire damage",
 			"tier": 4,
 			"minDegree": 4,
 			"min": 35,
@@ -4787,7 +4787,7 @@ export const PET_DESIGN = {
 				"Collar",
 				"Harness"
 			],
-			"effect": "Adds {v} fire damage; 5% chance to burn",
+			"effect": "Adds {v} fire damage",
 			"tier": 6,
 			"minDegree": 6,
 			"min": 35,
@@ -4808,7 +4808,7 @@ export const PET_DESIGN = {
 				"Collar",
 				"Harness"
 			],
-			"effect": "Adds {v} fire damage; 5% chance to burn",
+			"effect": "Adds {v} fire damage",
 			"tier": 8,
 			"minDegree": 8,
 			"min": 35,
@@ -4829,7 +4829,7 @@ export const PET_DESIGN = {
 				"Collar",
 				"Harness"
 			],
-			"effect": "Adds {v} fire damage; 5% chance to burn",
+			"effect": "Adds {v} fire damage",
 			"tier": 9,
 			"minDegree": 9,
 			"min": 35,
@@ -4850,7 +4850,7 @@ export const PET_DESIGN = {
 				"Collar",
 				"Harness"
 			],
-			"effect": "Adds {v} cold damage; 5% chance to frostbite",
+			"effect": "Adds {v} cold damage",
 			"tier": 2,
 			"minDegree": 2,
 			"min": 3,
@@ -4871,7 +4871,7 @@ export const PET_DESIGN = {
 				"Collar",
 				"Harness"
 			],
-			"effect": "Adds {v} cold damage; 5% chance to frostbite",
+			"effect": "Adds {v} cold damage",
 			"tier": 4,
 			"minDegree": 4,
 			"min": 35,
@@ -4892,7 +4892,7 @@ export const PET_DESIGN = {
 				"Collar",
 				"Harness"
 			],
-			"effect": "Adds {v} cold damage; 5% chance to frostbite",
+			"effect": "Adds {v} cold damage",
 			"tier": 6,
 			"minDegree": 6,
 			"min": 35,
@@ -4913,7 +4913,7 @@ export const PET_DESIGN = {
 				"Collar",
 				"Harness"
 			],
-			"effect": "Adds {v} cold damage; 5% chance to frostbite",
+			"effect": "Adds {v} cold damage",
 			"tier": 8,
 			"minDegree": 8,
 			"min": 35,
@@ -4934,7 +4934,7 @@ export const PET_DESIGN = {
 				"Collar",
 				"Harness"
 			],
-			"effect": "Adds {v} cold damage; 5% chance to frostbite",
+			"effect": "Adds {v} cold damage",
 			"tier": 9,
 			"minDegree": 9,
 			"min": 35,
@@ -4955,7 +4955,7 @@ export const PET_DESIGN = {
 				"Collar",
 				"Harness"
 			],
-			"effect": "Adds 1-{v} lightning damage; 5% chance to shock",
+			"effect": "Adds {v} lightning damage",
 			"tier": 2,
 			"minDegree": 2,
 			"min": 6,
@@ -4976,7 +4976,7 @@ export const PET_DESIGN = {
 				"Collar",
 				"Harness"
 			],
-			"effect": "Adds 1-{v} lightning damage; 5% chance to shock",
+			"effect": "Adds {v} lightning damage",
 			"tier": 4,
 			"minDegree": 4,
 			"min": 70,
@@ -4997,7 +4997,7 @@ export const PET_DESIGN = {
 				"Collar",
 				"Harness"
 			],
-			"effect": "Adds 1-{v} lightning damage; 5% chance to shock",
+			"effect": "Adds {v} lightning damage",
 			"tier": 6,
 			"minDegree": 6,
 			"min": 70,
@@ -5018,7 +5018,7 @@ export const PET_DESIGN = {
 				"Collar",
 				"Harness"
 			],
-			"effect": "Adds 1-{v} lightning damage; 5% chance to shock",
+			"effect": "Adds {v} lightning damage",
 			"tier": 8,
 			"minDegree": 8,
 			"min": 70,
@@ -5039,7 +5039,7 @@ export const PET_DESIGN = {
 				"Collar",
 				"Harness"
 			],
-			"effect": "Adds 1-{v} lightning damage; 5% chance to shock",
+			"effect": "Adds {v} lightning damage",
 			"tier": 9,
 			"minDegree": 9,
 			"min": 70,

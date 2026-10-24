@@ -13,6 +13,7 @@ workbook's export (pet-design-data.ts). Pure.
 */
 import type { PetTraining, PetTrainingSkill } from "@/engine/contracts/gameplay";
 import { PET_DESIGN } from "./pet-design-data";
+import { petGear } from "./pet-gear";
 import type { UiQuad, UiRect } from "@/engine/contracts/ui";
 import { quickslotCooldownQuads } from "./quickslot-cooldown";
 import type { TooltipRow } from "./tooltip-rows";
@@ -55,14 +56,12 @@ export function petReference(
 	);
 	const species = petPetName( training );
 	const speciesPct = PET_DESIGN.pets.find( p => p.name === species )?.hpPercent ?? 100;
-	const gearHP = training.gear.reduce( ( sum, item, slot ) => {
-		const degree = PET_DESIGN.gear.find( d =>
-			d.items[slot]?.id === item?.refObjId && (!level || d.minPetLevel <= level)
-		);
-		return sum + (degree?.items[slot]?.baseStats.maxHPPercent ?? 0);
+	const gearHP = training.gear.reduce( ( sum, item ) => {
+		const gear = petGear( item?.refObjId );
+		return sum + (gear && (!level || gear.degree.minPetLevel <= level) ? gear.item.baseStats.maxHPPercent : 0);
 	}, 0 );
 	const unbuffedMaxHp = Math.trunc(
-		profileHealth( species, level, reference.maxHp * speciesPct / 100 ) * (1 + Math.min( 900, gearHP ) / 100)
+		profileHealth( species, level, reference.maxHp * speciesPct / 100 ) * (1 + Math.min( 2250, gearHP ) / 100)
 	);
 	let maxHp = training.stats.maxHp;
 	if ( spirit && activeResolve > 0 && (maxHp === unbuffedMaxHp || maxHp === reference.maxHp) ) {
