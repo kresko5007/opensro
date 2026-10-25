@@ -65,21 +65,8 @@ Previously planned codes 87–89 now implement Blizzard when struck;
 92–93 implement Poison Cloud when struck. New paired blues use 220–231
 and seed automatically. The local DB metadata for 87–89 and 92–93 was updated
 to match their new groups; configured chance ranges and weights were kept.
-No schema migration is needed. Existing full DB backup:
-`.state/pet-procs-before-deploy.db`.
+No schema migration is needed.
 
 Power is authored perdegree in `gear[].procDamage` in `pet-design.json`;
 regenerate with `scripts/tools/pet_design_export.py` and rebuild the server
 and client after editing. Recovery uses `rules.procInternalCooldownMs`.
-
-## Verification / handoff
-
-Server companion/action/GameWorld tests pass, including direct attack and
-physical/magic incoming-hit hooks, full shield exclusion, allfive paired
-spells, shared recovery, four-pulse totals, degree scaling, five distinct
-chain victims, falloff, sight and lifecycle cleanup. Scoped lint:0 issues.
-All 12 client gates pass (151.8 s). A test-only magic-hit case was added afterward
-and focused combat tests pass again. No test characters or items were edited.
-Live monster-drop/visual acceptance has not been performed in this pass.
-`Agent18/GameWorld53` deployed healthy; all24 live proc DB rules verified and client reloaded.
-Live gameplay acceptance now passes all20 D3/D9 spell/direction cases; see `PET-GEAR-PROCS-LIVE-2026-10-24.md` for measurements and limits.
