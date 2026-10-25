@@ -84,6 +84,9 @@ func (rt *Runtime) preparePetGearDrop(killer *enterworld.Character, parent groun
 		return grounditem.Item{}, false
 	}
 	degree := companion.D.Gear[(class-1)/3]
+	if len(degree.Items) == 0 {
+		return grounditem.Item{}, false
+	}
 	roll := dropRoller{rt}
 	if roll.Float() >= rt.PetGearDropFactor {
 		return grounditem.Item{}, false
@@ -97,7 +100,13 @@ func (rt *Runtime) preparePetGearDrop(killer *enterworld.Character, parent groun
 	tier := 0
 	if parentRef.NativeFields.Get("rarity") == 2 {
 		tier = (class-1)%3 + 1
-		degree, _, _ = companion.GearByID(degree.Items[slot].ID + uint32(tier*10))
+		sealed, sealedSlot, found := companion.GearByID(degree.Items[slot].ID + uint32(tier*10))
+		if !found {
+			// A piece outside the seal family has no sealed variant: skip
+			// the pet drop instead of indexing the empty lookup result.
+			return grounditem.Item{}, false
+		}
+		degree, slot = sealed, sealedSlot
 	}
 	ref, found := items.ItemRefByCodename(degree.Items[slot].Codename)
 	if !found || ref == nil {
