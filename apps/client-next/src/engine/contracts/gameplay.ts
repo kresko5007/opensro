@@ -11,6 +11,8 @@ undefined shop closes it; other fields belong to the newest snapshot.
 
 ===========================================================================
 */
+import type { MoverPublication } from "./mover-publication";
+export type { MovementAim } from "./mover-publication";
 
 /*
 ================
@@ -235,6 +237,9 @@ export type GameplayCommand =
 		readonly settings: import("@/engine/foundation/gameplay/auto-potion").AutoPotionSettings;
 	}
 	| { readonly kind: "rebirth"; readonly choice: 1 | 2; }
+	// An arrow key's press or release (#1574): Up walks the facing, Left and
+	// Right turn it (arrow-keys.ts).
+	| { readonly kind: "arrow-key"; readonly key: "up" | "left" | "right"; readonly down: boolean; }
 	| {
 		readonly kind: "ground-move";
 		readonly query: import("./navigation").GroundPickQuery;
@@ -397,6 +402,9 @@ export type GameplayCommand =
 	// /GetPos (690C40 case 3): flip the local player's body visual state
 	// (appearanceState[2], the 85EC00 byte) between 0 and 1, locally only.
 	| { readonly kind: "debug-body-visual"; }
+	// /showme and /hideme (690C40 cases 112/113): write the local player's
+	// shown byte (CICPlayer +0xB8), locally only; no server frame either way.
+	| { readonly kind: "debug-local-visible"; readonly visible: boolean; }
 	| {
 		readonly kind: "select";
 		readonly gid: number;
@@ -533,6 +541,11 @@ export interface CastDisplacement {
 	readonly token: number;
 	readonly kind: 2 | 4 | 5 | 8;
 	readonly destination: Omit<Pose, "angle">;
+	// The caster's own motion (its travel, its landing correction, or an
+	// impact it struck onto itself): the one displacement the main-thread
+	// mover steps (#1569). A knockback struck onto another entity - or
+	// onto the player by someone else - never carries it.
+	readonly self?: boolean;
 }
 /*
 ================
@@ -721,9 +734,11 @@ Worker publications may omit unchanged catalog, social and shop values.
 Presentation owns the derived skillIndex; it never travels back to simulation.
 ================
 */
-export interface GameplayState {
+export interface GameplayState extends MoverPublication {
 	readonly itemMall?: import("./item-mall").MallState;
 	readonly betaPlayers?: readonly BetaMapPlayer[];
+	// Port-only damage ranking of the latest unique kill (unique-rank.ts).
+	readonly uniqueDamageRank?: import("./unique-rank").UniqueDamageRank | null;
 	// Port-only wolf skill tree of the pet window's wolf (pet-training.ts).
 	readonly petTraining?: PetTraining;
 	readonly petTailwind?: PetTraining["tailwind"];
@@ -733,6 +748,8 @@ export interface GameplayState {
 	readonly returnScroll?: import("@/engine/foundation/gameplay/return-scroll").ReturnScrollCast;
 	readonly huntingPoints?: readonly import("@/engine/foundation/gameplay/hunting").HuntingPoint[];
 	readonly npcConversation?: import("@/engine/foundation/gameplay/npc-dialogue").NpcConversation;
+	// Hiding CIFNpcWindow does not release the selected NPC or its service lock.
+	readonly npcWindow?: { readonly hidden: boolean; readonly revision: number; };
 	readonly restorationRevision?: number;
 	readonly buffSlots?: readonly import("@/engine/foundation/gameplay/buff-slots").BuffSlot[];
 	readonly attachedEffects?: readonly import("@/engine/foundation/gameplay/attached-effects").AttachedEffect[];
@@ -865,6 +882,10 @@ export interface GameplayState {
 	readonly navigationRequestId?: number;
 	readonly navigationFailure?: { readonly region: number; readonly requestId?: number; readonly error: string; };
 	readonly navigationRegion?: number;
+	// The local mover's navigation owner (a deck or dungeon cell), as the
+	// worker's movement owner holds it; the main-thread mover (#1440) starts
+	// its walk from it.
+	readonly navigationOwner?: import("@/engine/foundation/navigation/dungeon-ownership").NavOwner;
 	readonly navigationBlock?: number;
 	readonly activeCos?: {
 		readonly gid: number;
@@ -886,8 +907,6 @@ export interface GameplayState {
 	readonly pose: Pose | null;
 	readonly movementPath?: MovementPath;
 	readonly movementRevision?: number;
-	// The last gameplay input sequence the worker took (movement-input.ts).
-	readonly movementInputSeq?: number;
 	readonly movementTransition?: MovementTransition;
 	readonly movementDiagnostics?: {
 		readonly total: number;

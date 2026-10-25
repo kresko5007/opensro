@@ -64,7 +64,8 @@ export function createWorldCore( send: ( frame: WireFrame ) => void ) {
 		country: refObjId => entities.characterCountry( refObjId ),
 		playerModels: country => entities.playerModels( country ),
 		item: refObjId => entities.itemReference( refObjId ),
-		monster: codename => entities.monsterReference( codename )
+		monster: codename => entities.monsterReference( codename ),
+		npcs: () => entities.npcs()
 	} );
 
 	const capeTeams = new Map<number, number>();
@@ -538,6 +539,12 @@ UI and quickslot commands. A skill aims at the newest selection intent
 			// gameplay lane never sees the command.
 			if ( command.kind === "debug-body-visual" ) {
 				entities.debugBodyVisual( gameplay.localIdentity() );
+				return;
+			}
+			// /showme and /hideme write only the entity owner's shown byte;
+			// the gameplay lane never sees the command.
+			if ( command.kind === "debug-local-visible" ) {
+				entities.debugLocalVisible( gameplay.localIdentity(), command.visible );
 				return;
 			}
 			const itemType = command.kind === "item-use" ? gameplay.itemUseType( command.slot ) : undefined;

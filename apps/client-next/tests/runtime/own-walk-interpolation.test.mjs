@@ -143,10 +143,9 @@ skewMs is how far the frame clock runs ahead of the worker clock (the
 recording's is about 2 s; a negative one runs behind).
 ================
 */
-function run( interpolate, skewMs = 0, publish = worker ) {
+function run( skewMs = 0, publish = worker ) {
 	const presentation = createPosePresentation();
 	presentation.origin( skewMs );
-	presentation.interpolateOwnWalk( interpolate );
 	/** @type {[number, import("../../src/engine/contracts/gameplay").Pose][]} */
 	const drawn = [];
 	let frame = 0, workerMs = 500;
@@ -186,7 +185,7 @@ function speeds( drawn ) {
 
 test("the worker's own 100 ms path windows draw no faster than the walk either", () => {
 	for ( const skew of [ 0, 2037, -30 ] ) {
-		const peak = Math.max( ...speeds( run( true, skew, windowed ) ) );
+		const peak = Math.max( ...speeds( run( skew, windowed ) ) );
 		assert.ok( peak <= SPEED * 1.05, `skew ${skew}: peak ${peak.toFixed( 1 )} u/s against ${SPEED}` );
 	}
 });
@@ -195,7 +194,7 @@ test("starts, a redirect and a start after a long rest never draw the body faste
 	// Clocks in step, the recording's 2 s frame-clock lead, and a worker
 	// clock running ahead.
 	for ( const skew of [ 0, 2037, -30 ] ) {
-		const fast = speeds( run( true, skew ) ).filter( speed => speed > SPEED * (1 + 1e-6) );
+		const fast = speeds( run( skew ) ).filter( speed => speed > SPEED * (1 + 1e-6) );
 		assert.deepEqual(
 			fast,
 			[],
@@ -204,13 +203,8 @@ test("starts, a redirect and a start after a long rest never draw the body faste
 	}
 });
 
-test("the old dead-reckoned presenter is what surged (the test reproduces the report)", () => {
-	const peak = Math.max( ...speeds( run( false ) ) );
-	assert.ok( peak > SPEED * 1.2, `previous presenter peaked at ${peak.toFixed( 1 )} u/s` );
-});
-
 test("the drawn walk turns the redirect's own corner and stops where the worker stopped", () => {
-	const drawn = run( true );
+	const drawn = run();
 	// A publication later than any the delay has yet seen can let the body
 	// pass a corner before the turn exists. It never passes by more than one
 	// publication step of walking, and the late-turn rule (speed test above)
@@ -224,7 +218,7 @@ test("the drawn walk turns the redirect's own corner and stops where the worker 
 });
 
 test("each walk leaves rest within one delay of its click", () => {
-	const drawn = run( true );
+	const drawn = run();
 	for ( const [startMs, rest] of [ [ START_MS, P0 ], [ SECOND_MS, LEG_C.from ] ] ) {
 		const left = drawn.find( ( [t, p] ) => t * 1000 >= startMs && Math.hypot( p.x - rest.x, p.z - rest.z ) > 1e-6 );
 		assert.ok( left, "the body left rest" );
@@ -246,7 +240,6 @@ fixed 20 ms latency; returns a frame function drawing at worker ms.
 function straight() {
 	const presentation = createPosePresentation();
 	presentation.origin( 0 );
-	presentation.interpolateOwnWalk( true );
 	const leg = { from: P0, to: { ...P0, x: P0.x + 1000 } };
 	/*
 	================
@@ -316,6 +309,82 @@ test("a correction while walking never draws a frame faster than the walk (A5's 
 	assert.ok( peak <= SPEED * 1.05, `peak ${peak.toFixed( 1 )} u/s against ${SPEED}` );
 	// The offset still drains: within the 120 frames (about 2.7 s).
 	assert.ok( settledAt !== undefined, "the sideways offset settled" );
+});
+
+test("the main-thread mover's walk is drawn while it predicts and handed back without a jump (#1440)", () => {
+	const { presentation, frame, leg } = straight();
+	let ms = 36, previous = frame( ms );
+	for ( ms += 16; ms < 400; ms += 16 ) previous = frame( ms );
+	// The mover predicts a right-angle walk from the drawn pose.
+	const start = presentation.drawn( GID );
+	assert.deepEqual( start, previous );
+	let mover = start, peakTurn = 0, shownMs = ms - 16;
+	for ( let i = 0; i < 10; i++ ) {
+		mover = { ...mover, z: mover.z + SPEED * .016, angle: 16384 };
+		presentation.ownMover( GID, { kind: "walking", pose: mover } );
+		const drawn = frame( ms += 16 );
+		assert.equal( drawn.x, mover.x );
+		assert.equal( drawn.z, mover.z );
+		const turned = Math.abs( ((drawn.angle - previous.angle + 98304) % 65536) - 32768 );
+		peakTurn = Math.max( peakTurn, turned / ((ms - shownMs) / 1000) );
+		previous = drawn;
+		shownMs = ms;
+	}
+	assert.equal( previous.angle, 16384, "the turn completes" );
+	// The yaw turns toward the mover's heading at the native rate (86CBA0).
+	assert.ok( peakTurn <= 98304 * 1.01, `turned ${peakTurn.toFixed( 0 )} words/s` );
+	// The prediction ends: the presenter recovers from the mover's last pose.
+	presentation.ownMover( GID, { kind: "ended", pose: mover } );
+	let peak = 0;
+	for ( let i = 0; i < 40; i++ ) {
+		const drawn = frame( ms += 16 );
+		peak = Math.max( peak, Math.hypot( drawn.x - previous.x, drawn.z - previous.z ) / .016 );
+		previous = drawn;
+		presentation.ownMover( GID, { kind: "idle" } );
+	}
+	assert.ok( peak <= SPEED * 1.05, `handback peak ${peak.toFixed( 1 )} u/s against ${SPEED}` );
+	assert.ok( Math.abs( previous.x - legAt( leg, 0, Math.floor( (ms - 20) / STEP_MS ) * STEP_MS ).x ) < 30 );
+});
+
+test("a rider's predicted walk moves the mount it rides, and both are handed back without a jump (#1566)", () => {
+	// 0x85E000: while riding, the mount is the mover; both are sampled from
+	// the local movement owner's walk (presentation-samples.ts).
+	const MOUNT = 9;
+	const presentation = createPosePresentation();
+	presentation.origin( 0 );
+	const leg = { from: P0, to: { ...P0, x: P0.x + 1000 } };
+	const both = ms => {
+		const tick = Math.floor( (ms - 20) / STEP_MS ) * STEP_MS;
+		const input = { ownLeg: true, atMs: tick, revision: 1, moving: true, ...leg, durationMs: 10_000 };
+		presentation.samples( new Map( [ [ GID, input ], [ MOUNT, input ] ] ) );
+		const target = legAt( leg, 0, tick );
+		return {
+			rider: presentation.pose( GID, target, ms / 1000 ),
+			mount: presentation.pose( MOUNT, target, ms / 1000 )
+		};
+	};
+	let ms = 36, previous = both( ms );
+	for ( ms += 16; ms < 400; ms += 16 ) previous = both( ms );
+	let mover = defined( presentation.drawn( GID ) );
+	for ( let i = 0; i < 10; i++ ) {
+		mover = { ...mover, z: mover.z + SPEED * .016 };
+		presentation.ownMover( GID, { kind: "walking", pose: mover }, MOUNT );
+		previous = both( ms += 16 );
+		assert.equal( previous.mount.z, mover.z, "the mount walks the prediction" );
+		assert.equal( previous.rider.z, mover.z );
+	}
+	presentation.ownMover( GID, { kind: "ended", pose: mover }, MOUNT );
+	let peak = 0;
+	for ( let i = 0; i < 40; i++ ) {
+		const drawn = both( ms += 16 );
+		for ( const key of [ "rider", "mount" ] ) {
+			const a = previous[key], b = drawn[key];
+			peak = Math.max( peak, Math.hypot( b.x - a.x, b.z - a.z ) / .016 );
+		}
+		previous = drawn;
+		presentation.ownMover( GID, { kind: "idle" } );
+	}
+	assert.ok( peak <= SPEED * 1.05, `handback peak ${peak.toFixed( 1 )} u/s against ${SPEED}` );
 });
 
 test("a base walk pushed ahead (a frame-clock jump) is still drawn no faster than the walk", () => {
@@ -388,21 +457,45 @@ test("handing over to a skill displacement and back never jumps", () => {
 	assert.ok( Math.abs( back.x - before.x ) < 3, `jumped ${(back.x - before.x).toFixed( 2 )} on return` );
 });
 
-test("turning the row off mid-walk hands the drawn pose over instead of snapping", () => {
-	const { presentation, frame } = straight();
-	let ms = 36, previous = frame( ms );
-	for ( ms += 16; ms < 400; ms += 16 ) previous = frame( ms );
-	// The row goes off mid-walk: like the dash, this frame keeps the last
-	// interpolated pose (the carry) rather than jumping to the
-	// dead-reckoned sample a render delay ahead (#1499).
-	presentation.interpolateOwnWalk( false );
-	const handed = frame( ms += 16 );
-	assert.equal( handed.x, previous.x, "the toggle-off frame draws the carried pose" );
-	assert.equal( handed.z, previous.z, "the toggle-off frame draws the carried pose" );
-	// The generic presenter then walks on from the carried pose.
-	const next = frame( ms += 16 );
-	assert.ok(
-		Math.abs( next.x - handed.x ) < 3,
-		`jumped ${(next.x - handed.x).toFixed( 2 )} after the handoff`
-	);
+test("a second pose() in the frame the prediction ends hands rider and mount back only once (#1566)", () => {
+	const MOUNT = 9;
+	/*
+	================
+	handback
+
+	Rider and mount across the end of a prediction, asking each pose once
+	or twice in the ended frame.
+	================
+	*/
+	const handback = twice => {
+		const presentation = createPosePresentation();
+		presentation.origin( 0 );
+		const leg = { from: P0, to: { ...P0, x: P0.x + 1000 } };
+		const both = ( ms, repeat = false ) => {
+			const tick = Math.floor( (ms - 20) / STEP_MS ) * STEP_MS;
+			const input = { ownLeg: true, atMs: tick, revision: 1, moving: true, ...leg, durationMs: 10_000 };
+			presentation.samples( new Map( [ [ GID, input ], [ MOUNT, input ] ] ) );
+			const target = legAt( leg, 0, tick );
+			const poses = [
+				presentation.pose( GID, target, ms / 1000 ),
+				presentation.pose( MOUNT, target, ms / 1000 )
+			];
+			if ( repeat ) {
+				presentation.pose( GID, target, ms / 1000 );
+				presentation.pose( MOUNT, target, ms / 1000 );
+			}
+			return poses.map( pose => [ pose.x, pose.z ] );
+		};
+		let ms = 36;
+		for ( ; ms < 400; ms += 16 ) both( ms );
+		const mover = { ...defined( presentation.drawn( GID ) ), z: P0.z + 30 };
+		presentation.ownMover( GID, { kind: "walking", pose: mover }, MOUNT );
+		both( ms += 16 );
+		presentation.ownMover( GID, { kind: "ended", pose: mover }, MOUNT );
+		const frames = [ both( ms += 16, twice ) ];
+		presentation.ownMover( GID, { kind: "idle" } );
+		for ( let i = 0; i < 5; i++ ) frames.push( both( ms += 16 ) );
+		return frames;
+	};
+	assert.deepEqual( handback( true ), handback( false ) );
 });

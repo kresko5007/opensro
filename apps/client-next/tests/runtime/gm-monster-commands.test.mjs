@@ -54,7 +54,8 @@ function fixture( gmPrivilege = true ) {
 				{ refObjId: 1954, monsterType: 3 } :
 				name === "MOB_GM_TRAINING_DUMMY_021" ?
 				{ refObjId: 5000121, monsterType: 0 } :
-				undefined
+				undefined,
+		npcs: () => []
 	} );
 	return { game, sent, local };
 }

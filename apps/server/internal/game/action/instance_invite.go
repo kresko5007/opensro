@@ -248,6 +248,48 @@ type InstanceInviteResult struct {
 
 /*
 ================
+InstancePartyFacts
+
+The party facts a quest programme's talk gates read, answered under
+the division lock: whether the named character was found, stands in
+a party, leads it, runs the shared options this lane requires, and
+has a trade transport summoned. The invitation itself re-checks what
+it needs when it acts; these facts only choose the refusal line.
+================
+*/
+type InstancePartyFacts struct {
+	Found       bool
+	InParty     bool
+	Leader      bool
+	Shared      bool
+	Transported bool
+}
+
+/*
+================
+InstancePartyFacts
+
+Answers InstancePartyFacts for one character.
+================
+*/
+func (rt *Runtime) InstancePartyFacts(division, name string) InstancePartyFacts {
+	unlock := rt.lockDivision(division)
+	defer unlock()
+	character := rt.findCharacter(division, name)
+	if character == nil {
+		return InstancePartyFacts{}
+	}
+	facts := InstancePartyFacts{Found: true, Transported: rt.transportSummoned(character)}
+	if party := rt.rewardPartyOf(division, enterworld.ObjectIDForCharacter(character)); party != nil {
+		facts.InParty = true
+		facts.Leader = party.LeaderID == enterworld.ObjectIDForCharacter(character)
+		facts.Shared = party.Options&instanceInviteShareOptions == instanceInviteShareOptions
+	}
+	return facts
+}
+
+/*
+================
 instanceInvitePrompt
 
 The S->C 0x3393 type-7 prompt: the inviter's gid, then the struct
@@ -508,7 +550,11 @@ way (the invitation-answered event); an accept then
 re-checks the party and world parts of eligibility (instanceAcceptEligible)
 and transfers the member in under the division lock, re-validated
 live - a member who no longer fits simply does not move, and the
-event stream says so by the missing Enter.
+event stream says so by the missing Enter. Delivery: the accept
+path's lane release delivers the queued answered/enter/activated
+events in order; a decline takes no lane, so it delivers its
+answered event itself - this entry point holds no lock either way
+(instance_events.go).
 ================
 */
 func (c *InstanceInviteConsent) ApplyConsent(_ *transport.Session, divisionID string, actor *enterworld.Character, first, second uint8) {
@@ -524,6 +570,9 @@ func (c *InstanceInviteConsent) ApplyConsent(_ *transport.Session, divisionID st
 	rt.instanceEvent(InstanceEventInvitationAnswered, divisionID, invite.lease.ID.Definition(), invite.lease.ID, actor, accepted)
 	if !accepted {
 		rt.closeInstanceLeaseIfUnattended(divisionID, invite.lease)
+		// No lane is taken on this path, so no release will deliver
+		// the queued answer; deliver it here, lock-free.
+		rt.flushInstanceEvents()
 		return
 	}
 	unlock := rt.lockDivision(divisionID)

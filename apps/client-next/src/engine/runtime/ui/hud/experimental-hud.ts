@@ -91,6 +91,12 @@ export const EXPERIMENTAL_TABS: readonly {
 				id: "experimental-hdr-tone-map",
 				label: "HDR tone map",
 				description: "Float frame with filmic highlight roll-off."
+			},
+			{
+				key: "safeLoadingScreen",
+				id: "experimental-safe-loading-screen",
+				label: "Safe loading screen",
+				description: "Hide inappropriate loading images."
 			}
 		]
 	},
@@ -178,22 +184,17 @@ export const EXPERIMENTAL_TABS: readonly {
 			key: "predictedRunUp",
 			id: "experimental-predicted-run-up",
 			label: "Predicted run-up",
-			description: "Walk to a far target on press; may jump at the cast."
+			description: "Walk to a far target on press; stop at the cast."
 		}, {
 			key: "smoothCamera",
 			id: "experimental-smooth-camera",
 			label: "Smooth camera",
 			description: "Ease small camera jumps and the return from a wall."
 		}, {
-			key: "interpolatedOwnWalk",
-			id: "experimental-interpolated-own-walk",
-			label: "Interpolated own movement",
-			description: "Your character walks smoothly between server ticks."
-		}, {
-			key: "vHidesCompanions",
-			id: "experimental-v-hides-companions",
-			label: "V hides pets and transports",
-			description: "Holding V also hides other players' pets and transports."
+			key: "mainThreadOwnWalk",
+			id: "experimental-main-thread-own-walk",
+			label: "Instant own movement",
+			description: "Your character starts walking on the click frame."
 		}, {
 			key: "touchInspect",
 			id: "experimental-touch-inspect",
@@ -219,6 +220,11 @@ export const EXPERIMENTAL_TABS: readonly {
 			id: "experimental-plus-seven-notices",
 			label: "Plus +7 notices",
 			description: "Show the shard's +7 alchemy announcements."
+		}, {
+			key: "uniqueDamageRank",
+			id: "experimental-unique-damage-rank",
+			label: "Unique damage ranking",
+			description: "When a unique you hit dies, show who did the most."
 		}, {
 			key: "noticeLinks",
 			id: "experimental-notice-links",
@@ -299,6 +305,11 @@ export const EXPERIMENTAL_TABS: readonly {
 			id: "experimental-expanded-world-map",
 			label: "Expanded world map",
 			description: "Show extra town pages and wider overview."
+		}, {
+			key: "vHidesCompanions",
+			id: "experimental-v-hides-companions",
+			label: "V hides pets and transports",
+			description: "Holding V also hides other players' pets and transports."
 		} ]
 	},
 	{

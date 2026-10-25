@@ -344,7 +344,6 @@ export function createCharacterPresentation(
 		resources.begin( seconds );
 		output.failure = null;
 		const { localMover, logicalPose, samples } = createPresentationSamples( entities, gameplay );
-		posePresentation.interpolateOwnWalk( renderer.interpolatedOwnWalk?.() === true );
 		posePresentation.samples( samples );
 		const result = resources.poll();
 		const skillObjectResult = result && SKILL_OBJECT_MANIFESTS.some( path => path === result.path );
@@ -1075,6 +1074,28 @@ export function createCharacterPresentation(
 		*/
 		simulationOrigin( ms: number ) {
 			posePresentation.origin( ms );
+		},
+		/*
+		================
+		ownMover
+
+		This frame's main-thread mover state for the local player (#1440,
+		port-only) and the mount it rides (#1566): the presenter draws their
+		pose while it predicts.
+		================
+		*/
+		ownMover( gid: number, frame: import("./pose-presentation").OwnMoverFrame, mount?: number ) {
+			posePresentation.ownMover( gid, frame, mount );
+		},
+		/*
+		================
+		drawnPose
+
+		The pose last drawn for a character: where a predicted walk starts.
+		================
+		*/
+		drawnPose( gid: number ) {
+			return posePresentation.drawn( gid );
 		},
 		/*
 		================
