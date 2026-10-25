@@ -16,6 +16,7 @@ test("training dummy command resolves only published levels through native GM sp
 	};
 	for ( const level of [ 1, 21, 140 ] ) {
 		const frame = gmRequest( `/TRAININGDUMMY ${level}`, new Map(), 0, { monster } );
+		assert.ok( frame );
 		assert.equal( frame.opcode, 0x75b6 );
 		assert.equal( new DataView( frame.payload.buffer ).getUint32( 1, true ), 5000100 + level );
 		assert.deepEqual( [ ...frame.payload.slice( 5 ) ], [ 1, 0 ] );
@@ -28,16 +29,24 @@ test("training dummy command resolves only published levels through native GM sp
 });
 
 test("dummy namespace reuses the wooden model without changing normal monsters", () => {
-	const body = { codename: "MOB_CH_MANGNYANG", glb: "/wooden.glb" };
+	const body = { refObjId: 1933, codename: "MOB_CH_MANGNYANG", glb: "/wooden.glb", clips: [] };
+	const entity = { gid: 1, kind: "monster", regionId: 24744, x: 0, y: 0, z: 0, heading: 0, name: "Dummy" };
 	const lookup = createAppearanceLookup( {
 		referenceAppearances: { skin: () => undefined, get: () => undefined },
-		published: { catalog: new Map( [ [ 1933, body ] ] ), deathModels: new Map() },
-		structureVisuals: {},
+		published: {
+			catalog: new Map( [ [ 1933, body ] ] ),
+			deathModels: new Map(),
+			tradeSkinPools: { china: [], europe: [] },
+			tradeBandits: new Map(),
+			itemIds: new Map(),
+			dress: {}
+		},
+		structureVisuals: { appearance: () => undefined },
 		deathShown: () => false
 	} );
 	for ( const id of [ 5000101, 5000121, 5000240 ] ) {
-		assert.equal( lookup.resourceFor( { kind: "monster", refObjId: id } ), body );
+		assert.equal( lookup.resourceFor( { ...entity, refObjId: id } ), body );
 	}
-	assert.equal( lookup.resourceFor( { kind: "monster", refObjId: 1933 } ), body );
-	assert.equal( lookup.resourceFor( { kind: "monster", refObjId: 5000241 } ), undefined );
+	assert.equal( lookup.resourceFor( { ...entity, refObjId: 1933 } ), body );
+	assert.equal( lookup.resourceFor( { ...entity, refObjId: 5000241 } ), undefined );
 });
