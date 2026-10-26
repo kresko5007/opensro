@@ -81,7 +81,7 @@ func (ops *MonsterMoverOps) resolveStuck(
 		current.Nest.Controls.TraceBoundary,
 		current.Ref.TidWord,
 	)
-	live := mover.LivePoseAt(nowMs, ops.TerrainHeight)
+	live := mover.LivePoseAt(nowMs, ops.GroundHeight)
 	hadSegment := mover.ArriveMs > mover.DepartMs
 
 	switch response {
@@ -98,7 +98,7 @@ func (ops *MonsterMoverOps) resolveStuck(
 		if target, alive := eligiblePlayerByGid(current, divisionPlayers, mover.TargetGID()); alive {
 			dest := spawnToPose(target.Pose)
 			// 0x00541110 refuses outdoor -> dungeon relocation.
-			if IsDungeonRegion(live.RegionID) || !IsDungeonRegion(dest.RegionID) {
+			if !relocationEntersCave(live.RegionID, dest.RegionID) {
 				relocated := ops.resolveRelocationPose(live, dest)
 				next.Pose = relocated
 				next.From, next.To = monster.Pose{}, monster.Pose{}
@@ -135,7 +135,7 @@ func (ops *MonsterMoverOps) resolveStuck(
 		warped := false
 		if ctrlPose, found := ops.resolveControllerPose(divisionID, mover.ControllerGID(), divisionPlayers, nowMs); found {
 			// 0x00541110 refuses outdoor -> dungeon relocation.
-			if IsDungeonRegion(live.RegionID) || !IsDungeonRegion(ctrlPose.RegionID) {
+			if !relocationEntersCave(live.RegionID, ctrlPose.RegionID) {
 				relocated = ops.resolveRelocationPose(live, ctrlPose)
 				warped = true
 			}
@@ -172,8 +172,10 @@ func (ops *MonsterMoverOps) resolveRelocationPose(from, target monster.Pose) mon
 		Z:        target.Z,
 		Heading:  from.Heading,
 	}
-	if ops.TerrainHeight != nil {
-		if y, ok := ops.TerrainHeight(relocated.RegionID, relocated.X, relocated.Z); ok {
+	// A relocation is a teleport: the destination surface resolves afresh,
+	// nearest the target's own height (#1695).
+	if ops.GroundHeight != nil {
+		if y, ok := ops.GroundHeight(relocated); ok {
 			relocated.Y = y
 		}
 	}
@@ -199,7 +201,7 @@ func (ops *MonsterMoverOps) resolveControllerPose(
 	}
 	if inst, ok := ops.Monsters.Get(divisionID, controllerGID); ok && (inst.Ref.MaxHP == 0 || inst.CurrentHP > 0) {
 		if ctrlMover, ok := ops.Monsters.Mover(divisionID, controllerGID); ok {
-			return ctrlMover.LivePoseAt(nowMs, ops.TerrainHeight), true
+			return ctrlMover.LivePoseAt(nowMs, ops.GroundHeight), true
 		}
 	}
 	for _, player := range divisionPlayers {
@@ -295,4 +297,17 @@ know is not one, as 52943E refuses unknown regions separately.
 func SafeZoneRegion(region uint16) bool {
 	allowed, known := worldgeom.RegionPlayerCombat(region)
 	return known && !allowed
+}
+
+/*
+================
+relocationEntersCave
+
+Whether a stuck relocation from one region to another would carry an
+outdoor actor into a cave, which the server refuses. A relocation stays
+allowed on its own plane and out of a cave.
+================
+*/
+func relocationEntersCave(from, to uint16) bool {
+	return PlaneKindOf(from) == PlaneOutdoor && PlaneKindOf(to) == PlaneCave
 }

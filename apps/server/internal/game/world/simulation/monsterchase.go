@@ -106,7 +106,7 @@ func (ops *MonsterMoverOps) startChaseLeg(
 		return ops.startReturnLeg(divisionID, instance, tactics, mover, monster.MoverEventAttackUnavailable, nowMs)
 	}
 
-	live := mover.LivePoseAt(nowMs, ops.TerrainHeight)
+	live := mover.LivePoseAt(nowMs, ops.GroundHeight)
 	mover.Pose = live
 	mustMoverTransition(&mover, monster.MoverEventChaseStarted, target.Gid)
 	// ChaseGuidance is target movement state, not spatial approach geometry. A
@@ -129,8 +129,9 @@ func (ops *MonsterMoverOps) startChaseLeg(
 	// 548CE2..548D75: travel actor-to-target center distance along the
 	// approach direction while the target moves. AutoCommand's two-unit inset
 	// is insufficient when a running target advances five units per tick.
-	// Outdoor only: dungeon actors run 549460, which has no such branch.
-	if targetGuidance.TargetMoving() && ordinarySquadApproach(instance) && !IsDungeonRegion(live.RegionID) {
+	// Outdoor only: dungeon actors run 549460, which has no such branch
+	// (tactics_plane.go).
+	if targetGuidance.TargetMoving() && ordinarySquadApproach(instance) && pursuitAt(live.RegionID).ExtendsTowardMovingTarget() {
 		goal = NormalizeSpawnFrame(target.Pose)
 	}
 	before := ops.Monsters.prepareApproachNavigation(divisionID, instance, mover, target, nowMs)

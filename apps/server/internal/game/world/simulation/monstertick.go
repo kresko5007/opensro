@@ -60,10 +60,13 @@ type MonsterMoverOps struct {
 	activity       *monsterActivitySnapshot
 	Monsters       *MonsterState
 	TacticsFor     monster.TacticsResolver
-	// TerrainHeight resolves the navmesh ground height for a candidate
-	// destination (movement TerrainHeightAt; nil = keep the anchor Y).
+	// GroundHeight resolves the walkable surface height at one pose on
+	// the mover's plane (Plane.HeightAt via wiring; #1695). The pose
+	// carries the caller height the plane's nearest-surface rule reads.
+	// Nil = keep the pose's own Y (the chord or anchor height), exactly
+	// the pre-wiring behaviour.
 	// Must be non-blocking: it reads preloaded region bundles.
-	TerrainHeight func(regionID uint16, x, z float64) (float64, bool)
+	GroundHeight func(pose monster.Pose) (float64, bool)
 	// Production supplies the same navigation owner for ALL monster legs.
 	// nil is reserved for geometry-free unit fixtures; an unavailable region
 	// is a nil RESULT and never authorizes a straight-line fallback.
@@ -181,17 +184,7 @@ to exactly themselves: ring math over the dungeon bit is meaningless.
 ==================
 */
 func RegionScopeRing(regionID uint16) []uint16 {
-	if IsDungeonRegion(regionID) {
-		return []uint16{regionID}
-	}
-	sx, sy := SectorX(regionID), SectorY(regionID)
-	ring := make([]uint16, 0, 9)
-	for dy := -1; dy <= 1; dy++ {
-		for dx := -1; dx <= 1; dx++ {
-			ring = append(ring, RegionIDForSectors(sx+dx, sy+dy))
-		}
-	}
-	return ring
+	return worldgeom.ScopeRing(regionID)
 }
 
 /*
@@ -501,11 +494,11 @@ func (ops *MonsterMoverOps) startWanderLeg(divisionID string, instance monster.I
 		return ops.Monsters.commitNavigation(divisionID, before, mover, frames)
 	}
 	// Nest containment, probe origin and movement goal are separate inputs.
-	live := mover.LivePoseAt(nowMs, ops.TerrainHeight)
+	live := mover.LivePoseAt(nowMs, ops.GroundHeight)
 	motion := monster.NativeWanderMotion(live.Heading, func() uint32 { return monster.SummonRandomWord(ops.rand()) })
 	if mover.ControllerGID() != 0 {
 		if controller, ok := ops.Monsters.Mover(divisionID, mover.ControllerGID()); ok {
-			motion = motion.TowardController(live, controller.LivePoseAt(nowMs, ops.TerrainHeight))
+			motion = motion.TowardController(live, controller.LivePoseAt(nowMs, ops.GroundHeight))
 		}
 	}
 	if ops.hasPlanner() {
@@ -550,7 +543,7 @@ func (ops *MonsterMoverOps) planReturnLeg(instance monster.Instance, mover monst
 	if instance.Nest.HasControls && monster.HomingRuns(instance.Ref.RunSpeed) {
 		speed, channel = instance.RunSpeed(), wire.MoveStateRun
 	}
-	live := mover.LivePoseAt(nowMs, ops.TerrainHeight)
+	live := mover.LivePoseAt(nowMs, ops.GroundHeight)
 	mover.Pose = live
 	mustMoverTransition(&mover, event, 0)
 	mover.BehaviorDeadlineMs = 0
@@ -629,19 +622,20 @@ planDirectSegment
 func (ops *MonsterMoverOps) planDirectSegment(instance monster.Instance, mover monster.MoverState, dest monster.Pose, speed float64, channel uint8, nowMs int64) (monster.MoverState, []Frame) {
 	// Quantise the destination to the grid the WIRE can express, before
 	// anything derives from it. The 0xB738 goal is the only destination the
-	// client ever learns and it carries x/y/z as ROUNDED u16
+	// client ever learns and it carries x/y/z as ROUNDED i16 words
 	// (BuildMovementAckPayload, move.go) - so the client can only ever walk
 	// to an INTEGER position. Keeping a fractional destination as server
 	// truth means the 0xB2F5 settle, which encodes f32, hands the client the
 	// UNROUNDED pose AFTER it has already stopped on the rounded one, and it
 	// slides the residual (up to 0.5u per axis) off after halting - BUG-12,
 	// "they always slide a 1cm after stop". Quantise the truth rather than
-	// widening the wire: the u16 destination is the native contract, and the
+	// widening the wire: the i16 destination is the native contract, and the
 	// deliberate precision split is visible in move.go, where the SOURCE
-	// block carries roundU16(x*10) for 0.1u while the DESTINATION is raw u16.
+	// block carries roundI16Word(x*10) for 0.1u while the DESTINATION is
+	// whole units.
 	//
 	// Y is deliberately NOT quantised. The client re-resolves ground height
-	// per integrated step, so its true arrival height is the terrain under
+	// per integrated step, so its true arrival height is the surface under
 	// the arrival XZ rather than the goal's y; an integer y here would put
 	// the settle in a fight with that resolver. Re-sample at the quantised
 	// XZ instead - the ground under a rounded destination is not the ground
@@ -649,8 +643,8 @@ func (ops *MonsterMoverOps) planDirectSegment(instance monster.Instance, mover m
 	dest.X = math.Round(dest.X)
 	dest.Z = math.Round(dest.Z)
 	dest = normalizeMonsterPose(dest)
-	if !ops.hasPlanner() && ops.TerrainHeight != nil {
-		if y, ok := ops.TerrainHeight(dest.RegionID, dest.X, dest.Z); ok {
+	if !ops.hasPlanner() && ops.GroundHeight != nil {
+		if y, ok := ops.GroundHeight(dest); ok {
 			dest.Y = y
 		}
 	}
@@ -672,7 +666,7 @@ func (ops *MonsterMoverOps) planDirectSegment(instance monster.Instance, mover m
 	// Segment departure: `from` becomes mover.From - the interpolation BASE
 	// of the whole next segment - so a chord height here would propagate
 	// into every later scope-enter read (BUG-8 second injection path).
-	from := mover.LivePoseAt(nowMs, ops.TerrainHeight)
+	from := mover.LivePoseAt(nowMs, ops.GroundHeight)
 	goal := dest
 	moveIssued := planarDistance(from, goal) >= 0.01 && speed > 0
 	if moveIssued {

@@ -136,7 +136,7 @@ func TestMonsterStuckWarpToBattleTargetAndDungeonGuard(t *testing.T) {
 	target.Pose.X = mover.Pose.X + 80
 	target.Pose.Z = mover.Pose.Z + 40
 	target.Pose.Y = 33
-	ops.TerrainHeight = func(regionID uint16, x, z float64) (float64, bool) {
+	ops.GroundHeight = func(monster.Pose) (float64, bool) {
 		return 37.5, true
 	}
 	// Every pursuit leg clips to 1 unit (< 20), so arrival after each short
@@ -446,5 +446,25 @@ func TestMonsterStuckPreservesMaturedSettleFrameWhenNotYetStuck(t *testing.T) {
 	}
 	if next.Pose != to {
 		t.Fatalf("settled pose = %+v, want %+v", next.Pose, to)
+	}
+}
+
+// A stuck relocation may move an actor anywhere on its own plane and out
+// of a cave, but never carries an outdoor actor into a cave (#1646 keeps
+// the rule; #1658 changed how often cave actors reach the stuck counter).
+func TestStuckRelocationNeverEntersACaveFromOutdoors(t *testing.T) {
+	const outdoor, otherOutdoor, cave, otherCave uint16 = 0x62a8, 0x62a9, 0x8001, 0x8003
+	for _, test := range []struct {
+		from, to uint16
+		enters   bool
+	}{
+		{outdoor, otherOutdoor, false},
+		{outdoor, cave, true},
+		{cave, outdoor, false},
+		{cave, otherCave, false},
+	} {
+		if got := relocationEntersCave(test.from, test.to); got != test.enters {
+			t.Errorf("%#x -> %#x: enters cave %t, want %t", test.from, test.to, got, test.enters)
+		}
 	}
 }

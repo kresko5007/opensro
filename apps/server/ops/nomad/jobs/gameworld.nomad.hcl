@@ -367,6 +367,14 @@ variable "premium_upgrade" {
   default = "off"
 }
 
+# kill_stats counts kills and EXP per online hour by level band for the
+# staff console (#1639, #1604 P10). Port-only, not native; "off" counts
+# nothing and the economy route answers 404.
+variable "kill_stats" {
+  type    = string
+  default = "off"
+}
+
 # trade_tiers rates a caravan's stars by its cargo's gold value (5M, 10M,
 # 20M, 35M, 50M) and raises trade profit between Jangan and Donwhang +50%,
 # Hotan +100%, Samarkand +200%, Constantinople +300% (port-only, not
@@ -464,6 +472,23 @@ variable "announce_sox_drop" {
   default = "on"
 }
 
+# seal_board counts sealed drops for the site's weekly seal board, by job
+# alias with Star, Moon and Sun apart (port-only, not native; owner
+# decision 2026-10-25, #1604 P9). "off" is native: nothing counts.
+variable "seal_board" {
+  type    = string
+  default = "off"
+}
+
+# seal_census opens the staff-only seal census route (the console's
+# sealcensus tab counts seal items by degree and tier, name-free; port-only,
+# not native; owner decision 2026-10-26, #1604 P13 / #1691). "off" is
+# native: the route does not exist.
+variable "seal_census" {
+  type    = string
+  default = "off"
+}
+
 variable "announce_plus" {
   type    = string
   default = "on"
@@ -544,6 +569,9 @@ variable "trade_job_hunter_percent_cap" {
 
 # reverse_return_map adds map destinations to the reverse return scroll
 # (port-only, not native). Anything but "on" keeps the native two points.
+# On, the destinations are the VSRO client's refoptionalteleport table when
+# the game data was built after scripts/import_vsro_optional_teleport.py,
+# else the inferred town gates and unique monster areas.
 variable "reverse_return_map" {
   type    = string
   default = ""
@@ -886,9 +914,17 @@ variable "public_api_addr" {
   default = "127.0.0.1:8790"
 }
 
+# The GameWorld's tick must never wait behind another job's burst.
+# Nomad turns a task's cpu (MHz) into its cgroup CPU weight, so under
+# contention each task's share is its own reservation over the sum of
+# the contending reservations; weights cost nothing on an idle host.
+# The default therefore outweighs the Agent's reservation (500) by
+# more than ten to one. An operator value (-gameworld-cpu) replaces
+# it: keep it at least ten times the largest other reservation on the
+# host, and below the node's total compute, or the job cannot place.
 variable "cpu" {
   type    = number
-  default = 2000
+  default = 6000
 }
 
 variable "memory_mb" {
@@ -1045,6 +1081,7 @@ job "sro-gameworld-__SHARD_ID__" {
         SRO_TRADE_TIERS                         = var.trade_tiers
         SRO_TELEPORT_GRACE                      = var.teleport_grace
         SRO_PREMIUM_UPGRADE                     = var.premium_upgrade
+        SRO_KILL_STATS                          = var.kill_stats
         SRO_TRADE_ROUTE_DONWHANG_PERCENT        = var.trade_route_donwhang_percent
         SRO_TRADE_ROUTE_HOTAN_PERCENT           = var.trade_route_hotan_percent
         SRO_TRADE_ROUTE_SAMARKAND_PERCENT       = var.trade_route_samarkand_percent
@@ -1057,6 +1094,8 @@ job "sro-gameworld-__SHARD_ID__" {
         SRO_MALL_TRANSPORT_SPEED                = var.mall_transport_speed
         SRO_MALL_RIDE_SPEED                     = var.mall_ride_speed
         SRO_ANNOUNCE_SOX_DROP                   = var.announce_sox_drop
+        SRO_SEAL_BOARD                          = var.seal_board
+        SRO_SEAL_CENSUS                         = var.seal_census
         SRO_ANNOUNCE_PLUS                       = var.announce_plus
         SRO_ANNOUNCE_JOB_KILL                   = var.announce_job_kill
         SRO_JOB_KILL_NOTICE_REPEAT              = var.job_kill_notice_repeat
