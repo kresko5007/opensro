@@ -14,6 +14,23 @@ import "opensro.online/server/internal/game/companion"
 
 /*
 ================
+ApplyAttackPetExpansion
+
+The startup gate: rewrites the pet references only when
+SRO_ATTACK_PET_EXPANSION is on, so the default catalog stays native.
+Reports whether it applied.
+================
+*/
+func (t *TextdataItems) ApplyAttackPetExpansion() bool {
+	if !companion.AttackPetExpansionEnabled() {
+		return false
+	}
+	t.ApplyAttackPetProfiles()
+	return true
+}
+
+/*
+================
 ApplyAttackPetProfiles
 ================
 */
