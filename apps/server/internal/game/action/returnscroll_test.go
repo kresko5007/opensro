@@ -12,6 +12,7 @@ import (
 	"encoding/binary"
 	"math"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"opensro.online/server/internal/game/item/wire"
 	"opensro.online/server/internal/game/world/movement"
 	"opensro.online/server/internal/game/world/simulation"
+	"opensro.online/server/internal/testsupport/wait"
 )
 
 /*
@@ -171,7 +173,7 @@ TestReturnDeathCancelsTheCast
 
 #bug-reports: a character died during a return scroll, revived where it
 fell, and was then teleported to town. Native death cancels the cast
-(529B10 -> 513EA0): the job is gone, the mode is 0 for every observer, the
+and refreshes the job state: the job is gone, the mode is 0 for every observer, the
 scroll stays spent, and nothing teleports after the revival.
 ================
 */
@@ -411,4 +413,53 @@ func TestReturnScrollQuestBlockPrecedesConsumptionAndCasting(t *testing.T) {
 	if out := useReturn(rt, c); c.NativeTeleportMode != 1 || out.Frames[0].Opcode != 0x3122 {
 		t.Fatal("gate-only mask blocked return scroll")
 	}
+}
+
+/*
+================
+TestCompleteReturnScrollTimesTheDivisionWait
+
+While the division lane is held elsewhere, a due return scroll waits;
+that wait is reported as its own slow step (returnScrollDivisionWait),
+not charged to the completion itself (#1820 E). The job here is a ghost:
+once the lane frees, the completion finds no cast and returns.
+================
+*/
+func TestCompleteReturnScrollTimesTheDivisionWait(t *testing.T) {
+	rt, clock, _, _ := newCombatTestRuntime(t, 1)
+	var mu sync.Mutex
+	var steps []string
+	rt.Steps.Slow = func(name string, elapsed time.Duration) {
+		mu.Lock()
+		steps = append(steps, name)
+		mu.Unlock()
+	}
+	unlock := rt.lockDivision(testDivision)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		rt.completeReturnScrollInDivision(pendingReturn{division: testDivision, name: "ghost"}, clock.Now().UnixMilli())
+	}()
+	wait.Consistently(t, 500*time.Millisecond, "the completion waits on the division lane", func() bool {
+		select {
+		case <-done:
+			return false
+		default:
+			return true
+		}
+	})
+	unlock()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("return completion did not finish after the lane was released")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	for _, name := range steps {
+		if name == "returnScrollDivisionWait" {
+			return
+		}
+	}
+	t.Fatalf("slow steps = %v, want returnScrollDivisionWait among them", steps)
 }

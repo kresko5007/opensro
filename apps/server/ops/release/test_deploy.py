@@ -41,6 +41,26 @@ class DeployTests(unittest.TestCase):
 				{"SRO_BUG_REPORT_DISCORD_WEBHOOK": "https://discord.com/api/webhooks/1/abc"})
 
 	# ================
+	# test_staff_webhook_comes_from_the_staff_file
+	#
+	# The GameWorld's ops alerts page the channel deploy.py already
+	# announces staff events through; nothing configured passes nothing.
+	# ================
+	def test_staff_webhook_comes_from_the_staff_file(self):
+		with tempfile.TemporaryDirectory() as directory:
+			path = Path(directory) / "discord-webhook"
+			self.assertEqual(deploy.staff_environment({}), {})
+			config = {"staff_webhook": str(path)}
+			self.assertEqual(deploy.staff_environment(config), {})
+			path.write_text("\n")
+			self.assertEqual(deploy.staff_environment(config), {})
+			path.write_text("https://discord.com/api/webhooks/1/abc\n")
+			self.assertEqual(deploy.staff_environment(config),
+				{"SRO_STAFF_DISCORD_WEBHOOK": "https://discord.com/api/webhooks/1/abc"})
+		self.assertIn("SRO_STAFF_DISCORD_WEBHOOK", deploy.DEPLOYMENT_VARIABLES,
+			"a shard setting must never name the staff webhook")
+
+	# ================
 	# test_shard_settings_refuse_a_malformed_profile
 	#
 	# The deployment's beta values come only from shard-settings.json (#606):
@@ -76,14 +96,29 @@ class DeployTests(unittest.TestCase):
 		self.assertEqual(deploy.webtransport_deployer({}), ({}, []))
 		self.assertEqual(deploy.webtransport_deployer({"webtransport_public": "off"}),
 			({"SRO_WEBTRANSPORT_PUBLIC": "off"}, []))
-		full = {"webtransport_public": "on", "transport_wt_addr": "203.0.113.7:443",
+		full = {"webtransport_public": "on", "transport_wt_addr": "[::]:18443",
 			"transport_cert_file": "/etc/opensro-tls/fullchain.pem",
 			"transport_key_file": "/etc/opensro-tls/privkey.pem"}
 		environment, arguments = deploy.webtransport_deployer(full)
 		self.assertEqual(environment, {"SRO_WEBTRANSPORT_PUBLIC": "on"})
-		self.assertEqual(arguments, ["-transport-wt-addr", "203.0.113.7:443",
+		self.assertEqual(arguments, ["-transport-wt-addr", "[::]:18443",
 			"-transport-cert-file", "/etc/opensro-tls/fullchain.pem",
-			"-transport-key-file", "/etc/opensro-tls/privkey.pem"])
+			"-transport-key-file", "/etc/opensro-tls/privkey.pem",
+			"-transport-wt-public-port", "443"])
+		# The GameWorld runs unprivileged: a bind it cannot hold is refused
+		# here, before any deploy, and so is a bind without a port.
+		for refused in ("[::]:443", "[::]:1023"):
+			with self.assertRaisesRegex(ValueError, "bind port must be 1024-65535"):
+				deploy.webtransport_deployer(dict(full, transport_wt_addr=refused))
+		# The redirect delivers to the interface address, IPv4 and IPv6: any
+		# host but the dual-stack wildcard misses players silently.
+		for refused in ("127.0.0.1:18443", "203.0.113.7:18443", "0.0.0.0:18443", "[2001:db8::1]:18443"):
+			with self.assertRaisesRegex(ValueError, "bind host must be \\[::\\]"):
+				deploy.webtransport_deployer(dict(full, transport_wt_addr=refused))
+		for malformed in ("203.0.113.7", ":18443", "[::]:port"):
+			with self.assertRaisesRegex(ValueError, "must be host:port"):
+				deploy.webtransport_deployer(dict(full, transport_wt_addr=malformed))
+		self.assertEqual(deploy.wt_bind("[::]:18443"), ("[::]", 18443))
 		with self.assertRaisesRegex(ValueError, "webtransport_public"):
 			deploy.webtransport_deployer({"webtransport_public": "yes"})
 		incomplete = dict(full)
@@ -95,6 +130,101 @@ class DeployTests(unittest.TestCase):
 		with self.assertRaisesRegex(ValueError, "requires webtransport_public on"):
 			deploy.webtransport_deployer({"webtransport_public": "off",
 				"transport_cert_file": "/etc/opensro-tls/fullchain.pem"})
+
+	# ================
+	# test_wt_arguments_the_staged_binary_lacks_are_dropped
+	#
+	# A revert stages the retained release's sro-nomad, built before the
+	# WebTransport posture flags existed ("flag provided but not defined"
+	# stopped one). The posture is all-or-nothing, so a binary missing
+	# any posture flag loses every posture flag with its value and keeps
+	# the rest; a binary that defines them all keeps them all; a
+	# deployment without posture arguments never asks the binary; a
+	# binary that will not report its flags refuses instead of guessing.
+	# ================
+	def test_wt_arguments_the_staged_binary_lacks_are_dropped(self):
+		arguments = ["-namespace", "sro", "-transport-wt-addr", "[::]:18443",
+			"-transport-cert-file", "/etc/opensro-tls/fullchain.pem",
+			"-transport-key-file", "/etc/opensro-tls/privkey.pem",
+			"-transport-wt-public-port", "443"]
+		old_usage = "Usage of validate:\n  -namespace string\n\tNomad namespace\n  -module-root string\n"
+		new_usage = old_usage + "".join(f"  {flag} value\n" for flag in deploy.WT_ARGUMENT_FLAGS)
+		partial_usage = old_usage + "  -transport-wt-addr value\n  -transport-wt-public-port value\n"
+
+		def probe(usage):
+			def run(command, **kwargs):
+				raise subprocess.CalledProcessError(2, command, stderr=usage)
+			return run
+
+		with patch.object(deploy, "run", side_effect=probe(old_usage)):
+			self.assertEqual(deploy.without_undefined_wt_arguments("sro-nomad", arguments),
+				["-namespace", "sro"])
+		with patch.object(deploy, "run", side_effect=probe(partial_usage)):
+			self.assertEqual(deploy.without_undefined_wt_arguments("sro-nomad", arguments),
+				["-namespace", "sro"])
+		with patch.object(deploy, "run", side_effect=probe(new_usage)):
+			self.assertEqual(deploy.without_undefined_wt_arguments("sro-nomad", arguments), arguments)
+		with patch.object(deploy, "run") as run:
+			self.assertEqual(deploy.without_undefined_wt_arguments("sro-nomad", ["-namespace", "sro"]),
+				["-namespace", "sro"])
+			run.assert_not_called()
+		with patch.object(deploy, "run", side_effect=probe("")):
+			with self.assertRaisesRegex(RuntimeError, "did not report its flags"):
+				deploy.without_undefined_wt_arguments("sro-nomad", arguments)
+
+	# ================
+	# test_public_webtransport_waits_for_the_host
+	#
+	# A public deploy stops before any token is issued while the host lacks
+	# the redirect (quic_host.problems names the gap); a ready host, or a
+	# deploy with the switch off, goes ahead without asking the host.
+	# ================
+	def test_public_webtransport_waits_for_the_host(self):
+		on = {"webtransport_public": "on", "transport_wt_addr": "[::]:18443"}
+		with patch.object(deploy.quic_host, "problems", return_value=["no live nftables redirect"]) as asked:
+			with self.assertRaisesRegex(RuntimeError, "host is not ready: no live nftables redirect"):
+				deploy.require_quic_host(on, {"SRO_WEBTRANSPORT_PUBLIC": "on"})
+		asked.assert_called_once_with(18443)
+		with patch.object(deploy.quic_host, "problems", return_value=[]):
+			deploy.require_quic_host(on, {"SRO_WEBTRANSPORT_PUBLIC": "on"})
+		with patch.object(deploy.quic_host, "problems") as asked:
+			deploy.require_quic_host({}, {})
+			deploy.require_quic_host({"webtransport_public": "off"}, {"SRO_WEBTRANSPORT_PUBLIC": "off"})
+		asked.assert_not_called()
+		full = dict(on, transport_cert_file="/etc/opensro-tls/fullchain.pem",
+			transport_key_file="/etc/opensro-tls/privkey.pem", nomad_bootstrap="/nonexistent")
+		with patch.object(deploy, "shard_settings", return_value={}), patch.object(deploy, "run") as run, 				patch.object(deploy.quic_host, "problems", return_value=["gap"]):
+			with self.assertRaisesRegex(RuntimeError, "host is not ready"):
+				deploy.deployer(full, "")
+			run.assert_not_called()
+
+	# ================
+	# test_public_webtransport_pair_must_be_readable_by_the_task_user
+	#
+	# The deploy runs as root; the GameWorld as deploy.TASK_USER. A pair only
+	# root can read is refused before any token, naming the file and the fix.
+	# ================
+	def test_public_webtransport_pair_must_be_readable_by_the_task_user(self):
+		config = {"transport_cert_file": "/etc/opensro-tls/fullchain.pem",
+			"transport_key_file": " /etc/opensro-tls/privkey.pem "}
+		on = {"SRO_WEBTRANSPORT_PUBLIC": "on"}
+		calls = []
+		def readable(command, check):
+			calls.append(command)
+			return subprocess.CompletedProcess(command, 0)
+		deploy.require_pair_readable(config, on, run_as=readable)
+		self.assertEqual(calls, [
+			["runuser", "-u", deploy.TASK_USER, "--", "test", "-r", "/etc/opensro-tls/fullchain.pem"],
+			["runuser", "-u", deploy.TASK_USER, "--", "test", "-r", "/etc/opensro-tls/privkey.pem"]])
+		def key_unreadable(command, check):
+			return subprocess.CompletedProcess(command, 1 if command[-1].endswith("privkey.pem") else 0)
+		with self.assertRaisesRegex(RuntimeError, "transport_key_file /etc/opensro-tls/privkey.pem is not readable by sro.*0640"):
+			deploy.require_pair_readable(config, on, run_as=key_unreadable)
+		# Off or absent: nothing to read, nothing asked.
+		calls.clear()
+		deploy.require_pair_readable({}, {}, run_as=readable)
+		deploy.require_pair_readable(config, {"SRO_WEBTRANSPORT_PUBLIC": "off"}, run_as=readable)
+		self.assertEqual(calls, [])
 
 	# ================
 	# test_preflight_and_token_lifecycle

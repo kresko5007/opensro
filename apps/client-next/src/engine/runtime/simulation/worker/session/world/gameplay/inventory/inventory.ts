@@ -14,6 +14,7 @@ import {
 	type CosItemUseContext
 } from "@/engine/foundation/gameplay/cos-item-use";
 import { globalChatTail, isGlobalChatItem } from "@/engine/foundation/gameplay/global-chat";
+import { isNameChangeScrollItem, nameChangeTail } from "@/engine/foundation/gameplay/name-change";
 import {
 	nativeStackIdentity,
 	planContainerMove,
@@ -1533,8 +1534,12 @@ use
 				throw new Error( "Item use unavailable" );
 			}
 			if ( itemCooldown( itemCooldowns, item.typeFlags, now ) ) return null;
-			// The Global Chatting item carries its line (693C90); nothing else does.
-			const tail = isGlobalChatItem( item.typeFlags ) ?
+			// The Global Chatting item carries its line (693C90); the
+			// name-change scroll carries its new name (#1689); nothing
+			// else leaves the companion tail path.
+			const tail = isNameChangeScrollItem( item.refObjId ) ?
+				nameChangeTail( context?.renameName ?? "" ) :
+				isGlobalChatItem( item.typeFlags ) ?
 				globalChatTail( message ?? "" ) :
 				cosItemUseTail( item.typeFlags, [ ...slots.values() ], companionContext( item.typeFlags, context ) );
 			const p = new Uint8Array( 3 + tail.length );
@@ -1709,8 +1714,9 @@ receive
 			if ( op === 0xb373 || op === 0xb651 ) {
 				if ( p[0] !== 1 ) {
 					if ( p.length !== (p[0] === 2 ? 2 : 1) ) throw Error( "Invalid alchemy rejection" );
-					// A stone whose roll failed (0xB651 [2, 0x23]; native 50338F/
-					// 50376F spend the stone) is a finished attempt: 62B0B0's 0x80
+					// A stone whose roll failed (0xB651 [2, 0x23]; the server
+					// spends the stone on the failed roll) is a finished attempt:
+					// CIFAlchemyReinforce_ShowResult's (client @0x0062b0b0) 0x80
 					// arm plays the failure effect and writes the failure line, so
 					// it records an outcome. Every other code is a refusal and
 					// finishes nothing.

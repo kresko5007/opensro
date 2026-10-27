@@ -99,9 +99,20 @@ var Settings = []Setting{
 	// Port-only, not native: degree-10/11 equipment set bonuses (#1747);
 	// the v1.150 client ships no set rows, so off is the native state.
 	{Env: "SRO_CAP110_SET_BONUSES", NomadVar: "cap110_set_bonuses", Default: "off", Catalogue: true},
+	// Port-only, not native: the degree-11 equipment and skill tiers
+	// (#1745). Consumed at build time, not at runtime: the variant build's
+	// import tools (cap110_item_import.py, cap110_skill_import.py) read
+	// them when the server data is built, and the GameWorld reads neither.
+	// Server only: the catalogue reads the built data, not its inputs.
+	{Env: "SRO_CAP110_ITEMS", NomadVar: "cap110_items", Default: "off"},
+	{Env: "SRO_CAP110_SKILLS", NomadVar: "cap110_skills", Default: "off"},
 	// Port-only, not native: the Pharaoh Tomb 1-3 population and gates. Needs
 	// SRO_CAP110_MONSTERS (its equipment drops).
 	{Env: "SRO_PHARAOH_TOMB", NomadVar: "pharaoh_tomb", Default: "off", Catalogue: true},
+	// Port-only, not native: the Qin-Shi tomb upper-floor population
+	// (#1800). Needs SRO_CAP110_MONSTERS (its drops ride the shared
+	// cap-110 loot catalogue).
+	{Env: "SRO_CAP110_QINSHI", NomadVar: "cap110_qinshi", Default: "off", Catalogue: true},
 	// Port-only, not native: a Pharaoh Tomb elite or unique rolls equipment this
 	// many times as often (1 is native; 2 to 20). Server only: the site's drop
 	// lists describe the native rule.
@@ -149,6 +160,9 @@ var Settings = []Setting{
 	// the new ticket's end later (#1624, port-only, not native; "off"
 	// refuses a second ticket while one runs).
 	{Env: "SRO_PREMIUM_UPGRADE", NomadVar: "premium_upgrade", Default: "off"},
+	// Owner, 2026-10-27: the name-change scroll (#1689, port-only, not
+	// native; "off" is native: the scroll is neither sold nor usable).
+	{Env: "SRO_NAME_CHANGE_SCROLL", NomadVar: "name_change_scroll", Default: "off"},
 	// Owner, 2026-10-25: count kills and EXP per online hour by level
 	// band for the staff console (#1639, port-only, not native; "off"
 	// counts nothing and the economy route answers 404).
@@ -243,6 +257,11 @@ var Settings = []Setting{
 	{Env: "SRO_BETA_DROP_RATE", NomadVar: "beta_drop_rate", Default: "1", Catalogue: true, Validation: ValueBetaGrowth},
 	{Env: "SRO_BETA_DROP_MIX", NomadVar: "beta_drop_mix", Default: "off", Catalogue: true, Validation: ValueBetaDropMix},
 	{Env: "SRO_SHOP_EXTRA_GOODS", NomadVar: "shop_extra_goods", Default: "on", Catalogue: true},
+	// Owner, 2026-10-28 (#1850): Jangan's grocer as "OpenSRO Alchemy -
+	// Jangan", the default list's alchemy goods on three tabs and the
+	// elixirs off the smith. On by default (it extends the extra goods);
+	// off restores the native name and tabs.
+	{Env: "SRO_JANGAN_ALCHEMY_SHOP", NomadVar: "jangan_alchemy_shop", Default: "on", Catalogue: true},
 	{Env: "SRO_MALL_EXTRA_GOODS", NomadVar: "mall_extra_goods", Default: "on"},
 	{Env: "SRO_ALCHEMY_NO_ASSIMILATION", NomadVar: "alchemy_no_assimilation", Default: "on"},
 	// Owner, 2026-10-14: 8 per ambush (was 16), thieves and hunters alike.

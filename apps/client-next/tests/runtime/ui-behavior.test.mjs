@@ -5500,6 +5500,74 @@ test("academy master can submit the shared notice editor without guild membershi
 	}
 });
 
+test("the Bandit Den gate's return point row sends 0x7495 type 1 and nothing else", () => {
+	const sent = [], f = uiFixture( c => sent.push( c.command ) );
+	try {
+		// Capability 0x100 alone, as the server grants the den gate (row 0x10).
+		f.state.gameplay = {
+			...f.state.gameplay,
+			pose: { ...f.state.gameplay.pose, regionId: 24758 },
+			target: 17,
+			targetCapabilities: 0x100,
+			npcConversation: { phase: "menu", gid: 17 }
+		};
+		f.state.entities.push( {
+			...f.state.entities[0],
+			gid: 17,
+			refObjId: 2197,
+			kind: "teleport",
+			name: "Bandit Den"
+		} );
+		let output, now = 0;
+		const draw = () => {
+			for ( let i = 0; i < 40; i++ ) output = f.ui.step( { ...f.state }, now++ ) ?? output;
+		};
+		draw();
+		const ids = defined( output ).controls.map( c => c.id );
+		assert.ok( ids.includes( "npc-return-point" ) );
+		assert.ok( !ids.includes( "npc-portal-open" ) && !ids.includes( "npc-recall-designate" ) );
+		f.ui.event( { kind: "activate", id: "npc-return-point" } );
+		draw();
+		assert.deepEqual( sent.splice( 0 ), [ { kind: "travel-gate", gid: 17, type: 1, target: 0 } ] );
+	} finally {
+		f.dispose();
+	}
+});
+
+test("a quest exit gate draws its rows and a row click sends 0x7495 type 3", () => {
+	const sent = [], f = uiFixture( c => sent.push( c.command ) );
+	try {
+		// The gate's grant: capability 0x8000000 with one return row.
+		f.state.gameplay = {
+			...f.state.gameplay,
+			target: 285000,
+			targetCapabilities: 0x8000000,
+			targetGateRows: [ { kind: 0 } ],
+			npcConversation: { phase: "menu", gid: 285000 }
+		};
+		f.state.entities.push( {
+			...f.state.entities[0],
+			gid: 285000,
+			refObjId: 19076,
+			kind: "teleport",
+			name: "Exit"
+		} );
+		let output, now = 0;
+		const draw = () => {
+			for ( let i = 0; i < 40; i++ ) output = f.ui.step( { ...f.state }, now++ ) ?? output;
+		};
+		draw();
+		const ids = defined( output ).controls.map( c => c.id );
+		assert.ok( ids.includes( "npc-gate-row:0" ) );
+		assert.ok( !ids.includes( "npc-portal-open" ) );
+		f.ui.event( { kind: "activate", id: "npc-gate-row:0" } );
+		draw();
+		assert.deepEqual( sent.splice( 0 ), [ { kind: "travel-instance", gid: 285000, target: 0 } ] );
+	} finally {
+		f.dispose();
+	}
+});
+
 test("recall menu has independent capability, modal cancel and stale-target protection", () => {
 	const sent = [], f = uiFixture( c => sent.push( c.command ) );
 	try {
@@ -5808,6 +5876,55 @@ test("chat rows and world whisper selection prepare the same draft without sendi
 		f.ui.event( { kind: "whisper-target", gid: 1 } );
 		f.ui.event( { kind: "whisper-target", gid: 999 } );
 		assert.equal( sent.length, 0, "prefill never sends a chat packet" );
+	} finally {
+		f.dispose();
+	}
+});
+
+test("a skill tab switch returns to the mastery last selected on that tab", () => {
+	const f = uiFixture( () => {} );
+	try {
+		f.state.gameplay = {
+			...f.state.gameplay,
+			progression: {
+				level: 10,
+				skillPoints: 10,
+				masteries: [ 257, 258, 259, 273, 274 ].map( id => ({ id, level: 1 }) )
+			}
+		};
+		for ( let time = 0; time < 1200; time += 100 ) f.ui.step( f.state, time );
+		f.ui.event( { kind: "key", code: "KeyS" } );
+		f.ui.step( f.state, 1300 );
+		// step answers null when nothing changed, so keep the last scene.
+		let scene;
+		const selected = time => {
+			scene = f.ui.step( f.state, time ) ?? scene;
+			return scene?.controls.find( c => c.id.startsWith( "skill-mastery:" ) && c.selected )?.id;
+		};
+		f.ui.event( { kind: "activate", id: "skill-tab:0" } );
+		f.ui.event( { kind: "activate", id: "skill-mastery:258" } );
+		assert.equal( selected( 1400 ), "skill-mastery:258" );
+		f.ui.event( { kind: "activate", id: "skill-tab:1" } );
+		assert.equal( selected( 1500 ), "skill-mastery:273", "an unvisited tab opens on its first mastery" );
+		f.ui.event( { kind: "activate", id: "skill-mastery:274" } );
+		f.ui.event( { kind: "activate", id: "skill-tab:0" } );
+		assert.equal( selected( 1600 ), "skill-mastery:258", "the weapon tab returns to its own last mastery" );
+		f.ui.event( { kind: "activate", id: "skill-tab:1" } );
+		assert.equal( selected( 1700 ), "skill-mastery:274", "the force tab returns to its own last mastery" );
+		// The memory belongs to the session, as the native window does:
+		// leaving the world resets the panel and forgets every tab's mastery.
+		f.ui.event( { kind: "activate", id: "skill-tab:0" } );
+		f.ui.event( { kind: "activate", id: "skill-mastery:258" } );
+		const world = f.state.session;
+		f.state.session = { phase: "signed-out", revision: (world?.revision ?? 0) + 1 };
+		f.ui.step( f.state, 1800 );
+		f.state.session = { ...world, revision: (world?.revision ?? 0) + 2 };
+		for ( let time = 1900; time < 2400; time += 100 ) f.ui.step( f.state, time );
+		f.ui.event( { kind: "key", code: "KeyS" } );
+		selected( 2500 );
+		f.ui.event( { kind: "activate", id: "skill-tab:1" } );
+		f.ui.event( { kind: "activate", id: "skill-tab:0" } );
+		assert.equal( selected( 2600 ), "skill-mastery:257", "a reset panel opens each tab on its first mastery" );
 	} finally {
 		f.dispose();
 	}

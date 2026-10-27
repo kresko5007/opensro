@@ -204,6 +204,10 @@ func NewDevDepsWithRoster(paths DevPaths, textdata *TextdataCatalogs, roster *Ro
 		if err != nil {
 			return nil, fmt.Errorf("bootstrap: %w", err)
 		}
+		template, err = monster.AppendQinshi(template, textdataDir, monster.QinshiEnabled())
+		if err != nil {
+			return nil, fmt.Errorf("bootstrap: %w", err)
+		}
 		if rate, _ := monster.PharaohGearRateFromEnv(); rate > 1 && monster.PharaohTombEnabled() {
 			log.Infof("bootstrap: Pharaoh Tomb elites and uniques roll equipment x%d (%s, port-only)", rate, monster.EnvPharaohGearRate)
 		}
@@ -280,6 +284,10 @@ func NewDevDepsWithRoster(paths DevPaths, textdata *TextdataCatalogs, roster *Ro
 			return append(rows, monsterSpawns.MonsterRefObjSnapshot(monsters)...)
 		},
 	}
+	// The RefObj snapshot's inputs are all loaded above and never
+	// mutated afterwards, so Build may memoize the filtered snapshot
+	// instead of rebuilding the catalogues per entry (#1820).
+	deps.refObjCache = &refObjSnapshotCache{}
 	if paths.StarterKitEnabled {
 		deps.StarterKit = ResolveStarterKit(items)
 		deps.StarterRefills = ResolveStarterRefills(items)

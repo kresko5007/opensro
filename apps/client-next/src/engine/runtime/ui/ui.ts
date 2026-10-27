@@ -239,6 +239,7 @@ import {
 import { createRepairHud } from "./hud/repair-hud";
 import { createSkinChangeHud } from "./hud/skin-change-hud";
 import { createGlobalChatHud } from "./hud/global-chat-hud";
+import { createNameChangeHud } from "./hud/name-change-hud";
 import { createReverseReturnHud } from "./hud/reverse-return-hud";
 import { createSpecialtyDealHud } from "./hud/specialty-deal-hud";
 import { socialQuestion } from "@/engine/foundation/ui/social-question";
@@ -274,6 +275,11 @@ import {
 	tradeTierScale
 } from "@/engine/foundation/gameplay/specialty-deal";
 import { GLOBAL_CHAT_MAX_LENGTH, isGlobalChatItem } from "@/engine/foundation/gameplay/global-chat";
+import {
+	isNameChangeScrollItem,
+	isValidRenameName,
+	NAME_CHANGE_MAX_LENGTH
+} from "@/engine/foundation/gameplay/name-change";
 import { createJobHud } from "./hud/job-hud";
 import { fortressMiniIndicators } from "@/engine/foundation/ui/fortress-mini-info";
 import {
@@ -590,7 +596,7 @@ import {
 	audioLevelText
 } from "@/engine/foundation/audio/volume-control";
 import { chatScrollbar } from "@/engine/foundation/ui/chat-scrollbar";
-import { companionOwnerNameplate, overheadLayout } from "@/engine/foundation/ui/overhead-layout";
+import { companionOwnerNameplate, overheadLayout, withoutBoardPass } from "@/engine/foundation/ui/overhead-layout";
 import { vitalWarning } from "@/engine/foundation/ui/vital-warning";
 import {
 	beginnerMarkShown,
@@ -855,6 +861,10 @@ const SKIN_PANEL = "Skin change";
 // CIFWholeChat, the Global Chatting item's window, and its line's edit box.
 const GLOBAL_CHAT_PANEL = "Global chat";
 const GLOBAL_CHAT_TEXT = "wholechat-text";
+// The name-change scroll's entry window (#1689, port-only): the
+// CIFWholeChat frame under its own title and edit box.
+const RENAME_PANEL = "Name change";
+const RENAME_TEXT = "rename-text";
 // CIFSpecialtyDeal, the trade goods window, and its quantity edit (control 30).
 const SPECIALTY_DEAL_PANEL = "Specialty deal";
 const SPECIALTY_DEAL_COUNT = "specialty-deal-count";
@@ -994,12 +1004,15 @@ export interface UiExtensions {
 	setWorldFieldOfView?: ( degrees: number ) => void;
 	setCameraZoomRail?: ( capped: boolean ) => void;
 	setFreeCamera?: ( free: boolean ) => void;
+	setFreeCameraSpeed?: ( speed: number ) => void;
 	setCameraCollision?: ( collision: boolean ) => void;
 	setCameraWaypoints?: (
 		keyframes: readonly import("@/engine/foundation/ui/camera-waypoints").CameraWaypoint[]
 	) => void;
 	setCameraPlaying?: ( playing: boolean ) => void;
 	setCursorVisible?: ( visible: boolean ) => void;
+	// The /id byte for the character owner's hit damage numbers (8D5856).
+	setDamageNumbers?: ( shown: boolean ) => void;
 	saveCameraWaypoints?: ( text: string ) => void;
 	playSoundByName?: ( name: string ) => void;
 	saveExperimental?: ( value: ExperimentalOptions ) => void;
@@ -1060,15 +1073,18 @@ export function createUi(
 	const cameraWaypoints = createCameraWaypointStore();
 	let cameraWaypointsLoaded = false;
 	// The camera family's kept values: the free-camera move speed
-	// (+0x7B0, seeded 100, case 136), the snapped second speed (+0x7C0,
+	// (+0x7B0, seeded 100, case 136; the camera owner holds a copy for
+	// the free-fly arm, #1787), the snapped second speed (+0x7C0,
 	// seeded 50, case 111), the frame byte (engine global +0x4A, seeded
-	// clear, case 117), the id-plate byte (0xCCB5D8, seeded standing,
+	// clear, case 117), the /id byte (0xCCB5D8, seeded standing,
 	// case 137) and the local
 	// player's written speed (+0x658, case 600; 100 is the scale's
-	// neutral point, the value the word 10 writes). The port's camera
-	// does not translate freely, its boards take no id line and its
-	// movement is the server's, so these are kept as written for the
-	// consumers in #1717.
+	// neutral point, the value the word 10 writes). The movement speed
+	// is the server's, so it and the second speed are kept as written
+	// for the consumers in #1717. The /id byte
+	// is read: while it is clear the overhead boards and their kind-4
+	// pass are skipped (85F5DC), and the character owner holds a copy
+	// for the hit damage numbers (8D5856, #1785).
 	let debugCameraSpeed = 100;
 	let debugFast = 50;
 	let debugFrameStats = false;
@@ -1330,6 +1346,7 @@ export function createUi(
 	const repairHud = createRepairHud();
 	const skinHud = createSkinChangeHud();
 	const globalChatHud = createGlobalChatHud();
+	const renameHud = createNameChangeHud();
 	const reverseScrollHud = createReverseReturnHud();
 	const specialtyDealHud = createSpecialtyDealHud();
 	let specialtyCombo = false;
@@ -1657,6 +1674,10 @@ export function createUi(
 	let questPosition: readonly [number, number] = [ 0, 0 ], questDetailScroll = 0, questDetailMax = 0;
 	let practice: PracticeRequest | null = null, questDetails = false;
 	let skillTab = 0, selectedMastery = 0, skillScroll = 0;
+	// The mastery last selected on each skill tab: a tab switch returns to
+	// it, as the native window's per-tab mastery map does (5910F0 records
+	// it, 591020 restores it or falls back to the tab's first mastery).
+	const masteryByTab = new Map<number, number>();
 	let selectedSkill = 0, skillPage = 0, hotbarPage = 0, trainingMode = false, clearHotbar = false;
 	let carriedShortcut: { id: string; x: number; y: number; } | null = null;
 	let quickslotTime = 0, quickslotTick = -1;
@@ -2259,6 +2280,7 @@ export function createUi(
 		skillTab = 0;
 		selectedMastery = 0;
 		skillScroll = 0;
+		masteryByTab.clear();
 		expandedQuests.clear();
 		windowMissing = [];
 	}
@@ -2367,6 +2389,14 @@ export function createUi(
 			if ( item && isGlobalChatItem( item.typeFlags ) && command.message === undefined ) {
 				globalChatHud.open( item.slot );
 				focusAtEnd( GLOBAL_CHAT_TEXT, "" );
+				dirty = true;
+				return;
+			}
+			// #1689 (port-only): the name-change scroll asks for the new
+			// name first; its window's Use runs the use with the name.
+			if ( item && isNameChangeScrollItem( item.refObjId ) && command.renameName === undefined ) {
+				renameHud.open( item.slot );
+				focusAtEnd( RENAME_TEXT, "" );
 				dirty = true;
 				return;
 			}
@@ -2743,8 +2773,10 @@ export function createUi(
 	local debug clock the sampler reads through debugClockSeed. The camera
 	rows flip this window's debug bytes and hand each to its owner; the
 	shown byte (112/113) rides the gameplay lane to the entity owner, and
-	the mission window's visible flag (115/116) is this window's own. The
-	remaining camera rows (111/117/136/137) and the 600 family keep their
+	the mission window's visible flag (115/116) is this window's own. 137
+	gates this window's overhead boards and hands the byte to the
+	character owner for the damage numbers (#1785). The
+	remaining camera rows (111/117/136) and the 600 family keep their
 	values on this window for consumers the port does not have yet (#1717);
 	601 frames the named item as a packet the client hands itself (see
 	the case); the port builds nothing. 602 is the native table's shared exit.
@@ -2952,18 +2984,25 @@ export function createUi(
 				break;
 			case DEBUG_COMMAND_CAMERA_SPEED: {
 				// Case 136 writes +0x7B0 from one word clamped to
-				// 1..500: the free-camera move speed, kept for the
-				// camera (the port's free camera holds its pose and has
-				// no translation to scale; see #1717). No print.
+				// 1..500: the free-fly arm's translation speed (690146
+				// reads it at 6902AD and 69040B), forwarded to the
+				// camera owner (#1787). No print.
 				const speed = debugCameraSpeedValue( command.args );
-				if ( speed !== null ) debugCameraSpeed = speed;
+				if ( speed !== null ) {
+					debugCameraSpeed = speed;
+					extensions.setFreeCameraSpeed?.( speed );
+				}
 				break;
 			}
 			case DEBUG_COMMAND_ID:
-				// Case 137 flips the id-plate byte (0xCCB5D8): kept for
-				// the name boards, which take no id line yet (#1717).
-				// The native prints nothing.
+				// Case 137 flips the /id byte (0xCCB5D8, sete at 691678).
+				// Its readers draw while it stands: 85F5DC (the name
+				// board and the kind-4 overhead pass, read below in the
+				// overhead composition) and 8D5856 (a hit's damage
+				// number, the character owner's). The native prints
+				// nothing.
 				debugShowIds = !debugShowIds;
+				extensions.setDamageNumbers?.( debugShowIds );
 				break;
 			case DEBUG_COMMAND_WIRE_FRAME:
 				// 150 (691686) negates graphic option 0x12: while it stands
@@ -3102,6 +3141,31 @@ export function createUi(
 		}
 		globalChatHud.sent();
 		focusAtEnd( GLOBAL_CHAT_TEXT, "" );
+	}
+	/*
+	================
+	sendRenameUse
+
+	The name-change window's Use (#1689, port-only): an invalid name is
+	refused here with its line and the window keeps the text; a valid one
+	uses the scroll with the name and closes. The server judges the rest
+	(taken, reserved, cooldown, state) and answers its own byte.
+	================
+	*/
+	function sendRenameUse( slot: number, name: string ) {
+		const item = view?.gameplay?.inventory.find( row => row.slot === slot );
+		if ( !item || !isNameChangeScrollItem( item.refObjId ) || item.quantity === 0 ) {
+			renameHud.close();
+			focus = null;
+			return;
+		}
+		if ( !isValidRenameName( name ) ) {
+			hudMessages.append( "Names are 2 to 12 letters, digits or underscores." );
+			return;
+		}
+		sendGameplay( { kind: "item-use", slot, renameName: name } );
+		renameHud.close();
+		focus = null;
 	}
 	/*
 	================
@@ -3664,6 +3728,23 @@ export function createUi(
 				sendGameplay( { kind: "job-previous", gid: conversation.gid } );
 			}
 			dirty = true;
+			return;
+		}
+		// 5DA1B0 case 0x10: the return point row sends 0x7495 type 1.
+		if ( id === "npc-return-point" ) {
+			const conversation = view.gameplay?.npcConversation;
+			if ( conversation && conversation.phase === "menu" ) {
+				sendGameplay( { kind: "travel-gate", gid: conversation.gid, type: 1, target: 0 } );
+			}
+			return;
+		}
+		// 5DA1B0 case 0x2A: a quest exit gate's row sends 0x7495 type 3. The
+		// rows carry no choice of their own (AppendTeleportRows leaves it 0).
+		if ( id.startsWith( "npc-gate-row:" ) ) {
+			const conversation = view.gameplay?.npcConversation;
+			if ( conversation && conversation.phase === "menu" ) {
+				sendGameplay( { kind: "travel-instance", gid: conversation.gid, target: 0 } );
+			}
 			return;
 		}
 		if ( id.startsWith( "npc-reverse-return:" ) ) {
@@ -4589,10 +4670,11 @@ export function createUi(
 		} else if ( id === "hotbar-clear" ) clearHotbar = !clearHotbar;
 		else if ( id.startsWith( "skill-tab:" ) ) {
 			skillTab = Number( id.slice( 10 ) );
-			selectedMastery = 0;
+			selectedMastery = masteryByTab.get( skillTab ) ?? 0;
 			skillScroll = 0;
 		} else if ( id.startsWith( "skill-mastery:" ) ) {
 			selectedMastery = Number( id.slice( 14 ) );
+			masteryByTab.set( skillTab, selectedMastery );
 			skillScroll = 0;
 		} else if ( id === "skill-scroll-up" || id === "skill-scroll-down" ) {
 			skillScroll = Math.max( 0, skillScroll + (id.endsWith( "up" ) ? -1 : 1) );
@@ -6454,6 +6536,32 @@ export function createUi(
 					event.kind === "activate" && event.id === "wholechat-use"
 				) {
 					sendGlobalChat( wholeChat.slot, wholeChat.text );
+					dirty = true;
+					return;
+				}
+			}
+			const renameWindow = renameHud.state();
+			if ( renameWindow !== null ) {
+				// The name-change window (#1689): Enter uses, Esc closes.
+				if (
+					event.kind === "key" && event.code === "Escape" ||
+					event.kind === "activate" && (event.id === "rename-exit" || event.id === "rename-close")
+				) {
+					renameHud.close();
+					focus = null;
+					dirty = true;
+					return;
+				}
+				if ( event.kind === "edit" && event.id === RENAME_TEXT ) {
+					renameHud.type( event.value );
+					dirty = true;
+					return;
+				}
+				if (
+					event.kind === "key" && event.code === "Enter" && !composing && focus === RENAME_TEXT ||
+					event.kind === "activate" && event.id === "rename-use"
+				) {
+					sendRenameUse( renameWindow.slot, renameWindow.text );
 					dirty = true;
 					return;
 				}
@@ -16047,7 +16155,9 @@ export function createUi(
 							target.name :
 							"",
 						canRecall: !!(capabilities & 0x40),
+						canReturnPoint: !!(capabilities & 0x100),
 						canReverseReturn: !!(capabilities & 0x20000000),
+						gateRows: capabilities & 0x8000000 ? game.targetGateRows : undefined,
 						canStorage: !!(capabilities & 4),
 						// 5D9100: the TC manager's +0x20 (set by any camp record)
 						// is clear and the player is level 60 or more.
@@ -17356,6 +17466,46 @@ export function createUi(
 						}
 					}
 					endWindow( admission, "service:" + GLOBAL_CHAT_PANEL );
+				}
+				const renameWindow = renameHud.state();
+				if ( renameWindow && hudData?.windows.ifwholechat && hudData.root.GDR_WHOLE_CHAT ) {
+					// #1689 (port-only): the name entry on CIFWholeChat's
+					// frame - its edit box, the scroll count, Use/Cancel -
+					// under the Name Change title. Use waits for a valid
+					// name and a scroll left, like the chat window's own
+					// send gating (6D1D90).
+					const admission = beginWindow(),
+						root = hudData.root.GDR_WHOLE_CHAT,
+						layout = hudData.windows.ifwholechat,
+						nodes = Object.values( layout ),
+						byName = ( name: string ) => nodes.find( n => n.name === name ),
+						[px, py] = windowOrigin( RENAME_PANEL, [
+							Math.max( 0, (w - root.rect[2]) / 2 ),
+							Math.max( 0, (h - root.rect[3]) / 2 ),
+							root.rect[2],
+							root.rect[3]
+						] ),
+						count = game?.inventory.find( row => row.slot === renameWindow.slot )?.quantity ?? 0;
+					nativeFrame( root, px, py, "Name Change", "rename-close" );
+					nativePage( layout, px, py, [ 31, 32, 35, 36 ] );
+					const edit = byName( "GDR_WHOLE_CHAT_EDITBOX_INPUT" ), odd = byName( "GDR_WHOLE_CHAT_ODDITEM" );
+					if ( edit ) partyEdit( edit, px, py, RENAME_TEXT, renameWindow.text, NAME_CHANGE_MAX_LENGTH );
+					if ( odd ) authoredText( odd, px, py, String( count ) );
+					for ( const [id, name] of [ [ "rename-use", "OK" ], [ "rename-exit", "CANCEL" ] ] as const ) {
+						const node = byName( "GDR_WHOLE_CHAT_BTN_" + name );
+						if ( node ) {
+							authoredLabeledButton(
+								node,
+								px,
+								py,
+								id,
+								hudCopy( node.text ),
+								id === "rename-use" &&
+									(count === 0 || !!game?.inventoryPending || !isValidRenameName( renameWindow.text ))
+							);
+						}
+					}
+					endWindow( admission, "service:" + RENAME_PANEL );
 				}
 				const specialtyDeal = specialtyDealHud.state();
 				if ( specialtyDeal && hudData?.windows.ifspecialtydeal && hudData.root.GDR_SPECIALTY_DEAL ) {
@@ -20724,10 +20874,12 @@ export function createUi(
 				paths.push( ...combatGlyphPaths );
 				const path = ROOT + "icon/etc/icon_rudiment.png";
 				const local = next.entities.find( e => e.gid === game?.localGid );
+				// 85F5DC: with the /id byte clear the kind-4 pass draws no row.
 				const overheads = new Map(
-					next.entities.map(
-						entity => [ entity.gid, game ? overheadLayout( entity, local, game, options, hudCopy ) : null ]
-					)
+					next.entities.map( entity => {
+						const layout = game ? overheadLayout( entity, local, game, options, hudCopy ) : null;
+						return [ entity.gid, layout && !debugShowIds ? withoutBoardPass( layout ) : layout ] as const;
+					} )
 				);
 				// Characters whose guild line, fortress mark or quick status bars show;
 				// overheadBoardVisible shows their names with them.
@@ -20935,8 +21087,12 @@ export function createUi(
 					}
 					const hovered = entity.gid === next.hoveredEntity, selected = entity.gid === game?.target;
 					// One decision for the name and every overhead icon: an icon never
-					// shows without its name (name-visibility.ts header).
-					const named = !entity.debugHidden && !hiddenSilkCos( entity, options.hideSilkCos ) &&
+					// shows without its name (name-visibility.ts header). 85F5DC
+					// skips the name board and the icon pass while the /id byte
+					// (0xCCB5D8) is clear; the dress bar above is CICUser_Draw's
+					// (86AB90) and stays.
+					const named = debugShowIds && !entity.debugHidden &&
+						!hiddenSilkCos( entity, options.hideSilkCos ) &&
 						overheadBoardVisible(
 							boardAt( entity ),
 							local,

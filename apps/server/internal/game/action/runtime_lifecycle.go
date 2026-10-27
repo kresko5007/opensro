@@ -71,10 +71,19 @@ func (rt *Runtime) TickHook() simulation.TickHook {
 		// per step, so a request or bootstrap waits at most one step, and
 		// between steps they interleave exactly as before. The deferred
 		// release also covers a step panic the ticker recovers.
+		//
+		// The WAIT for the gate is timed as its own step
+		// (tickPublicationGate), outside the step's timer: a step stuck
+		// behind an entry bootstrap or a request op used to read as slow
+		// itself, naming the waiter instead of the holder (#1820 E). The
+		// holder's side of the same stall is the publication_holds report.
 		step := func(name string, run func()) {
+			var unlock func()
+			timed("tickPublicationGate", func() {
+				unlock = rt.lockTickPublication()
+			})
+			defer unlock()
 			timed(name, func() {
-				unlock := rt.lockTickPublication()
-				defer unlock()
 				run()
 				out = append(out[:sealed], rt.sealTickPrivate(out[sealed:])...)
 				sealed = len(out)
@@ -127,8 +136,8 @@ func (rt *Runtime) TickHook() simulation.TickHook {
 		frames("advanceProjectileCasts", rt.advanceProjectileCasts)
 		// A cancel-active-effect request only clears the server effect's live
 		// flag. Character-effect retirement and its counted instance teardown
-		// broadcast are a distinct update phase in retail (v1.188 sub_5a0100 ->
-		// sub_59ecd0 / B072; v1.150 client opcode B6A0).
+		// broadcast are a distinct update phase in retail (the reference server's
+		// effect retirement / B072; v1.150 client opcode B6A0).
 		step("checkpointOnlineSkillJobs", func() { rt.checkpointOnlineSkillJobs(nowMs) })
 		step("advanceLinkedEffects", func() { rt.advanceLinkedEffects(nowMs) })
 		frames("advancePartyAuras", rt.advancePartyAuras)
@@ -141,7 +150,7 @@ func (rt *Runtime) TickHook() simulation.TickHook {
 		frames("advanceHealsOverTime", rt.advanceHealsOverTime)
 		step("effects.Expire", func() { rt.effects.Expire(nowMs) })
 		step("drainStoppedCharacterEffects", func() { out = append(out, rt.drainStoppedCharacterEffects()...) })
-		// 4A4390 per actor: expiry, damage over time, detonation, mask.
+		// The native abnormal update per actor: expiry, damage over time, detonation, mask.
 		frames("advanceMonsterAbnormals", rt.advanceMonsterAbnormals)
 		step("drainMonsterLegRecipients", func() { out = append(out, rt.drainMonsterLegRecipients()...) })
 		frames("advancePlayerAbnormals", rt.advancePlayerAbnormals)
@@ -152,7 +161,7 @@ func (rt *Runtime) TickHook() simulation.TickHook {
 		})
 		frames("advanceNaturalRecovery", rt.advanceNaturalRecovery)
 		frames("advancePets", rt.advancePets)
-		// 60C684 after the pets: a fired caravan reads the transport's
+		// The caravan tick after the pets: a fired caravan reads the transport's
 		// cargo and live position as this tick left them.
 		step("advanceCaravans", func() { rt.advanceCaravans(nowMs) })
 		step("advancePetSkillWindows", func() { rt.advancePetSkillWindows(nowMs) })
@@ -238,7 +247,7 @@ slow consumer can close and reenter gameplay cleanup safely.
 ================
 */
 func (rt *Runtime) publishPendingPickup(pending grounditem.Pending, now time.Time) []simulation.DivisionFrames {
-	unlockPublication := rt.LockPublication(pending.DivisionID)
+	unlockPublication := rt.LockPublication(pending.DivisionID, "pendingPickup")
 	defer unlockPublication()
 	var publishActor func([]wire.Frame)
 	var publishRecipients []func([]wire.Frame)
@@ -342,7 +351,7 @@ func (rt *Runtime) completePendingPickup(pending grounditem.Pending, now time.Ti
 		groundItem.OwnerJID != enterworld.ObjectIDForCharacter(snapshot) &&
 		(rt.CanPickupOwnedDrop == nil ||
 			!rt.CanPickupOwnedDrop(pending.DivisionID, snapshot.Name, groundItem.OwnerJID)) {
-		// 4A9050's owner gate (0x1812): the drop is another's for now.
+		// The native pickup owner gate (0x1812): the drop is another's for now.
 		return pickupRefusal(wire.ErrCodeLockedByOther), character
 	}
 
@@ -351,7 +360,7 @@ func (rt *Runtime) completePendingPickup(pending grounditem.Pending, now time.Ti
 	from := grounditem.Point{RegionID: live.RegionID, X: float32(live.X), Z: float32(live.Z)}
 	if !grounditem.SameWorld(from, groundItem.Position) {
 		// Another plane: the presser's world holds no such object, the
-		// same answer 4A9050 seeds (3) before its lookup resolves nothing.
+		// same answer the native pickup check seeds (3) before its lookup resolves nothing.
 		return pickupRefusal(wire.ErrCodeTargetGone), character
 	}
 	worldSnapshot := rt.Worlds.Snapshot(worldKey, func() simulation.WorldState {
@@ -569,7 +578,7 @@ func (rt *Runtime) forgetCharacterLocked(divisionID, characterName string) {
 			}
 			c.NativeTeleportMode = 0
 			c.BerserkUntilMs = 0
-			// CGObjPC_ResetRuntimeState (4DE9ED, 4DEA23) zeroes the death
+			// Natively the runtime state reset zeroes the death
 			// kind (+0x1CB4) and the last EXP loss (+0x1CE0) with the actor: a
 			// relogged corpse takes the town rule and no earlier loss's refund.
 			changed = c.DeathKind != 0 || c.LastExpLoss != 0 || c.SiegeDeathAtMs != 0 || changed

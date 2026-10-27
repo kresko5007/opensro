@@ -68,6 +68,11 @@ var unlistedSettings = map[string]string{
 	// rule players meet (their client is offered the same world either
 	// way).
 	"SRO_WEBTRANSPORT_PUBLIC": "operator transport serving switch, not a gameplay rule",
+	// Build-time inputs (#1745): the variant build's import tools read
+	// them when the server data is built; the GameWorld reads neither,
+	// so there is no running rule for the page to state.
+	"SRO_CAP110_ITEMS":  "degree-11 equipment build input, consumed when the server data is built",
+	"SRO_CAP110_SKILLS": "degree-11 skill build input, consumed when the server data is built",
 	// Staff telemetry (#1639): name-free kill and EXP rates for the
 	// staff console; players never meet it.
 	action.EnvKillStats: "staff kill and EXP rate telemetry, not a rule players meet",
@@ -100,6 +105,7 @@ func publicRules() publicstats.RulesResponse {
 	pharaohGear, _ := monster.PharaohGearRateFromEnv()
 	alexandriaOn, _ := alexandria.EnabledFromEnv()
 	shopGoods, _ := commerce.ExtraGoodsFromEnv()
+	janganAlchemyOn, _ := commerce.JanganAlchemyShopActiveFromEnv()
 	mallGoods, _ := commerce.MallExtraGoodsFromEnv()
 	rideFactor, rideOn, _ := enterworld.MallRideSpeedFromEnv()
 	flagWar, _ := action.FlagWarSettingsFromEnv()
@@ -127,6 +133,10 @@ func publicRules() publicstats.RulesResponse {
 				Native: "There is no Pharaoh Tomb.",
 				Now:    "The Pharaoh Tombs open from Kings Valley, each a shared area of level 100-110 monsters and bosses.",
 				Why:    "Endgame hunting for the optional cap-110 expansion."},
+			{Flag: monster.EnvCap110Qinshi, On: monster.QinshiEnabled(),
+				Native: "The Qin-Shi Emperor Tomb holds its v1.150 monsters.",
+				Now:    "The tomb's upper floors also hold the later database's level 81-110 monsters.",
+				Why:    "Levels 91-99 gain a hunting ground in the optional cap-110 expansion."},
 			{Flag: monster.EnvPharaohGearRate, On: pharaohGear > 1,
 				Native: "A Pharaoh Tomb elite or unique rolls its equipment at the original rate.",
 				Now:    fmt.Sprintf("A Pharaoh Tomb elite or unique rolls its equipment %d times as often.", pharaohGear),
@@ -251,10 +261,18 @@ func publicRules() publicstats.RulesResponse {
 				Native: "NPC shops sell the v1.150 stock.",
 				Now:    "Some NPC shops also sell extra goods for gold, such as elixirs and degree-9 stones.",
 				Why:    "Beta balance: gold buys enhancement."},
+			{Flag: commerce.EnvJanganAlchemyShop, On: janganAlchemyOn,
+				Native: "Jangan's grocer is Grocery Trader Jinjin, her alchemy goods share one tab, and the smith sells the elixirs.",
+				Now:    "Jangan's grocer is OpenSRO Alchemy - Jangan: elixirs and powders, attribute stones and alchemy stones on three tabs of their own, the elixirs moved from the smith.",
+				Why:    "A player's request: one alchemy shop in Jangan."},
 			{Flag: commerce.EnvMallExtraGoods, On: len(mallGoods) > 0,
 				Native: "The Item Mall lists the v1.150 goods.",
 				Now:    "It also lists avatar outfits the client ships but its mall never listed.",
 				Why:    "Beta balance: the outfits were already in the game data."},
+			{Flag: action.EnvNameChangeScroll, On: action.NameChangeScrollFromEnv(),
+				Native: "A character's name never changes.",
+				Now:    "The Item Mall sells a name-change scroll for 500 silk; the new name applies at the next login, renames cool down for 30 days, and the old name stays reserved for 90 days.",
+				Why:    "Owner decision (#1689): a paid, rate-limited way to fix a name."},
 			{Flag: simulation.EnvBetaPlayerMap, On: simulation.BetaPlayerMapEnabled(),
 				Native: "The world map shows only your own position.",
 				Now:    "The world map also shows other players.",

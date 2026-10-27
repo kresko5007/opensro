@@ -318,10 +318,15 @@ never had and the reason for the migration. Each tick it
 ==================
 */
 type Ticker struct {
-	Source   SessionSource
-	Push     Pusher
-	Roster   []NpcDef
-	Interval time.Duration
+	Source SessionSource
+	Push   Pusher
+	Roster []NpcDef
+	// WorldNpcs names the runtime objects standing in one world instance
+	// (a quest instance's exit gate, action/questgate.go). They join the
+	// static roster in that world's sessions' NPC scope pass only. Nil
+	// means none.
+	WorldNpcs func(world uint32) []NpcDef
+	Interval  time.Duration
 	// ShardCount is the fixed worker count. Values <= 0 use
 	// DefaultTickShards. Division IDs are assigned by a stable hash.
 	ShardCount int
@@ -902,14 +907,22 @@ func (t *Ticker) runSessionLegs(state *divisionTickState, session SessionSnapsho
 
 	// All authored NPCs (including ferry managers and city gates) must enter
 	// and leave with the viewer throughout travel, not only during login.
-	if frames := NpcScopeFrames(t.Roster, session, nowMs); len(frames) != 0 {
+	roster := t.Roster
+	if t.WorldNpcs != nil {
+		if extra := t.WorldNpcs(session.WorldInstance); len(extra) > 0 {
+			roster = append(append(make([]NpcDef, 0, len(t.Roster)+len(extra)), t.Roster...), extra...)
+		}
+	}
+	if frames := NpcScopeFrames(roster, session, nowMs); len(frames) != 0 {
 		t.Push.PushToSession(session.SessionID, frames)
 	}
 
 	// Leg 1: the per-session NPC entity tick.
+	// An empty batch delivers nothing (Bridge.deliver), so skip the push.
 	if session.NpcsEnabled && len(t.Roster) > 0 {
-		frames := NpcMoveFrames(t.Roster, session.NpcAnchor, tick)
-		t.Push.PushToSession(session.SessionID, frames)
+		if frames := NpcMoveFrames(t.Roster, session.NpcAnchor, tick); len(frames) != 0 {
+			t.Push.PushToSession(session.SessionID, frames)
+		}
 	}
 
 	// Legs 2+3: the other-player movement broadcast.
